@@ -67,8 +67,10 @@ export async function runPool(p: Project, o: PoolOptions): Promise<number> {
   let fatal: string | undefined; // a setup error: stop claiming, let running sessions finish
 
   log(`hx pool up — ${c.repo} · ${o.workers} worker(s) · model ${c.model}${c.effort ? ` (${c.effort} effort)` : ''} · max ${c.maxIterations} iterations/session`);
+  let finished = 0; // sessions ended so far: a plan read while one was ending is already stale
   while (!o.signal.aborted && !fatal) {
     let actions: Action[] = [];
+    const finishedBefore = finished;
     if (Date.now() >= limitedUntil) {
       try {
         const pl = await readPlan(p, new Set(inFlight.keys()));
@@ -98,11 +100,12 @@ export async function runPool(p: Project, o: PoolOptions): Promise<number> {
           fatal = r.last?.error ?? 'unknown setup error';
         } else if (r && !r.done && r.stopReason !== 'aborted') failures++;
       }).catch((e) => { failures++; log(`crashed: ${e.message}`, target(a)); })
-        .finally(() => inFlight.delete(key));
+        .finally(() => { inFlight.delete(key); finished++; });
       inFlight.set(key, task);
     }
 
     if (!inFlight.size) {
+      if (finished !== finishedBefore) continue; // the plan predates a session ending: read it again
       const limited = Date.now() < limitedUntil;
       // an engine step (PRD closed, child labelled) may have unlocked work: re-read before giving up
       const engineOnly = actions.length > 0 && actions.every((a) => a.kind === 'close-prd' || a.kind === 'label-ready');
