@@ -71,12 +71,13 @@ test('a gate command that hangs: killed with its whole tree at the timeout, the 
   const { runGate } = await import('../src/gate.ts');
   const pidFile = path.join(tmp, 'gate.pid').replace(/\\/g, '/');
   const hang = `node -e "require('fs').writeFileSync('${pidFile}', String(process.pid)); setInterval(() => {}, 1e3)"`;
+  // seconds for the shell and node to start under a loaded `npm test`, or the pid is never written (#15)
   const t0 = Date.now();
-  const r = await runGate(root, path.join(tmp, 'wt'), 'main', hang, 1500);
-  assert.ok(Date.now() - t0 < 15_000, 'gave up within seconds');
+  const r = await runGate(root, path.join(tmp, 'wt'), 'main', hang, 6000);
+  assert.ok(Date.now() - t0 < 30_000, 'gave up within seconds');
   assert.equal(r.ok, false);
   assert.equal(r.timedOut, true);
-  assert.match(r.output, /timed out after 0\.03 min/);
+  assert.match(r.output, /timed out after 0\.1 min/);
   const pid = Number(readFileSync(pidFile, 'utf8'));
   assert.ok(pid > 0 && !alive(pid), `the gate's test process ${pid} is not left running`);
 });

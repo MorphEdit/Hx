@@ -79,7 +79,9 @@ test('ship: a rebase conflict is aborted and reported with the files', E2E, () =
   assert.equal(git(env.wt, 'rev-parse', '--abbrev-ref', 'HEAD'), 'issue/7');
 });
 
-// a test command that never ends, run through a shell like `npm test`; its node process records its pid
+// a test command that never ends, run through a shell like `npm test`; its node process records its pid.
+// The timeouts below leave seconds for the shell and node to start under a loaded `npm test`: a shorter one
+// kills the run before the pid is written (#15).
 const hang = (pidFile: string) => `node -e "require('fs').writeFileSync('${pidFile.replace(/\\/g, '/')}', String(process.pid)); setInterval(() => {}, 1e3)"`;
 const shipWith = (env: ReturnType<typeof setup>, extra: string[], extraEnv: Record<string, string> = {}) =>
   spawnSync(process.execPath, [SHIP, ...extra], { cwd: env.wt, encoding: 'utf8', timeout: 60_000,
@@ -90,10 +92,10 @@ test('ship: a test run past --test-timeout is killed with its whole tree and fai
   writeFileSync(path.join(env.wt, 'c.txt'), 'mine\n');
   const pidFile = path.join(env.tmp, 'test.pid');
   const t0 = Date.now();
-  const r = shipWith(env, ['--repo', 'me/app', '--base', 'main', '--issue', '7', '--title', 'feat: thing', '--test', hang(pidFile), '--test-timeout', '0.03']);
+  const r = shipWith(env, ['--repo', 'me/app', '--base', 'main', '--issue', '7', '--title', 'feat: thing', '--test', hang(pidFile), '--test-timeout', '0.1']);
   assert.equal(r.status, 4, r.stderr);
-  assert.ok(Date.now() - t0 < 15_000, 'ship gave up within seconds');
-  assert.match(r.stderr, /ship: tests timed out after 0\.03 min/);
+  assert.ok(Date.now() - t0 < 30_000, 'ship gave up within seconds');
+  assert.match(r.stderr, /ship: tests timed out after 0\.1 min/);
   const pid = Number(readFileSync(pidFile, 'utf8'));
   assert.ok(pid > 0 && !alive(pid), `the test process ${pid} is not left running`);
   assert.doesNotMatch(remoteHeads(env), /issue\/7/, 'nothing pushed');
@@ -104,27 +106,27 @@ test('ship: --test-timeout is remembered by --no-merge and reused by --resume; H
   const env = setup();
   writeFileSync(path.join(env.wt, 'c.txt'), 'mine\n');
   const r = shipWith(env, ['--repo', 'me/app', '--base', 'main', '--issue', '7', '--title', 'feat: thing', '--test', 'node -e "process.exit(0)"',
-    '--test-timeout', '0.04', '--no-merge']);
+    '--test-timeout', '0.1', '--no-merge']);
   assert.equal(r.status, 0, r.stderr);
   const stateFile = path.join(env.wt, '.git', 'hx-ship.json');
   const saved = JSON.parse(readFileSync(stateFile, 'utf8'));
-  assert.equal(saved.testTimeout, 0.04);
+  assert.equal(saved.testTimeout, 0.1);
 
   // the base's tests hang by the time hx resumes
   const pidFile = path.join(env.tmp, 'resume.pid');
   writeFileSync(stateFile, JSON.stringify({ ...saved, test: hang(pidFile) }));
   const again = shipWith(env, ['--resume']);
   assert.equal(again.status, 4, again.stderr);
-  assert.match(again.stderr, /tests timed out after 0\.04 min/);
+  assert.match(again.stderr, /tests timed out after 0\.1 min/);
   assert.ok(!alive(Number(readFileSync(pidFile, 'utf8'))));
 
   const pidFile2 = path.join(env.tmp, 'env.pid');
   writeFileSync(stateFile, JSON.stringify({ ...saved, test: hang(pidFile2) }));
   const t0 = Date.now();
-  const viaEnv = shipWith(env, ['--resume', '--test-timeout', '30'], { HX_SHIP_TEST_TIMEOUT_MS: '1500' });
+  const viaEnv = shipWith(env, ['--resume', '--test-timeout', '30'], { HX_SHIP_TEST_TIMEOUT_MS: '7200' });
   assert.equal(viaEnv.status, 4, viaEnv.stderr);
-  assert.ok(Date.now() - t0 < 15_000);
-  assert.match(viaEnv.stderr, /tests timed out after 0\.03 min/);
+  assert.ok(Date.now() - t0 < 30_000);
+  assert.match(viaEnv.stderr, /tests timed out after 0\.12 min/);
   assert.ok(!alive(Number(readFileSync(pidFile2, 'utf8'))));
 });
 
