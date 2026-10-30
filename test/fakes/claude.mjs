@@ -6,9 +6,9 @@
 //              names (FAKE_GRILL_NOWRITE=1: writes nothing, =blank: whitespace only) and exits
 // FAKE_CLAUDE_MODE=limit / crash for the error paths.
 import { spawnSync } from 'node:child_process';
-import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { locked } from './lock.mjs';
+import { loadJson, locked, saveJson } from './lock.mjs';
 
 const a = process.argv.slice(2);
 const sid = a[a.indexOf(a.includes('--resume') ? '--resume' : '--session-id') + 1];
@@ -17,8 +17,8 @@ const out = (o) => process.stdout.write(JSON.stringify({ ...o, session_id: sid }
 const usage = { input_tokens: 10, cache_creation_input_tokens: 1000, cache_read_input_tokens: 5000, output_tokens: 200 };
 const boardFile = process.env.HX_FAKE_STATE;
 const GIT_ID = { GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' };
-const loadBoard = () => JSON.parse(readFileSync(boardFile, 'utf8'));
-const saveBoard = (b) => { writeFileSync(boardFile + '.tmp', JSON.stringify(b, null, 2)); renameSync(boardFile + '.tmp', boardFile); };
+const loadBoard = () => loadJson(boardFile);
+const saveBoard = (b) => saveJson(boardFile, b);
 const file = (b, title, body, labels) => {
   const number = Math.max(0, ...b.issues.map((i) => i.number)) + 1;
   b.issues.push({ number, title, body, state: 'OPEN', labels });
