@@ -1,0 +1,209 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 506" width="960" height="506" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif">
+<style>
+  :root { --bg:#ffffff; --panel:#f6f8fa; --border:#d0d7de; --fg:#1f2328; --muted:#656d76; --track:#eaeef2;
+          --impl:#2f81f7; --decompose:#8250df; --review:#bf8700; --checkpoint:#cf222e; --chat:#57606a; --good:#1a7f37; --bad:#cf222e;
+          --implbg:#ddf4ff; --goodbg:#dafbe1; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#0d1117; --panel:#161b22; --border:#30363d; --fg:#e6edf3; --muted:#8b949e; --track:#21262d;
+            --impl:#4493f8; --decompose:#a371f7; --review:#d29922; --checkpoint:#f85149; --chat:#8b949e; --good:#3fb950; --bad:#f85149;
+            --implbg:#0c2d6b; --goodbg:#0f3d1e; }
+  }
+  .bg { fill: var(--bg); } .panel { fill: var(--panel); stroke: var(--border); }
+  .fg { fill: var(--fg); } .muted { fill: var(--muted); } .track { fill: var(--track); }
+  .grid { stroke: var(--border); stroke-dasharray: 2 3; } .end { stroke: var(--fg); stroke-dasharray: 3 3; opacity: .6; }
+  .good { fill: var(--good); } .bad { fill: var(--bad); }
+  .impl { fill: var(--impl); } .decompose { fill: var(--decompose); } .review { fill: var(--review); }
+  .checkpoint { fill: var(--checkpoint); } .chat { fill: var(--chat); }
+  .label { fill: #ffffff; font-weight: 600; }
+  .head { stroke: var(--fg); stroke-width: 1.5; }
+  .grow { transform-box: fill-box; transform-origin: 0 50%; }
+  .edge { fill: none; stroke: var(--border); stroke-width: 1.5; }
+  .n-blocked { fill: var(--panel); stroke: var(--muted); stroke-dasharray: 4 3; }
+  .n-ready { fill: var(--panel); stroke: var(--muted); }
+  .n-working { fill: var(--implbg); stroke: var(--impl); stroke-width: 2; }
+  .n-closed { fill: var(--goodbg); stroke: var(--good); }
+  .t-working { fill: var(--impl); } .t-closed { fill: var(--good); }
+  @media (prefers-reduced-motion: reduce) { * { animation: none !important; } }
+@keyframes k0 { 0.000% { opacity: 1 } 3.470% { opacity: 1 } 3.471% { opacity: 0 } 100.000% { opacity: 0 } }
+@keyframes k1 { 0.000% { opacity: 0 } 3.470% { opacity: 0 } 3.471% { opacity: 1 } 20.375% { opacity: 1 } 20.376% { opacity: 0 } 100.000% { opacity: 0 } }
+@keyframes k2 { 0.000% { opacity: 0 } 20.375% { opacity: 0 } 20.376% { opacity: 1 } 100.000% { opacity: 1 } }
+@keyframes k3 { 0.000% { opacity: 1 } 20.375% { opacity: 1 } 20.376% { opacity: 0 } 100.000% { opacity: 0 } }
+@keyframes k4 { 0.000% { opacity: 0 } 20.375% { opacity: 0 } 20.376% { opacity: 1 } 23.955% { opacity: 1 } 23.956% { opacity: 0 } 100.000% { opacity: 0 } }
+@keyframes k5 { 0.000% { opacity: 0 } 23.955% { opacity: 0 } 23.956% { opacity: 1 } 38.954% { opacity: 1 } 38.955% { opacity: 0 } 100.000% { opacity: 0 } }
+@keyframes k6 { 0.000% { opacity: 0 } 38.954% { opacity: 0 } 38.955% { opacity: 1 } 100.000% { opacity: 1 } }
+@keyframes k7 { 0.000% { opacity: 1 } 2.210% { opacity: 1 } 2.211% { opacity: 0 } 100.000% { opacity: 0 } }
+@keyframes k8 { 0.000% { opacity: 0 } 2.210% { opacity: 0 } 2.211% { opacity: 1 } 21.676% { opacity: 1 } 21.677% { opacity: 0 } 100.000% { opacity: 0 } }
+@keyframes k9 { 0.000% { opacity: 0 } 21.676% { opacity: 0 } 21.677% { opacity: 1 } 100.000% { opacity: 1 } }
+@keyframes k10 { 0.000% { opacity: 1 } 20.375% { opacity: 1 } 20.376% { opacity: 0 } 100.000% { opacity: 0 } }
+@keyframes k11 { 0.000% { opacity: 0 } 20.375% { opacity: 0 } 20.376% { opacity: 1 } 25.178% { opacity: 1 } 25.179% { opacity: 0 } 100.000% { opacity: 0 } }
+@keyframes k12 { 0.000% { opacity: 0 } 25.178% { opacity: 0 } 25.179% { opacity: 1 } 47.630% { opacity: 1 } 47.631% { opacity: 0 } 100.000% { opacity: 0 } }
+@keyframes k13 { 0.000% { opacity: 0 } 47.630% { opacity: 0 } 47.631% { opacity: 1 } 100.000% { opacity: 1 } }
+@keyframes k14 { 0.000% { opacity: 1 } 47.630% { opacity: 1 } 47.631% { opacity: 0 } 100.000% { opacity: 0 } }
+@keyframes k15 { 0.000% { opacity: 0 } 47.630% { opacity: 0 } 47.631% { opacity: 1 } 51.310% { opacity: 1 } 51.311% { opacity: 0 } 100.000% { opacity: 0 } }
+@keyframes k16 { 0.000% { opacity: 0 } 51.310% { opacity: 0 } 51.311% { opacity: 1 } 76.143% { opacity: 1 } 76.144% { opacity: 0 } 100.000% { opacity: 0 } }
+@keyframes k17 { 0.000% { opacity: 0 } 76.143% { opacity: 0 } 76.144% { opacity: 1 } 100.000% { opacity: 1 } }
+@keyframes k18 { 0.000% { opacity: 1 } 4.737% { opacity: 1 } 4.738% { opacity: 0 } 100.000% { opacity: 0 } }
+@keyframes k19 { 0.000% { opacity: 0 } 4.737% { opacity: 0 } 4.738% { opacity: 1 } 23.389% { opacity: 1 } 23.390% { opacity: 0 } 100.000% { opacity: 0 } }
+@keyframes k20 { 0.000% { opacity: 0 } 23.389% { opacity: 0 } 23.390% { opacity: 1 } 100.000% { opacity: 1 } }
+@keyframes k21 { 0.000% { opacity: 1 } 2.210% { opacity: 1 } 2.211% { opacity: 0 } 100.000% { opacity: 0 } }
+@keyframes k22 { 0.000% { opacity: 0 } 2.210% { opacity: 0 } 2.211% { opacity: 1 } 21.676% { opacity: 1 } 21.677% { opacity: 0 } 100.000% { opacity: 0 } }
+@keyframes k23 { 0.000% { opacity: 0 } 21.676% { opacity: 0 } 21.677% { opacity: 1 } 23.955% { opacity: 1 } 23.956% { opacity: 0 } 100.000% { opacity: 0 } }
+@keyframes k24 { 0.000% { opacity: 0 } 23.955% { opacity: 0 } 23.956% { opacity: 1 } 38.954% { opacity: 1 } 38.955% { opacity: 0 } 100.000% { opacity: 0 } }
+@keyframes k25 { 0.000% { opacity: 0 } 38.954% { opacity: 0 } 38.955% { opacity: 1 } 51.310% { opacity: 1 } 51.311% { opacity: 0 } 100.000% { opacity: 0 } }
+@keyframes k26 { 0.000% { opacity: 0 } 51.310% { opacity: 0 } 51.311% { opacity: 1 } 76.143% { opacity: 1 } 76.144% { opacity: 0 } 100.000% { opacity: 0 } }
+@keyframes k27 { 0.000% { opacity: 0 } 76.143% { opacity: 0 } 76.144% { opacity: 1 } 100.000% { opacity: 1 } }
+@keyframes k28 { 0.000% { opacity: 1 } 3.470% { opacity: 1 } 3.471% { opacity: 0 } 100.000% { opacity: 0 } }
+@keyframes k29 { 0.000% { opacity: 0 } 3.470% { opacity: 0 } 3.471% { opacity: 1 } 20.375% { opacity: 1 } 20.376% { opacity: 0 } 100.000% { opacity: 0 } }
+@keyframes k30 { 0.000% { opacity: 0 } 20.375% { opacity: 0 } 20.376% { opacity: 1 } 25.178% { opacity: 1 } 25.179% { opacity: 0 } 100.000% { opacity: 0 } }
+@keyframes k31 { 0.000% { opacity: 0 } 25.178% { opacity: 0 } 25.179% { opacity: 1 } 47.630% { opacity: 1 } 47.631% { opacity: 0 } 100.000% { opacity: 0 } }
+@keyframes k32 { 0.000% { opacity: 0 } 47.630% { opacity: 0 } 47.631% { opacity: 1 } 100.000% { opacity: 1 } }
+@keyframes k33 { 0.000% { opacity: 1 } 4.737% { opacity: 1 } 4.738% { opacity: 0 } 100.000% { opacity: 0 } }
+@keyframes k34 { 0.000% { opacity: 0 } 4.737% { opacity: 0 } 4.738% { opacity: 1 } 23.389% { opacity: 1 } 23.390% { opacity: 0 } 100.000% { opacity: 0 } }
+@keyframes k35 { 0.000% { opacity: 0 } 23.389% { opacity: 0 } 23.390% { opacity: 1 } 100.000% { opacity: 1 } }
+@keyframes k36 { 0.000% { opacity: 1 } 1.822% { opacity: 1 } 1.823% { opacity: 0 } 100.000% { opacity: 0 } }
+@keyframes k37 { 0.000% { opacity: 0 } 1.822% { opacity: 0 } 1.823% { opacity: 1 } 3.643% { opacity: 1 } 3.644% { opacity: 0 } 100.000% { opacity: 0 } }
+@keyframes k38 { 0.000% { opacity: 0 } 3.643% { opacity: 0 } 3.644% { opacity: 1 } 5.465% { opacity: 1 } 5.466% { opacity: 0 } 100.000% { opacity: 0 } }
+@keyframes k39 { 0.000% { opacity: 0 } 5.465% { opacity: 0 } 5.466% { opacity: 1 } 7.287% { opacity: 1 } 7.288% { opacity: 0 } 100.000% { opacity: 0 } }
+@keyframes k40 { 0.000% { opacity: 0 } 7.287% { opacity: 0 } 7.288% { opacity: 1 } 9.108% { opacity: 1 } 9.109% { opacity: 0 } 100.000% { opacity: 0 } }
+@keyframes k41 { 0.000% { opacity: 0 } 9.108% { opacity: 0 } 9.109% { opacity: 1 } 10.930% { opacity: 1 } 10.931% { opacity: 0 } 100.000% { opacity: 0 } }
+@keyframes k42 { 0.000% { opacity: 0 } 10.930% { opacity: 0 } 10.931% { opacity: 1 } 12.752% { opacity: 1 } 12.753% { opacity: 0 } 100.000% { opacity: 0 } }
+@keyframes k43 { 0.000% { opacity: 0 } 12.752% { opacity: 0 } 12.753% { opacity: 1 } 14.573% { opacity: 1 } 14.574% { opacity: 0 } 100.000% { opacity: 0 } }
+@keyframes k44 { 0.000% { opacity: 0 } 14.573% { opacity: 0 } 14.574% { opacity: 1 } 16.395% { opacity: 1 } 16.396% { opacity: 0 } 100.000% { opacity: 0 } }
+@keyframes k45 { 0.000% { opacity: 0 } 16.395% { opacity: 0 } 16.396% { opacity: 1 } 18.217% { opacity: 1 } 18.218% { opacity: 0 } 100.000% { opacity: 0 } }
+@keyframes k46 { 0.000% { opacity: 0 } 18.217% { opacity: 0 } 18.218% { opacity: 1 } 20.038% { opacity: 1 } 20.039% { opacity: 0 } 100.000% { opacity: 0 } }
+@keyframes k47 { 0.000% { opacity: 0 } 20.038% { opacity: 0 } 20.039% { opacity: 1 } 21.860% { opacity: 1 } 21.861% { opacity: 0 } 100.000% { opacity: 0 } }
+@keyframes k48 { 0.000% { opacity: 0 } 21.860% { opacity: 0 } 21.861% { opacity: 1 } 23.682% { opacity: 1 } 23.683% { opacity: 0 } 100.000% { opacity: 0 } }
+@keyframes k49 { 0.000% { opacity: 0 } 23.682% { opacity: 0 } 23.683% { opacity: 1 } 25.503% { opacity: 1 } 25.504% { opacity: 0 } 100.000% { opacity: 0 } }
+@keyframes k50 { 0.000% { opacity: 0 } 25.503% { opacity: 0 } 25.504% { opacity: 1 } 27.325% { opacity: 1 } 27.326% { opacity: 0 } 100.000% { opacity: 0 } }
+@keyframes k51 { 0.000% { opacity: 0 } 27.325% { opacity: 0 } 27.326% { opacity: 1 } 29.147% { opacity: 1 } 29.148% { opacity: 0 } 100.000% { opacity: 0 } }
+@keyframes k52 { 0.000% { opacity: 0 } 29.147% { opacity: 0 } 29.148% { opacity: 1 } 30.968% { opacity: 1 } 30.969% { opacity: 0 } 100.000% { opacity: 0 } }
+@keyframes k53 { 0.000% { opacity: 0 } 30.968% { opacity: 0 } 30.969% { opacity: 1 } 32.790% { opacity: 1 } 32.791% { opacity: 0 } 100.000% { opacity: 0 } }
+@keyframes k54 { 0.000% { opacity: 0 } 32.790% { opacity: 0 } 32.791% { opacity: 1 } 34.612% { opacity: 1 } 34.613% { opacity: 0 } 100.000% { opacity: 0 } }
+@keyframes k55 { 0.000% { opacity: 0 } 34.612% { opacity: 0 } 34.613% { opacity: 1 } 36.433% { opacity: 1 } 36.434% { opacity: 0 } 100.000% { opacity: 0 } }
+@keyframes k56 { 0.000% { opacity: 0 } 36.433% { opacity: 0 } 36.434% { opacity: 1 } 38.255% { opacity: 1 } 38.256% { opacity: 0 } 100.000% { opacity: 0 } }
+@keyframes k57 { 0.000% { opacity: 0 } 38.255% { opacity: 0 } 38.256% { opacity: 1 } 40.077% { opacity: 1 } 40.078% { opacity: 0 } 100.000% { opacity: 0 } }
+@keyframes k58 { 0.000% { opacity: 0 } 40.077% { opacity: 0 } 40.078% { opacity: 1 } 41.898% { opacity: 1 } 41.899% { opacity: 0 } 100.000% { opacity: 0 } }
+@keyframes k59 { 0.000% { opacity: 0 } 41.898% { opacity: 0 } 41.899% { opacity: 1 } 43.720% { opacity: 1 } 43.721% { opacity: 0 } 100.000% { opacity: 0 } }
+@keyframes k60 { 0.000% { opacity: 0 } 43.720% { opacity: 0 } 43.721% { opacity: 1 } 45.542% { opacity: 1 } 45.543% { opacity: 0 } 100.000% { opacity: 0 } }
+@keyframes k61 { 0.000% { opacity: 0 } 45.542% { opacity: 0 } 45.543% { opacity: 1 } 47.363% { opacity: 1 } 47.364% { opacity: 0 } 100.000% { opacity: 0 } }
+@keyframes k62 { 0.000% { opacity: 0 } 47.363% { opacity: 0 } 47.364% { opacity: 1 } 49.185% { opacity: 1 } 49.186% { opacity: 0 } 100.000% { opacity: 0 } }
+@keyframes k63 { 0.000% { opacity: 0 } 49.185% { opacity: 0 } 49.186% { opacity: 1 } 51.007% { opacity: 1 } 51.008% { opacity: 0 } 100.000% { opacity: 0 } }
+@keyframes k64 { 0.000% { opacity: 0 } 51.007% { opacity: 0 } 51.008% { opacity: 1 } 52.829% { opacity: 1 } 52.830% { opacity: 0 } 100.000% { opacity: 0 } }
+@keyframes k65 { 0.000% { opacity: 0 } 52.829% { opacity: 0 } 52.830% { opacity: 1 } 54.650% { opacity: 1 } 54.651% { opacity: 0 } 100.000% { opacity: 0 } }
+@keyframes k66 { 0.000% { opacity: 0 } 54.650% { opacity: 0 } 54.651% { opacity: 1 } 56.472% { opacity: 1 } 56.473% { opacity: 0 } 100.000% { opacity: 0 } }
+@keyframes k67 { 0.000% { opacity: 0 } 56.472% { opacity: 0 } 56.473% { opacity: 1 } 58.294% { opacity: 1 } 58.295% { opacity: 0 } 100.000% { opacity: 0 } }
+@keyframes k68 { 0.000% { opacity: 0 } 58.294% { opacity: 0 } 58.295% { opacity: 1 } 60.115% { opacity: 1 } 60.116% { opacity: 0 } 100.000% { opacity: 0 } }
+@keyframes k69 { 0.000% { opacity: 0 } 60.115% { opacity: 0 } 60.116% { opacity: 1 } 61.937% { opacity: 1 } 61.938% { opacity: 0 } 100.000% { opacity: 0 } }
+@keyframes k70 { 0.000% { opacity: 0 } 61.937% { opacity: 0 } 61.938% { opacity: 1 } 63.759% { opacity: 1 } 63.760% { opacity: 0 } 100.000% { opacity: 0 } }
+@keyframes k71 { 0.000% { opacity: 0 } 63.759% { opacity: 0 } 63.760% { opacity: 1 } 65.580% { opacity: 1 } 65.581% { opacity: 0 } 100.000% { opacity: 0 } }
+@keyframes k72 { 0.000% { opacity: 0 } 65.580% { opacity: 0 } 65.581% { opacity: 1 } 67.402% { opacity: 1 } 67.403% { opacity: 0 } 100.000% { opacity: 0 } }
+@keyframes k73 { 0.000% { opacity: 0 } 67.402% { opacity: 0 } 67.403% { opacity: 1 } 69.224% { opacity: 1 } 69.225% { opacity: 0 } 100.000% { opacity: 0 } }
+@keyframes k74 { 0.000% { opacity: 0 } 69.224% { opacity: 0 } 69.225% { opacity: 1 } 71.045% { opacity: 1 } 71.046% { opacity: 0 } 100.000% { opacity: 0 } }
+@keyframes k75 { 0.000% { opacity: 0 } 71.045% { opacity: 0 } 71.046% { opacity: 1 } 72.867% { opacity: 1 } 72.868% { opacity: 0 } 100.000% { opacity: 0 } }
+@keyframes k76 { 0.000% { opacity: 0 } 72.867% { opacity: 0 } 72.868% { opacity: 1 } 74.689% { opacity: 1 } 74.690% { opacity: 0 } 100.000% { opacity: 0 } }
+@keyframes k77 { 0.000% { opacity: 0 } 74.689% { opacity: 0 } 74.690% { opacity: 1 } 76.510% { opacity: 1 } 76.511% { opacity: 0 } 100.000% { opacity: 0 } }
+@keyframes k78 { 0.000% { opacity: 0 } 76.510% { opacity: 0 } 76.511% { opacity: 1 } 77.778% { opacity: 1 } 77.779% { opacity: 0 } 100.000% { opacity: 0 } }
+@keyframes k79 { 0.000% { opacity: 0 } 77.778% { opacity: 0 } 77.779% { opacity: 1 } 100.000% { opacity: 1 } }
+</style>
+<rect class="bg" width="960" height="506" rx="10"/>
+
+<text class="fg" x="20" y="34" font-size="20" font-weight="700">Hx: one board, three workers</text>
+<text class="muted" x="20" y="54" font-size="12">the benchmark's Hx · 3 workers run, replayed from its log · an issue starts the moment its Blocked by closes</text>
+<text class="muted" x="20" y="90" font-size="12">GitHub issues — who blocks whom (label = state)</text>
+<text class="fg" style="animation: k36 18s linear infinite;opacity:0" x="940" y="34" font-size="15" font-weight="600" text-anchor="end">t = 0:00</text>
+<text class="fg" style="animation: k37 18s linear infinite;opacity:0" x="940" y="34" font-size="15" font-weight="600" text-anchor="end">t = 0:05</text>
+<text class="fg" style="animation: k38 18s linear infinite;opacity:0" x="940" y="34" font-size="15" font-weight="600" text-anchor="end">t = 0:10</text>
+<text class="fg" style="animation: k39 18s linear infinite;opacity:0" x="940" y="34" font-size="15" font-weight="600" text-anchor="end">t = 0:15</text>
+<text class="fg" style="animation: k40 18s linear infinite;opacity:0" x="940" y="34" font-size="15" font-weight="600" text-anchor="end">t = 0:20</text>
+<text class="fg" style="animation: k41 18s linear infinite;opacity:0" x="940" y="34" font-size="15" font-weight="600" text-anchor="end">t = 0:25</text>
+<text class="fg" style="animation: k42 18s linear infinite;opacity:0" x="940" y="34" font-size="15" font-weight="600" text-anchor="end">t = 0:30</text>
+<text class="fg" style="animation: k43 18s linear infinite;opacity:0" x="940" y="34" font-size="15" font-weight="600" text-anchor="end">t = 0:35</text>
+<text class="fg" style="animation: k44 18s linear infinite;opacity:0" x="940" y="34" font-size="15" font-weight="600" text-anchor="end">t = 0:40</text>
+<text class="fg" style="animation: k45 18s linear infinite;opacity:0" x="940" y="34" font-size="15" font-weight="600" text-anchor="end">t = 0:45</text>
+<text class="fg" style="animation: k46 18s linear infinite;opacity:0" x="940" y="34" font-size="15" font-weight="600" text-anchor="end">t = 0:50</text>
+<text class="fg" style="animation: k47 18s linear infinite;opacity:0" x="940" y="34" font-size="15" font-weight="600" text-anchor="end">t = 0:55</text>
+<text class="fg" style="animation: k48 18s linear infinite;opacity:0" x="940" y="34" font-size="15" font-weight="600" text-anchor="end">t = 1:00</text>
+<text class="fg" style="animation: k49 18s linear infinite;opacity:0" x="940" y="34" font-size="15" font-weight="600" text-anchor="end">t = 1:05</text>
+<text class="fg" style="animation: k50 18s linear infinite;opacity:0" x="940" y="34" font-size="15" font-weight="600" text-anchor="end">t = 1:10</text>
+<text class="fg" style="animation: k51 18s linear infinite;opacity:0" x="940" y="34" font-size="15" font-weight="600" text-anchor="end">t = 1:15</text>
+<text class="fg" style="animation: k52 18s linear infinite;opacity:0" x="940" y="34" font-size="15" font-weight="600" text-anchor="end">t = 1:20</text>
+<text class="fg" style="animation: k53 18s linear infinite;opacity:0" x="940" y="34" font-size="15" font-weight="600" text-anchor="end">t = 1:25</text>
+<text class="fg" style="animation: k54 18s linear infinite;opacity:0" x="940" y="34" font-size="15" font-weight="600" text-anchor="end">t = 1:30</text>
+<text class="fg" style="animation: k55 18s linear infinite;opacity:0" x="940" y="34" font-size="15" font-weight="600" text-anchor="end">t = 1:35</text>
+<text class="fg" style="animation: k56 18s linear infinite;opacity:0" x="940" y="34" font-size="15" font-weight="600" text-anchor="end">t = 1:40</text>
+<text class="fg" style="animation: k57 18s linear infinite;opacity:0" x="940" y="34" font-size="15" font-weight="600" text-anchor="end">t = 1:45</text>
+<text class="fg" style="animation: k58 18s linear infinite;opacity:0" x="940" y="34" font-size="15" font-weight="600" text-anchor="end">t = 1:50</text>
+<text class="fg" style="animation: k59 18s linear infinite;opacity:0" x="940" y="34" font-size="15" font-weight="600" text-anchor="end">t = 1:55</text>
+<text class="fg" style="animation: k60 18s linear infinite;opacity:0" x="940" y="34" font-size="15" font-weight="600" text-anchor="end">t = 2:00</text>
+<text class="fg" style="animation: k61 18s linear infinite;opacity:0" x="940" y="34" font-size="15" font-weight="600" text-anchor="end">t = 2:05</text>
+<text class="fg" style="animation: k62 18s linear infinite;opacity:0" x="940" y="34" font-size="15" font-weight="600" text-anchor="end">t = 2:10</text>
+<text class="fg" style="animation: k63 18s linear infinite;opacity:0" x="940" y="34" font-size="15" font-weight="600" text-anchor="end">t = 2:15</text>
+<text class="fg" style="animation: k64 18s linear infinite;opacity:0" x="940" y="34" font-size="15" font-weight="600" text-anchor="end">t = 2:20</text>
+<text class="fg" style="animation: k65 18s linear infinite;opacity:0" x="940" y="34" font-size="15" font-weight="600" text-anchor="end">t = 2:25</text>
+<text class="fg" style="animation: k66 18s linear infinite;opacity:0" x="940" y="34" font-size="15" font-weight="600" text-anchor="end">t = 2:30</text>
+<text class="fg" style="animation: k67 18s linear infinite;opacity:0" x="940" y="34" font-size="15" font-weight="600" text-anchor="end">t = 2:35</text>
+<text class="fg" style="animation: k68 18s linear infinite;opacity:0" x="940" y="34" font-size="15" font-weight="600" text-anchor="end">t = 2:40</text>
+<text class="fg" style="animation: k69 18s linear infinite;opacity:0" x="940" y="34" font-size="15" font-weight="600" text-anchor="end">t = 2:45</text>
+<text class="fg" style="animation: k70 18s linear infinite;opacity:0" x="940" y="34" font-size="15" font-weight="600" text-anchor="end">t = 2:50</text>
+<text class="fg" style="animation: k71 18s linear infinite;opacity:0" x="940" y="34" font-size="15" font-weight="600" text-anchor="end">t = 2:55</text>
+<text class="fg" style="animation: k72 18s linear infinite;opacity:0" x="940" y="34" font-size="15" font-weight="600" text-anchor="end">t = 3:00</text>
+<text class="fg" style="animation: k73 18s linear infinite;opacity:0" x="940" y="34" font-size="15" font-weight="600" text-anchor="end">t = 3:05</text>
+<text class="fg" style="animation: k74 18s linear infinite;opacity:0" x="940" y="34" font-size="15" font-weight="600" text-anchor="end">t = 3:10</text>
+<text class="fg" style="animation: k75 18s linear infinite;opacity:0" x="940" y="34" font-size="15" font-weight="600" text-anchor="end">t = 3:15</text>
+<text class="fg" style="animation: k76 18s linear infinite;opacity:0" x="940" y="34" font-size="15" font-weight="600" text-anchor="end">t = 3:20</text>
+<text class="fg" style="animation: k77 18s linear infinite;opacity:0" x="940" y="34" font-size="15" font-weight="600" text-anchor="end">t = 3:25</text>
+<text class="fg" style="animation: k78 18s linear infinite;opacity:0" x="940" y="34" font-size="15" font-weight="600" text-anchor="end">t = 3:30</text>
+<text class="good" style="animation: k79 18s linear infinite" x="940" y="34" font-size="15" font-weight="600" text-anchor="end">t = 3:33 · 6/6 closed, hidden tests 6/6</text>
+<path class="edge" d="M236,130 C288,130 288,130 334,130"/><path d="M332,126 L340,130 L332,134" class="edge"/>
+<path class="edge" d="M236,130 C288,130 288,204 334,204"/><path d="M332,200 L340,204 L332,208" class="edge"/>
+<path class="edge" d="M536,130 C588,130 588,130 634,130"/><path d="M632,126 L640,130 L632,134" class="edge"/>
+<path class="edge" d="M236,204 C438,204 438,130 634,130"/><path d="M632,126 L640,130 L632,134" class="edge"/>
+<path class="edge" d="M536,204 C588,204 588,130 634,130"/><path d="M632,126 L640,130 L632,134" class="edge"/>
+<g style="animation: k0 18s linear infinite;opacity:0"><rect class="n-ready" x="40" y="104" width="196" height="52" rx="8"/><text class="muted" x="52" y="144" font-size="11">ready</text></g>
+<g style="animation: k1 18s linear infinite;opacity:0"><rect class="n-working" x="40" y="104" width="196" height="52" rx="8"/><text class="t-working" x="52" y="144" font-size="11">agent-working · W2</text></g>
+<g style="animation: k2 18s linear infinite;opacity:1"><rect class="n-closed" x="40" y="104" width="196" height="52" rx="8"/><text class="t-closed" x="52" y="144" font-size="11">closed ✓</text></g>
+<text class="fg" x="52" y="125" font-size="13" font-weight="600">#1 tokenize()</text>
+<g style="animation: k3 18s linear infinite;opacity:0"><rect class="n-blocked" x="340" y="104" width="196" height="52" rx="8"/><text class="muted" x="352" y="144" font-size="11">blocked</text></g>
+<g style="animation: k4 18s linear infinite;opacity:0"><rect class="n-ready" x="340" y="104" width="196" height="52" rx="8"/><text class="muted" x="352" y="144" font-size="11">ready</text></g>
+<g style="animation: k5 18s linear infinite;opacity:0"><rect class="n-working" x="340" y="104" width="196" height="52" rx="8"/><text class="t-working" x="352" y="144" font-size="11">agent-working · W1</text></g>
+<g style="animation: k6 18s linear infinite;opacity:1"><rect class="n-closed" x="340" y="104" width="196" height="52" rx="8"/><text class="t-closed" x="352" y="144" font-size="11">closed ✓</text></g>
+<text class="fg" x="352" y="125" font-size="13" font-weight="600">#2 wordFreq()</text>
+<g style="animation: k7 18s linear infinite;opacity:0"><rect class="n-ready" x="40" y="178" width="196" height="52" rx="8"/><text class="muted" x="52" y="218" font-size="11">ready</text></g>
+<g style="animation: k8 18s linear infinite;opacity:0"><rect class="n-working" x="40" y="178" width="196" height="52" rx="8"/><text class="t-working" x="52" y="218" font-size="11">agent-working · W1</text></g>
+<g style="animation: k9 18s linear infinite;opacity:1"><rect class="n-closed" x="40" y="178" width="196" height="52" rx="8"/><text class="t-closed" x="52" y="218" font-size="11">closed ✓</text></g>
+<text class="fg" x="52" y="199" font-size="13" font-weight="600">#3 slugify()</text>
+<g style="animation: k10 18s linear infinite;opacity:0"><rect class="n-blocked" x="340" y="178" width="196" height="52" rx="8"/><text class="muted" x="352" y="218" font-size="11">blocked</text></g>
+<g style="animation: k11 18s linear infinite;opacity:0"><rect class="n-ready" x="340" y="178" width="196" height="52" rx="8"/><text class="muted" x="352" y="218" font-size="11">ready</text></g>
+<g style="animation: k12 18s linear infinite;opacity:0"><rect class="n-working" x="340" y="178" width="196" height="52" rx="8"/><text class="t-working" x="352" y="218" font-size="11">agent-working · W2</text></g>
+<g style="animation: k13 18s linear infinite;opacity:1"><rect class="n-closed" x="340" y="178" width="196" height="52" rx="8"/><text class="t-closed" x="352" y="218" font-size="11">closed ✓</text></g>
+<text class="fg" x="352" y="199" font-size="13" font-weight="600">#4 readingTime()</text>
+<g style="animation: k14 18s linear infinite;opacity:0"><rect class="n-blocked" x="640" y="104" width="196" height="52" rx="8"/><text class="muted" x="652" y="144" font-size="11">blocked</text></g>
+<g style="animation: k15 18s linear infinite;opacity:0"><rect class="n-ready" x="640" y="104" width="196" height="52" rx="8"/><text class="muted" x="652" y="144" font-size="11">ready</text></g>
+<g style="animation: k16 18s linear infinite;opacity:0"><rect class="n-working" x="640" y="104" width="196" height="52" rx="8"/><text class="t-working" x="652" y="144" font-size="11">agent-working · W1</text></g>
+<g style="animation: k17 18s linear infinite;opacity:1"><rect class="n-closed" x="640" y="104" width="196" height="52" rx="8"/><text class="t-closed" x="652" y="144" font-size="11">closed ✓</text></g>
+<text class="fg" x="652" y="125" font-size="13" font-weight="600">#5 textstat CLI</text>
+<g style="animation: k18 18s linear infinite;opacity:0"><rect class="n-ready" x="40" y="252" width="196" height="52" rx="8"/><text class="muted" x="52" y="292" font-size="11">ready</text></g>
+<g style="animation: k19 18s linear infinite;opacity:0"><rect class="n-working" x="40" y="252" width="196" height="52" rx="8"/><text class="t-working" x="52" y="292" font-size="11">agent-working · W3</text></g>
+<g style="animation: k20 18s linear infinite;opacity:1"><rect class="n-closed" x="40" y="252" width="196" height="52" rx="8"/><text class="t-closed" x="52" y="292" font-size="11">closed ✓</text></g>
+<text class="fg" x="52" y="273" font-size="13" font-weight="600">#6 truncate()</text>
+<rect class="panel" x="20" y="350" width="920" height="132" rx="8"/>
+<text class="muted" x="36" y="372" font-size="12">3 parallel workers</text>
+<text class="fg" x="36" y="396" font-size="13" font-weight="600">worker 1</text>
+<text class="muted" style="animation: k21 18s linear infinite;opacity:0" x="140" y="396" font-size="13">idle — nothing unblocked</text>
+<text class="t-working" style="animation: k22 18s linear infinite;opacity:0" x="140" y="396" font-size="13">#3 slugify() — fresh session: read issue → code + tests → ship</text>
+<text class="muted" style="animation: k23 18s linear infinite;opacity:0" x="140" y="396" font-size="13">idle — nothing unblocked</text>
+<text class="t-working" style="animation: k24 18s linear infinite;opacity:0" x="140" y="396" font-size="13">#2 wordFreq() — fresh session: read issue → code + tests → ship</text>
+<text class="muted" style="animation: k25 18s linear infinite;opacity:0" x="140" y="396" font-size="13">idle — nothing unblocked</text>
+<text class="t-working" style="animation: k26 18s linear infinite;opacity:0" x="140" y="396" font-size="13">#5 textstat CLI — fresh session: read issue → code + tests → ship</text>
+<text class="muted" style="animation: k27 18s linear infinite" x="140" y="396" font-size="13">done</text>
+<text class="fg" x="36" y="430" font-size="13" font-weight="600">worker 2</text>
+<text class="muted" style="animation: k28 18s linear infinite;opacity:0" x="140" y="430" font-size="13">idle — nothing unblocked</text>
+<text class="t-working" style="animation: k29 18s linear infinite;opacity:0" x="140" y="430" font-size="13">#1 tokenize() — fresh session: read issue → code + tests → ship</text>
+<text class="muted" style="animation: k30 18s linear infinite;opacity:0" x="140" y="430" font-size="13">idle — nothing unblocked</text>
+<text class="t-working" style="animation: k31 18s linear infinite;opacity:0" x="140" y="430" font-size="13">#4 readingTime() — fresh session: read issue → code + tests → ship</text>
+<text class="muted" style="animation: k32 18s linear infinite" x="140" y="430" font-size="13">done</text>
+<text class="fg" x="36" y="464" font-size="13" font-weight="600">worker 3</text>
+<text class="muted" style="animation: k33 18s linear infinite;opacity:0" x="140" y="464" font-size="13">idle — nothing unblocked</text>
+<text class="t-working" style="animation: k34 18s linear infinite;opacity:0" x="140" y="464" font-size="13">#6 truncate() — fresh session: read issue → code + tests → ship</text>
+<text class="muted" style="animation: k35 18s linear infinite" x="140" y="464" font-size="13">done</text>
+</svg>

@@ -1,7 +1,7 @@
 import { appendFileSync, mkdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { Project } from './config.ts';
+import { workerArgs, type Project } from './config.ts';
 import * as gh from './github.ts';
 import type { Issue } from './github.ts';
 import { externalRefs, issueKey, parseParent, plan, prdKey, refKey, render, type Action, type Plan } from './state.ts';
@@ -11,6 +11,8 @@ import { clearLive, otherRunner, readLive, readPause, writeLive, type LiveSessio
 import { fmt, recordUsage, totalTokens } from './usage.ts';
 
 const PROMPTS = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'prompts');
+// the one-call commit → rebase → test → push → PR → merge → close routine (forward slashes: the agent's shell may be bash)
+const SHIP = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'scripts', 'ship.mjs').replace(/\\/g, '/');
 export const REVIEW_MARKER = '<!-- hx-review -->';
 export const HANDOFF_MARKER = '<!-- hx-handoff -->';
 
@@ -247,7 +249,7 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
   const promise = `${a.kind === 'impl' ? 'ISSUE' : a.kind.toUpperCase()} ${n} DONE`;
   const L = c.labels;
   const vars: Record<string, string | number> = {
-    REPO: c.repo, BASE: c.defaultBranch, PROMISE: promise, TITLE: title,
+    REPO: c.repo, BASE: c.defaultBranch, PROMISE: promise, TITLE: title, SHIP,
     LABEL_READY: L.ready, LABEL_REVIEWED: L.reviewed, ROUND: round, ROUNDS: c.reviewRounds,
     ISSUE: n, PRD: n, BRANCH: `issue/${n}`,
     EXISTING: a.kind === 'decompose' ? childList(a.children) : '', CHILDREN: a.kind === 'review' ? childList(a.children) : '',
@@ -264,7 +266,7 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
 
   let sessionTokens = 0;
   const r = await runGoal({
-    bin: c.claudeBin, cwd: wt.dir, model: c.model, effort: c.effort, extraArgs: c.claudeArgs, timeoutMs: c.turnTimeoutMinutes * 60_000,
+    bin: c.claudeBin, cwd: wt.dir, model: c.model, effort: c.effort, extraArgs: workerArgs(c), timeoutMs: c.turnTimeoutMinutes * 60_000,
     prompt, continuePrompt: cont, promise, maxIterations: c.maxIterations, signal: ctx.signal,
     onEvent: (ev) => {
       appendFileSync(eventLog, JSON.stringify(ev) + '\n');
@@ -314,7 +316,7 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
 async function checkpoint(p: Project, n: number, sessionId: string, cwd: string, vars: Record<string, string | number>, eventLog: string): Promise<void> {
   const c = p.config;
   log('checkpointing: committing WIP and writing a handoff note…', n);
-  const t = await runTurn({ bin: c.claudeBin, cwd, model: c.model, effort: c.effort, extraArgs: c.claudeArgs,
+  const t = await runTurn({ bin: c.claudeBin, cwd, model: c.model, effort: c.effort, extraArgs: workerArgs(c),
     timeoutMs: c.checkpointMinutes * 60_000, sessionId, resume: true,
     prompt: render(readFileSync(path.join(PROMPTS, 'checkpoint.md'), 'utf8'), vars),
     onEvent: (ev) => appendFileSync(eventLog, JSON.stringify(ev) + '\n') });

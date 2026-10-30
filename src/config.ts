@@ -24,6 +24,10 @@ export interface Config {
   worktreeRoot: string; // keep it short: Windows MAX_PATH
   claudeBin: string;
   claudeArgs: string[]; // extra flags appended to every claude call
+  // Lean workers: no MCP servers, skills, slash commands or user-level settings/plugins, and only these
+  // built-in tools. A worker's base context drops from ~44K to ~8K tokens per call (measured).
+  leanWorkers: boolean;
+  workerTools: string[];
   labels: Labels;
 }
 
@@ -39,6 +43,8 @@ export const DEFAULTS: Omit<Config, 'repo' | 'defaultBranch' | 'worktreeRoot'> =
   pollSeconds: 60,
   claudeBin: 'claude',
   claudeArgs: [],
+  leanWorkers: true,
+  workerTools: ['Bash', 'Read', 'Edit', 'Write', 'Glob', 'Grep'],
   labels: { ready: 'ready-for-agent', working: 'agent-working', blocked: 'agent-blocked', prd: 'prd', reviewed: 'prd-reviewed' },
 };
 
@@ -74,6 +80,15 @@ export function loadProject(from: string = process.cwd()): Project {
 export function saveConfig(stateDir: string, config: Config): void {
   mkdirSync(stateDir, { recursive: true });
   writeFileSync(path.join(stateDir, 'config.json'), JSON.stringify(config, null, 2) + '\n');
+}
+
+/** Every flag a worker session gets on top of hx's own: the lean-worker set, then config.claudeArgs. */
+export function workerArgs(c: Config): string[] {
+  const lean = c.leanWorkers
+    ? ['--strict-mcp-config', '--disable-slash-commands', '--setting-sources', 'project,local',
+       ...(c.workerTools.length ? ['--tools', ...c.workerTools] : [])]
+    : [];
+  return [...lean, ...c.claudeArgs];
 }
 
 /** <drive>:\hx-wt\<repo-name> — short enough that node_modules inside a worktree stays under MAX_PATH. */

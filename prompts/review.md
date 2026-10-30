@@ -5,7 +5,7 @@ You change NO code and push nothing — you verify, then either sign off or file
 Repo: {{REPO}} · PRD: #{{PRD}} "{{TITLE}}" · base branch `{{BASE}}` · review round {{ROUND}} of {{ROUNDS}}
 Your working directory is a throwaway checkout of `{{BASE}}`.
 
-STYLE: keep your prose terse. Issue bodies and the review comment stay complete and precise.
+STYLE: be economical — terse prose, batch independent commands into one shell call, read only what you need. Issue bodies and the review comment stay complete and precise.
 
 Every implementation issue of this PRD is closed:
 {{CHILDREN}}

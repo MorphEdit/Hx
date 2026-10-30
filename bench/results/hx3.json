@@ -3,15 +3,15 @@
   "workers": 3,
   "model": "claude-opus-5-5",
   "effort": "medium",
-  "repo": "MorphEdit/hx-bench-hx3-202610300308",
-  "startedAt": "2026-10-30T03:08:50.033Z",
-  "wallMs": 217593,
+  "repo": "MorphEdit/hx-bench-hx3-202610300339",
+  "startedAt": "2026-10-30T03:39:44.562Z",
+  "wallMs": 213479,
   "tokens": {
-    "input": 96,
-    "cacheWrite": 147220,
-    "cacheRead": 2287144,
-    "output": 14847,
-    "total": 2449307
+    "input": 72,
+    "cacheWrite": 36824,
+    "cacheRead": 352697,
+    "output": 12295,
+    "total": 401888
   },
   "turns": 6,
   "sessions": 6,
@@ -27,48 +27,48 @@
     "6": true
   },
   "hiddenPassed": 6,
-  "ownTestsPassing": "50",
+  "ownTestsPassing": "47",
   "timeline": [
+    {
+      "issue": 3,
+      "role": "impl",
+      "start": 6065,
+      "end": 59495,
+      "lane": 0
+    },
     {
       "issue": 1,
       "role": "impl",
-      "start": 6674,
-      "end": 68252,
-      "lane": 0
+      "start": 9525,
+      "end": 55923,
+      "lane": 1
     },
     {
       "issue": 6,
       "role": "impl",
-      "start": 10157,
-      "end": 73788,
-      "lane": 1
-    },
-    {
-      "issue": 3,
-      "role": "impl",
-      "start": 13886,
-      "end": 61401,
+      "start": 13003,
+      "end": 64197,
       "lane": 2
     },
     {
       "issue": 2,
       "role": "impl",
-      "start": 71272,
-      "end": 132745,
+      "start": 65750,
+      "end": 106918,
       "lane": 0
     },
     {
       "issue": 4,
       "role": "impl",
-      "start": 77597,
-      "end": 134366,
+      "start": 69108,
+      "end": 130731,
       "lane": 1
     },
     {
       "issue": 5,
       "role": "impl",
-      "start": 142069,
-      "end": 213266,
+      "start": 140831,
+      "end": 208992,
       "lane": 0
     }
   ]

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { board, externalRefs, issueKey, parseBlockedBy, parseParent, plan, prdKey, PROMISE_RE, refKey, render } from '../src/state.ts';
-import { DEFAULTS } from '../src/config.ts';
+import { DEFAULTS, workerArgs } from '../src/config.ts';
 
 const R = 'me/app';
 
@@ -70,6 +70,14 @@ test('plan: PRD lifecycle and sequencing', () => {
   const pl2 = plan(all, R, L, states, new Set([issueKey(12)]));
   assert.equal(pl2.prds.find((p) => p.number === 3)?.status, 'building');
   assert.ok(!pl2.actions.some((a) => a.kind === 'review'));
+});
+
+test('workerArgs: lean flags by default, then claudeArgs; off when leanWorkers is false', () => {
+  const c = { ...DEFAULTS, repo: R, defaultBranch: 'main', worktreeRoot: 'x', claudeArgs: ['--foo'] };
+  assert.deepEqual(workerArgs(c), ['--strict-mcp-config', '--disable-slash-commands', '--setting-sources', 'project,local',
+    '--tools', 'Bash', 'Read', 'Edit', 'Write', 'Glob', 'Grep', '--foo']);
+  assert.deepEqual(workerArgs({ ...c, leanWorkers: false }), ['--foo']);
+  assert.ok(!workerArgs({ ...c, workerTools: [] }).includes('--tools'), 'no tool list = the CLI default tools');
 });
 
 test('promise matching and render', () => {

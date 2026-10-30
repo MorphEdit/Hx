@@ -18,6 +18,21 @@ if (a[0] === 'issue' && a[1] === 'list') {
   const state = opt('--state') ?? 'open';
   const out = s.issues.filter((i) => state === 'all' || i.state === state.toUpperCase()).map((i) => ({ ...i, labels: ghLabels(i) }));
   process.stdout.write(JSON.stringify(out));
+} else if (a[0] === 'pr' && a[1] === 'list') {
+  const pr = (s.prs ?? []).find((p) => p.head === opt('--head') && p.state === 'OPEN');
+  process.stdout.write(pr ? `${pr.number}\n` : '\n');
+} else if (a[0] === 'pr' && a[1] === 'create') {
+  const number = mutate((cur) => {
+    cur.prs ??= [];
+    const n = 100 + cur.prs.length;
+    cur.prs.push({ number: n, head: opt('--head'), base: opt('--base'), title: opt('--title'), state: 'OPEN' });
+    return n;
+  });
+  process.stdout.write(`https://github.com/me/app/pull/${number}\n`);
+} else if (a[0] === 'pr' && a[1] === 'merge') {
+  mutate((cur) => { (cur.prs ?? []).find((p) => p.number === Number(a[2])).state = 'MERGED'; });
+} else if (a[0] === 'issue' && a[1] === 'view' && opt('-q') === '.state') {
+  process.stdout.write(find(s, a[2]).state + '\n');
 } else if (a[0] === 'issue' && a[1] === 'view') {
   const i = find(s, a[2]);
   const fields = opt('--json').split(',');

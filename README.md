@@ -12,7 +12,9 @@ finishes (tests → PR → merge → issue closed). No tmux, no screen scraping:
 The same six issues (a small text-utilities library and its CLI, with a `Blocked by` graph:
 `#2` and `#4` need `#1`, `#5` needs `#2 #3 #4`, `#6` is independent), each on a fresh GitHub repo,
 three ways. Every run is graded by **hidden tests the agents never saw**. Real runs, not a mock-up:
-the figures are drawn from [`bench/results/`](bench/results).
+the figures are drawn (and animated) from the logs in [`bench/results/`](bench/results).
+
+![Hx: one board, three workers](docs/figures/hx-flow.svg)
 
 ![Timeline: the same 6 issues, three ways](docs/figures/bench-timeline.svg)
 
@@ -21,28 +23,32 @@ the figures are drawn from [`bench/results/`](bench/results).
 | | Single session | Hx · 1 worker | Hx · 3 workers |
 |---|---|---|---|
 | How | one Claude session does all 6 in a row | a fresh session per issue, one at a time | fresh sessions, in parallel where `Blocked by` allows |
-| Wall time | **3.2 min** | 7.3 min | 3.6 min |
-| Tokens | **0.67M** | 2.57M | 2.45M |
-| Claude API calls | 12 | 48 | 48 |
+| Wall time | **3.2 min** | 6.0 min | 3.6 min |
+| Tokens | 0.67M | **0.40M** | **0.40M** |
+| Tokens per issue | — | ~66K | ~66K |
 | Issues closed · PRs merged | 6 · 6 | 6 · 6 | 6 · 6 |
 | Hidden tests | 6/6 | 6/6 | 6/6 |
 
 `claude-opus-5-5`, medium effort, 2026-10-30. No human input after the start in any run.
 
-**What this shows, honestly:**
+**What this shows:**
 
-- **On six small issues, one session is cheaper and about as fast.** It wrote a `ship.sh` helper for the
-  branch → PR → merge routine and finished everything in 12 API calls. Every Hx session starts cold
-  and spends ~8 calls on one issue, and each call carries a ~45K-token base context (system prompt,
-  tools, and the plugins and MCP servers installed on the machine). That fixed cost per session is
-  what Hx's tokens are made of here — and what [phase 4](docs/design.md#roadmap) goes after.
-- **Parallelism works:** 3 workers finish in half the time of 1 worker for the same tokens, by
+- **Phase 4 cut Hx's tokens by 84%** (2.45M → 0.40M for the same six issues, same hidden-test score).
+  The first run showed where they went: every Hx session paid a ~44K-token base context on every call
+  — the system prompt plus 44 tools, 32 MCP servers and 78 skills installed on the machine, none of
+  which a worker needs. Lean workers now start at ~8K, and one `ship` script replaces the 5–6 calls the
+  commit → rebase → test → PR → merge routine used to take.
+- **Hx now uses fewer tokens than one long session** on the same work (0.40M vs 0.67M), and that gap
+  only grows with the project: a single session carries its whole history into every call (hundreds of
+  K tokens per message after a few hours), while an Hx session's cost per issue stays flat.
+- **Parallelism works:** 3 workers finish in 60% of the time of 1 worker for the same tokens, by
   running `#1 #3 #6` together, then `#2 #4`, then `#5`.
-- **Where Hx is meant to win is not measured here:** long projects. A single session carries its whole
-  history into every call, so its cost per call grows with the project (hundreds of K tokens per
-  message after a few hours), and it can be lost to a crash or a usage limit. Hx's cost per issue stays
-  flat, issues survive a stop (checkpoint + handoff), and PRDs are decomposed and reviewed on their own.
-  A larger benchmark is on the roadmap.
+- **The single session is still a bit faster here:** 3.2 vs 3.6 min. Six tiny issues favour one warm
+  session that never re-reads the repo. Not measured yet: long projects, where Hx also survives
+  crashes and usage limits (checkpoint + handoff) and decomposes and reviews PRDs on its own.
+
+Before phase 4 (same issues, same model): Hx · 1 worker 7.3 min / 2.57M tokens, Hx · 3 workers
+3.6 min / 2.45M tokens ([`bench/results/phase3/`](bench/results/phase3)).
 
 Reproduce (creates private repos on your GitHub account and spends real usage):
 
@@ -162,6 +168,8 @@ Remove `agent-blocked` from an issue to let Hx try it again.
 | `pollSeconds` | 60 | how often the board is re-read |
 | `worktreeRoot` | `<drive>:\hx-wt\<repo>` | keep it short: Windows path-length limits |
 | `claudeArgs` | `[]` | extra flags for every `claude` call |
+| `leanWorkers` | `true` | workers start without MCP servers, skills, slash commands or user-level settings and plugins (~8K instead of ~44K tokens of base context per call) |
+| `workerTools` | `Bash Read Edit Write Glob Grep` | the only built-in tools a lean worker gets; add e.g. `Agent` or `WebFetch` if your issues need them |
 | `labels` | `ready-for-agent`, `agent-working`, `agent-blocked`, `prd`, `prd-reviewed` | |
 
 ## ⚠️ Safety

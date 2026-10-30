@@ -64,30 +64,39 @@ role prompts, promise-based completion.
 | 1 | `hx run`: claim ready issues, worktree, Ralph loop, PR → merge → close, worker pool, token log | done |
 | 2 | PRD flow: decompose a PRD into issues, review (gap issues or sign-off), close the PRD, PRD sequencing | done |
 | 3 | Robustness: pause / pause --now with checkpoint + handoff, crash recovery, one runner per repo, proactive usage-window holds, live `hx status` | done |
-| 4 | Token optimisation | |
+| 4 | Token optimisation: lean workers, one-call `ship` script, shorter prompts — **−84% tokens** on the benchmark | done |
 
-## Token optimisation notes (phase 4)
+## Token optimisation (phase 4)
 
-Already in place: a fresh session per issue, a terse-prose instruction in the prompt.
+Measured before (see the [benchmark](../README.md#benchmark), `bench/results/phase3/`):
+- Six small issues: a single session used 0.67M tokens in 12 API calls; Hx used ~2.5M in 48 calls
+  (≈410K per issue, 8 calls each). Cache reads are ~95% of every run.
+- Every Hx call carried a ~44K base context. Measured with a one-line prompt:
 
-Measured (see the [benchmark](../README.md#benchmark), `bench/results/`):
-- Six small issues: a single session used **0.67M tokens in 12 API calls**; Hx used **~2.5M in 48 calls**
-  (≈400K per issue, 8 calls each). Cache reads are ~95% of every run.
-- Each Hx call carries a ~45–50K base context: system prompt + tools + the machine's plugins, skills
-  and MCP servers. 8 calls × ~50K ≈ the whole per-issue cost — the work itself is a small fraction.
+  | worker flags | base context | tools · MCP · skills |
+  |---|---|---|
+  | default | 44.4K | 44 · 32 · 78 |
+  | `--strict-mcp-config` | 41.8K | 30 · 0 · 78 |
+  | + `--disable-slash-commands` | 34.8K | 29 · 0 · 0 |
+  | + `--setting-sources project,local` | 34.3K | 29 · 0 · 0 |
+  | + `--tools Bash Read Edit Write Glob Grep` | **8.2K** | 6 · 0 · 0 |
+
+  (`--bare` would be smaller still, but it ignores the OAuth login: API keys only.)
 - The single session amortised the routine: it wrote a `ship.sh` for branch → PR → merge once and
-  reused it. Each Hx session rediscovers the repo and the routine from scratch.
-- A one-word reply in a worker already costs ~22K tokens; a `--resume` turn re-wrote the cache
-  (24.7K cache write, 0 cache read) instead of reading it.
+  reused it. Each Hx session re-did that routine by hand.
 
-Levers, biggest first:
-1. **Shrink the base context** of worker sessions: `--bare`, `--strict-mcp-config` with no servers,
-   no plugins or user skills in worker worktrees. Workers need git, gh, a shell and file tools only.
-2. **Fewer calls per issue**: ship the branch → test → PR → rebase → merge routine as one hx-provided
-   script the agent calls once, instead of 5–6 separate tool calls.
-3. **Shorter prompts**, re-sent with every session.
-4. Model per role: a smaller model for decompose and review where it holds up.
-5. A token budget per issue: over it, checkpoint + handoff and start a fresh session.
-6. Find out why `--resume` misses the cache.
+Done:
+1. **Lean workers** (`leanWorkers`, `workerTools`): the flags in the last row above.
+2. **`scripts/ship.mjs`**: commit → rebase → test → push → PR → squash-merge → delete branch → close,
+   one call, with distinct exit codes for a rebase conflict and for failing tests.
+3. **Shorter implementation prompt** that tells the agent to batch commands and read only what it needs.
 
-Each lever is checked by re-running the benchmark (`node bench/run.mjs hx3`).
+Result, same six issues and model: Hx · 3 workers **2.45M → 0.40M tokens**, 48 → 36 API calls,
+3.6 min both, hidden tests 6/6 both. Hx · 1 worker 2.57M → 0.40M, 7.3 → 6.0 min.
+
+Still open:
+- Model per role: a smaller model for decompose and review where it holds up.
+- A token budget per issue: over it, checkpoint + handoff and start a fresh session.
+- `--resume` turns re-write the cache (24.7K cache write, 0 cache read) instead of reading it.
+- A long-project benchmark (dozens of issues, a PRD), where a single session's growing context should
+  cost it far more than here.
