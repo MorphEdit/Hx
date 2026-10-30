@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { workerArgs, type Project } from './config.ts';
 import * as gh from './github.ts';
 import type { Issue } from './github.ts';
-import { externalRefs, fenceFindings, issueKey, parseParent, plan, prdKey, refKey, render, type Action, type Plan } from './state.ts';
+import { externalRefs, fenceFindings, issueKey, parseParent, plan, prdKey, refKey, render, trustedSet, type Action, type Plan } from './state.ts';
 import { addWorktree, auditWorktree, cleanStaleWorktrees, implWorktree, prdWorktree, removeWorktree } from './worktree.ts';
 import { rateLimitOf, runGoal, runTurn, type GoalResult, type RateLimit } from './agent.ts';
 import { clearLive, otherRunner, readLive, readPause, writeLive, type LiveSession, type LiveState } from './runstate.ts';
@@ -52,8 +52,14 @@ const sleep = (ms: number, signal?: AbortSignal) => new Promise<void>((r) => {
   signal?.addEventListener('abort', () => { clearTimeout(t); r(); }, { once: true });
 });
 
+/** The trusted set for this run: the gh login + config.trustedAuthors. Throws if gh cannot tell the login. */
+export async function lookupTrusted(c: Project['config']): Promise<Set<string>> {
+  return trustedSet(await gh.ghLogin(), c.trustedAuthors ?? []);
+}
+
 /** The board as the pool sees it: every issue, with every blocker's state resolved. */
-export async function readPlan(p: Project, busy: Set<string> = new Set()): Promise<Plan> {
+export async function readPlan(p: Project, trusted: Set<string>, busy: Set<string> = new Set()): Promise<Plan> {
+  if (!trusted.size) throw new Error('no trusted authors: refusing to read the board without the author filter');
   const { repo, labels } = p.config;
   const [issues, own] = await Promise.all([gh.listIssues(repo), gh.allStates(repo)]);
   const states = new Map<string, 'OPEN' | 'CLOSED'>();
@@ -62,25 +68,42 @@ export async function readPlan(p: Project, busy: Set<string> = new Set()): Promi
     const s = await gh.issueState(r.repo, r.number);
     if (s) states.set(refKey(r), s);
   }
-  return plan(issues, repo, labels, states, busy, p.config);
+  return plan(issues, repo, labels, states, busy, { ...p.config, trusted });
 }
 
 const target = (a: Action) => ('issue' in a ? a.issue : a.prd);
 const keyOf = (a: SessionAction) => (a.kind === 'impl' ? issueKey(a.issue) : prdKey(a.prd));
 
+const who = (author: string | undefined) => `@${author || 'ghost'}`;
+
+/** Why a row is untrusted, for hx status / --dry-run: `(by @x) ` or `(PRD #12 by @x) `. */
+function untrustedNote(r: { author?: string; untrustedPrd?: { number: number; author: string } }): string {
+  if (r.untrustedPrd) return `(PRD #${r.untrustedPrd.number} by ${who(r.untrustedPrd.author)}) `;
+  return r.author !== undefined ? `(by ${who(r.author)}) ` : '';
+}
+
+/** The run-log line for an untrusted ready issue or PRD. */
+export function skipLine(r: { number: number; author?: string; untrustedPrd?: { number: number; author: string } }): string {
+  const by = r.untrustedPrd ? `its PRD #${r.untrustedPrd.number} was opened by ${who(r.untrustedPrd.author)}` : `opened by ${who(r.author)}`;
+  return `#${r.number} skipped: ${by}, who is not trusted (add them to trustedAuthors to allow)`;
+}
+
 export function printPlan(pl: Plan, repo: string): void {
   const refs = (rs: { repo: string; number: number }[]) => rs.map((w) => (w.repo === repo ? '' : w.repo) + '#' + w.number).join(', ');
   for (const r of pl.prds)
-    console.log(`  PRD #${String(r.number).padEnd(4)} ${r.status.padEnd(13)} ${r.title.slice(0, 50)}  [${r.closed}/${r.open + r.closed} done]${r.waitingOn.length ? `  waits on ${refs(r.waitingOn)}` : ''}`);
+    console.log(`  PRD #${String(r.number).padEnd(4)} ${r.status.padEnd(13)} ${untrustedNote(r)}${r.title.slice(0, 50)}  [${r.closed}/${r.open + r.closed} done]${r.waitingOn.length ? `  waits on ${refs(r.waitingOn)}` : ''}`);
   if (pl.prds.length) console.log('');
   for (const r of pl.board)
-    console.log(`  #${String(r.number).padEnd(8)} ${r.status.padEnd(13)} ${r.title.slice(0, 60)}${r.waitingOn.length ? `  waits on ${refs(r.waitingOn)}` : ''}`);
+    console.log(`  #${String(r.number).padEnd(8)} ${r.status.padEnd(13)} ${untrustedNote(r)}${r.title.slice(0, 60)}${r.waitingOn.length ? `  waits on ${refs(r.waitingOn)}` : ''}`);
 }
 
 export async function runPool(p: Project, o: PoolOptions): Promise<number> {
   const c = p.config;
+  // who may put work on the board: looked up once per run; without it nothing is read or claimed
+  let trusted: Set<string>;
+  try { trusted = await lookupTrusted(c); } catch (e: any) { log(`STOPPED: ${e.message}`); return 2; }
   if (o.dryRun) {
-    const pl = await readPlan(p);
+    const pl = await readPlan(p, trusted);
     printPlan(pl, c.repo);
     console.log(pl.actions.length ? `\nnext: ${pl.actions.slice(0, o.workers + 5).map((a) => `${a.kind} #${target(a)}`).join(', ')}` : '\nnothing to do');
     return 0;
@@ -148,6 +171,7 @@ export async function runPool(p: Project, o: PoolOptions): Promise<number> {
 
   const inFlight = new Map<string, Promise<void>>();
   let idleLogged = false;
+  const skipped = new Set<number>(); // untrusted issues / PRDs already logged this run
   let failures = 0;
   let engineRetries = 0;
   let fatal: string | undefined; // a setup error: stop claiming, let running sessions finish
@@ -187,7 +211,9 @@ export async function runPool(p: Project, o: PoolOptions): Promise<number> {
       const held = Date.now() < (live.pausedUntil ?? 0);
       if (!held && !live.draining) {
         try {
-          const pl = await readPlan(p, new Set(inFlight.keys()));
+          const pl = await readPlan(p, trusted, new Set(inFlight.keys()));
+          for (const r of [...pl.prds, ...pl.board])
+            if (r.status === 'untrusted' && !skipped.has(r.number)) { skipped.add(r.number); log(skipLine(r)); }
           actions = pl.actions.filter((a) => !o.only || o.only.includes(target(a)));
           if (gateRed()) {
             // someone may have fixed the base by hand: re-test when it moved

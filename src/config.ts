@@ -40,6 +40,7 @@ export interface Config {
   // built-in tools. A worker's base context drops from ~44K to ~8K tokens per call (measured).
   leanWorkers: boolean;
   workerTools: string[];
+  trustedAuthors: string[]; // accounts besides the gh login whose issues and PRDs hx works on
   labels: Labels;
 }
 
@@ -65,6 +66,7 @@ export const DEFAULTS: Omit<Config, 'repo' | 'defaultBranch' | 'worktreeRoot'> =
   claudeArgs: [],
   leanWorkers: true,
   workerTools: ['Bash', 'Read', 'Edit', 'Write', 'Glob', 'Grep'],
+  trustedAuthors: [],
   labels: { ready: 'ready-for-agent', working: 'agent-working', blocked: 'agent-blocked', prd: 'prd', reviewed: 'prd-reviewed', hardened: 'prd-hardened', secured: 'security-reviewed', security: 'security', gateFix: 'hx-gate-fix' },
 };
 

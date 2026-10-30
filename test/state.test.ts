@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { board, externalRefs, issueKey, parseBlockedBy, parseParent, plan, prdKey, PROMISE_RE, refKey, render } from '../src/state.ts';
+import { board, externalRefs, issueKey, parseBlockedBy, parseParent, plan, prdKey, PROMISE_RE, refKey, render, trustedSet } from '../src/state.ts';
 import { DEFAULTS, workerArgs } from '../src/config.ts';
 
 const R = 'me/app';
@@ -172,4 +172,61 @@ test('plan: the security pass runs after review sign-off and before the PRD clos
   const mixed = [i(1, [L.prd, L.reviewed]), kid(10, 'CLOSED'), i(2, [L.prd]), i(3, [L.prd, L.hardened]), i(4, [L.ready])];
   const pm = plan(mixed, R, L, new Map(mixed.map((x) => [refKey({ repo: R, number: x.number }), x.state])));
   assert.deepEqual(pm.actions.map((a) => `${a.kind}:${'issue' in a ? a.issue : a.prd}`), ['security:1', 'gauntlet:2', 'decompose:3', 'impl:4']);
+});
+
+test('plan: only issues and PRDs opened by a trusted account are worked on', () => {
+  const L = DEFAULTS.labels;
+  const i = (number: number, labels: string[], author: string, body = '', state: 'OPEN' | 'CLOSED' = 'OPEN') =>
+    ({ number, title: `t${number}`, body, state, labels, author });
+  const kid = (n: number, prdN: number, author = 'me', state: 'OPEN' | 'CLOSED' = 'OPEN', labels = [L.ready]) =>
+    i(n, labels, author, `## Parent\n#${prdN}`, state);
+  const trusted = trustedSet('Me', ['Alice']);
+  assert.deepEqual([...trusted], ['me', 'alice']);
+  const run = (all: ReturnType<typeof i>[], busy = new Set<string>()) =>
+    plan(all, R, L, new Map(all.map((x) => [refKey({ repo: R, number: x.number }), x.state])), busy, { trusted });
+  const acts = (pl: ReturnType<typeof plan>) => pl.actions.map((a) => `${a.kind}:${'issue' in a ? a.issue : a.prd}`);
+
+  // ready issues: the login and trustedAuthors (any case) are claimable; anyone else and a deleted account are not
+  const ready = run([i(1, [L.ready], 'ME'), i(2, [L.ready], 'mallory'), i(3, [L.ready], 'alice'), i(4, [L.ready], '')]);
+  assert.deepEqual(acts(ready), ['impl:1', 'impl:3']);
+  assert.deepEqual(ready.board.map((r) => [r.number, r.status]), [[1, 'claimable'], [3, 'claimable'], [2, 'untrusted'], [4, 'untrusted']]);
+  assert.equal(ready.board.find((r) => r.number === 2)?.author, 'mallory');
+  assert.equal(ready.board.find((r) => r.number === 4)?.author, '');
+  const noAuthor = { number: 5, title: 't5', body: '', state: 'OPEN' as const, labels: [L.ready] } as any;
+  assert.equal(run([noAuthor]).board[0].status, 'untrusted', 'a missing author is untrusted');
+  // an untrusted issue even beats working / blocked: it is never a claim
+  assert.equal(run([i(6, [L.ready, L.working], 'mallory')]).board[0].status, 'untrusted');
+
+  // an untrusted PRD: no gauntlet, decompose, review, security, close or label-ready; its children are not claimed
+  for (const prd of [[L.prd], [L.prd, L.hardened], [L.prd, L.reviewed], [L.prd, L.reviewed, L.secured]]) {
+    for (const kids of [[], [kid(10, 1, 'me', 'CLOSED')], [kid(10, 1), kid(11, 1, 'me', 'OPEN', [])]]) {
+      const pl = run([i(1, prd, 'eve'), ...kids]);
+      assert.deepEqual(acts(pl), [], `${prd} ${kids.length}`);
+      assert.equal(pl.prds[0].status, 'untrusted');
+      assert.equal(pl.prds[0].author, 'eve');
+    }
+  }
+  const up = run([i(1, [L.prd], 'eve'), kid(10, 1)]);
+  assert.deepEqual(up.board[0], { number: 10, title: 't10', status: 'untrusted', waitingOn: [], untrustedPrd: { number: 1, author: 'eve' } });
+  // the same board with a trusted PRD works as before
+  assert.deepEqual(acts(run([i(1, [L.prd], 'Alice'), kid(10, 1)])), ['impl:10']);
+
+  // an untrusted issue naming a trusted PRD as its parent is not its child
+  const sneaky = (state: 'OPEN' | 'CLOSED', labels = [L.ready]) => kid(20, 1, 'mallory', state, labels);
+  const rev = run([i(1, [L.prd], 'me'), kid(10, 1, 'me', 'CLOSED'), sneaky('OPEN')]);
+  assert.equal(rev.prds[0].status, 'review', 'it does not hold the PRD in building');
+  const review = rev.actions.find((a) => a.kind === 'review') as any;
+  assert.deepEqual(review.children.map((k: any) => k.number), [10], 'absent from the review children');
+  assert.equal(rev.board.find((r) => r.number === 20)?.status, 'untrusted');
+  assert.equal(run([i(1, [L.prd], 'me'), kid(10, 1, 'me', 'CLOSED'), sneaky('OPEN', [])]).prds[0].status, 'review');
+  assert.ok(!acts(run([i(1, [L.prd], 'me'), kid(10, 1), sneaky('OPEN', [])])).includes('label-ready:20'), 'never labelled ready');
+  // a PRD whose only "child" is untrusted: still undecomposed, and the decompose prompt never sees it
+  const dec = run([i(1, [L.prd, L.hardened], 'me'), sneaky('OPEN')]);
+  assert.equal(dec.prds[0].status, 'decompose');
+  assert.deepEqual((dec.actions[0] as any).children, []);
+  const sec = run([i(1, [L.prd, L.reviewed], 'me'), kid(10, 1, 'me', 'CLOSED'), sneaky('CLOSED')]);
+  assert.deepEqual((sec.actions[0] as any).children.map((k: any) => k.number), [10], 'absent from the security children');
+
+  // no trusted set (pure unit use): no filter
+  assert.equal(plan([i(2, [L.ready], 'mallory')], R, L, new Map()).board[0].status, 'claimable');
 });
