@@ -37,11 +37,11 @@ test('design.md marks roadmap #3 (gauntlet) done', () => {
   assert.match(read('docs/design.md'), /\| 3 \| ~~\*\*Gauntlet[^|]*~~ done \|/);
 });
 
-test('CLAUDE.md lists every prompt and names #5 (rtdd) next', () => {
+test('CLAUDE.md lists every prompt and names #6 (bug lane) next', () => {
   const c = read('CLAUDE.md');
   const line = c.split('\n').find((l) => l.startsWith('- `prompts/`'))!;
   for (const f of readdirSync(path.join(root, 'prompts'))) assert.ok(line.includes(`\`${f.replace(/\.md$/, '')}\``), f);
-  assert.match(c.slice(c.indexOf('## Next up')), /Next is #5 \(rtdd\)/);
+  assert.match(c.slice(c.indexOf('## Next up')), /Next is #6 \(bug lane\)/);
 });
 
 test('hx help: the PRD-flow paragraph mentions the gauntlet and the security pass', () => {
@@ -62,4 +62,35 @@ test('dashboard: README section, design #8 done, CLAUDE.md file map', () => {
   const c = read('CLAUDE.md');
   const map = c.slice(c.indexOf('## Where things are'), c.indexOf('## Conventions'));
   for (const f of ['dashboard.ts', 'dashboard.html', 'outcomes.ts']) assert.ok(map.includes(`\`${f}\``), f);
+});
+
+test('skills: README section and config rows, design #5 done, CLAUDE.md next is #6, .rtdd/ setup committed', () => {
+  const r = read('README.md');
+  const start = r.indexOf('## Skills for workers');
+  assert.ok(start >= 0, 'README has a Skills for workers section');
+  const sec = r.slice(start, r.indexOf('\n## ', start + 1));
+  assert.match(r, new RegExp(`\| \`roleSkills\` \| \`${JSON.stringify(DEFAULTS.roleSkills).replace(/[[\]{}]/g, '\$&')}\` \|`));
+  assert.match(r, new RegExp(`\| \`skillMaxChars\` \| \`${DEFAULTS.skillMaxChars}\` \|`));
+  assert.match(r, new RegExp(`\| \`rtddBin\` \| \`"${DEFAULTS.rtddBin}"\` \|`));
+  const locs = ['`<repo>/.claude/skills/x/SKILL.md`', '`<home>/.claude/skills/x/SKILL.md`', '`<repo>/.agents/skills/x/SKILL.md`'];
+  const at = locs.map((l) => sec.indexOf(l));
+  assert.ok(at.every((i) => i >= 0), 'skill locations');
+  assert.ok(at[0] < at[1] && at[1] < at[2], 'locations in lookup order');
+  for (const w of ['`{ "impl": ["rtdd"], "audit": ["rtdd"] }`', '`{}`', 'front matter', 'HTML comments', 'prompts/skills/<name>.md',
+    'skillMaxChars', String(DEFAULTS.skillMaxChars), 'once per `hx run`', 'hx status', 'lean workers',
+    'npx github:VocanicZ/rtdd --version=v0.4.0', 'rtdd init', 'hx init --rtdd', 'graph.json', '`rtddBin --version`',
+    '`.rtdd/config.yaml` is on `origin/<base>`', '`rtdd.exe`', '`rtdd.cmd`', 'PATH', 'HX_RTDD_BIN', 'rtdd explain',
+    'Round 1', 'CI gate']) assert.ok(sec.includes(w), w);
+  assert.match(sec, /`ship\.mjs` runs it/); // a regex: the literal file name would mark this file as end-to-end (isolate.test.ts)
+  assert.ok(sec.includes('Add a skill to a role only when an eval shows it helps'), 'eval rule');
+  const d = read('docs/design.md');
+  assert.match(d, /\| 5 \| ~~\*\*rtdd\*\*~~ done \|[^\n]*#34/);
+  assert.match(d, /orchestrator is code and needs no skills; skills are given per role through config/);
+  const c = read('CLAUDE.md');
+  assert.match(c.slice(c.indexOf('## Next up')), /Next is #6 \(bug lane\)/);
+  assert.ok(c.slice(c.indexOf('## Where things are'), c.indexOf('## Conventions')).includes('prompts/skills/'), 'prompts/skills/ in the file map');
+  const files = spawnSync('git', ['ls-files', '.rtdd'], { cwd: root, encoding: 'utf8' }).stdout.split('\n').filter(Boolean);
+  for (const f of ['.rtdd/config.yaml', '.rtdd/.gitignore']) assert.ok(files.includes(f), `${f} tracked`);
+  assert.ok(!files.includes('.rtdd/graph.json'), 'graph.json not tracked');
+  assert.match(read('.rtdd/.gitignore'), /^graph\.json$/m);
 });

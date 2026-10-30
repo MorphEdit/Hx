@@ -269,6 +269,39 @@ run counts as failed (exit 4 / a red gate marked "timed out").
 
 Remove `agent-blocked` from an issue to let Hx try it again.
 
+## Skills for workers
+
+A skill is a `SKILL.md` that hx appends after a role's prompt, so a worker gets it without loading
+skills itself (lean workers still run with skills loading off). `roleSkills` says which role gets
+which skills; the default is `{ "impl": ["rtdd"], "audit": ["rtdd"] }`, and `{}` turns skills off.
+
+- A skill `x` is read from the first of `<repo>/.claude/skills/x/SKILL.md`, `<home>/.claude/skills/x/SKILL.md`,
+  `<repo>/.agents/skills/x/SKILL.md`. Its front matter and HTML comments are stripped; an optional
+  hx note `prompts/skills/<name>.md` is appended after it.
+- A skill longer than `skillMaxChars` (12000, measured after stripping) is skipped.
+- Skills are resolved once per `hx run`: the run logs which role got which skills, and `hx status` shows them.
+- The orchestrator itself is code and gets no skills.
+
+Add a skill to a role only when an eval shows it helps.
+
+### rtdd
+
+[rtdd](https://github.com/VocanicZ/rtdd) names the tests a change needs and the changed lines no test reaches.
+
+1. Install it: `npx github:VocanicZ/rtdd --version=v0.4.0`.
+2. Run `rtdd init` in the repo (or `hx init --rtdd`).
+3. Commit `.rtdd/` (`config.yaml`, `.gitignore`) — not `graph.json`, which `.rtdd/.gitignore` keeps out.
+
+hx uses rtdd only when `rtddBin --version` works and `.rtdd/config.yaml` is on `origin/<base>`. A path
+`rtddBin` must point at a file the OS resolves as `rtdd` (e.g. `rtdd`, `rtdd.exe`, `rtdd.cmd`), since only
+its directory is put on `PATH`. `HX_RTDD_BIN` overrides it.
+
+Limitations:
+- `untested` can be empty for a new function in a file the tests already import — use `rtdd explain <name>`.
+- Round 1 can be large when end-to-end tests import most modules.
+
+The full suite stays the final word: `ship.mjs` runs it before every PR, and the CI gate after every merge.
+
 ## Config (`.hx/config.json`)
 
 | key | default | |
