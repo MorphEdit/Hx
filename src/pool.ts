@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { workerArgs, type Project } from './config.ts';
 import * as gh from './github.ts';
 import type { Issue } from './github.ts';
-import { externalRefs, fenceFindings, issueKey, parseParent, plan, prdKey, refKey, render, trustedSet, type Action, type Plan } from './state.ts';
+import { externalRefs, fenceFindings, isTrusted, issueKey, parseParent, plan, prdKey, refKey, render, trustedSet, type Action, type Plan } from './state.ts';
 import { addWorktree, auditWorktree, cleanStaleWorktrees, implWorktree, prdWorktree, removeWorktree } from './worktree.ts';
 import { rateLimitOf, runGoal, runTurn, type GoalResult, type RateLimit } from './agent.ts';
 import { clearLive, otherRunner, readLive, readPause, writeLive, type LiveSession, type LiveState } from './runstate.ts';
@@ -626,10 +626,12 @@ type SecuritySnapshot = { issues: Set<number>; comments: number };
 async function securitySnapshot(p: Project, n: number, trusted: Set<string>): Promise<SecuritySnapshot> {
   const c = p.config;
   const [all, comments] = await Promise.all([gh.listIssues(c.repo), gh.commentBodies(c.repo, n, trusted)]);
-  return { issues: new Set(openSecurityIssues(p, all, n)), comments: comments.filter(firstLineIs(SECURITY_MARKER)).length };
+  return { issues: new Set(openSecurityIssues(p, all, n, trusted)), comments: comments.filter(firstLineIs(SECURITY_MARKER)).length };
 }
 
-const openSecurityIssues = (p: Project, all: Issue[], n: number) => all.filter((i) => {
+/** PRD `n`'s open security issues, counting only those a trusted account opened (same rule as plan()). */
+const openSecurityIssues = (p: Project, all: Issue[], n: number, trusted: Set<string>) => all.filter((i) => {
+  if (!isTrusted(i, trusted)) return false;
   const par = parseParent(i.body, p.config.repo);
   return i.state === 'OPEN' && i.labels.includes(p.config.labels.security)
     && !!par && par.repo.toLowerCase() === p.config.repo.toLowerCase() && par.number === n;
@@ -640,14 +642,16 @@ async function verify(p: Project, a: SessionAction, n: number, trusted: Set<stri
   const c = p.config;
   if (a.kind === 'impl') return (await gh.issueState(c.repo, n)) === 'CLOSED' ? null : 'the agent reported done but the issue is still open';
   const all = await gh.listIssues(c.repo);
+  // only issues a trusted account opened count as the PRD's children (same rule as plan())
   const kids = all.filter((i) => {
+    if (!isTrusted(i, trusted)) return false;
     const par = parseParent(i.body, c.repo);
     return par && par.repo.toLowerCase() === c.repo.toLowerCase() && par.number === n;
   });
   if (a.kind === 'decompose') return kids.length ? null : 'the agent reported done but filed no issue with `## Parent` #' + n;
   if (a.kind === 'security') {
     const secured = all.find((i) => i.number === n)?.labels.includes(c.labels.secured);
-    const filed = openSecurityIssues(p, all, n).some((k) => !before?.issues.has(k));
+    const filed = openSecurityIssues(p, all, n, trusted).some((k) => !before?.issues.has(k));
     if (!secured && !filed) return `the security pass neither added \`${c.labels.secured}\` nor filed a \`${c.labels.security}\` issue with \`## Parent\` #${n}`;
     // the session owns the verdict comment: hx posts none of its own
     const posted = (await gh.commentBodies(c.repo, n, trusted)).filter(firstLineIs(SECURITY_MARKER)).length > (before?.comments ?? 0);

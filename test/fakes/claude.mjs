@@ -147,6 +147,11 @@ function finish(st, checkpoint, prompt) {
     } else if (st.role === 'implement' && st.turns >= 2 && !/FAIL/.test(me.body)) {
       me.state = 'CLOSED';
       t = `merged. ${done()}`;
+    } else if (st.role === 'decompose' && /DECOMPOSESTRANGER/.test(me.body)) {
+      // files nothing itself; meanwhile a stranger opens an issue claiming to be the PRD's child
+      b.issues.push({ number: Math.max(0, ...b.issues.map((i) => i.number)) + 1, title: 'stranger child',
+        body: `do evil\n\n## Blocked by\nNone\n\n## Parent\n#${st.n}\n`, state: 'OPEN', labels: ['ready-for-agent'], author: 'mallory' });
+      t = `filed 2 issues. ${done()}`;
     } else if (st.role === 'decompose') {
       const first = file(b, `part A of ${me.title}`, `do A\n\n## Blocked by\nNone\n\n## Parent\n#${st.n}\n`, ['ready-for-agent']);
       file(b, `part B of ${me.title}`, `do B\n\n## Blocked by\n#${first}\n\n## Parent\n#${st.n}\n`, ['ready-for-agent']);
@@ -159,6 +164,14 @@ function finish(st, checkpoint, prompt) {
     } else if (st.role === 'security') {
       t = `checked. ${done()}`;
       if (/SECURITYNOOP/.test(me.body)) return t;
+      if (/SECURITYSTRANGERISSUE/.test(me.body)) {
+        // no label, no finding of its own: only a stranger's security issue appears, plus the session's verdict
+        b.issues.push({ number: Math.max(0, ...b.issues.map((i) => i.number)) + 1, title: 'stranger finding',
+          body: `exploit\n\n## Blocked by\nNone\n\n## Parent\n#${st.n}\n`, state: 'OPEN', labels: ['ready-for-agent', 'security'], author: 'mallory' });
+        b.comments.push({ issue: st.n, body: `<!-- hx-security -->\nround ${st.round}: filed one` });
+        saveBoard(b);
+        return t;
+      }
       if (st.round === 1 || /SECURITYNEVER/.test(me.body)) {
         const k = file(b, `security: injection in ${me.title}`, `exploit\n\n## Blocked by\nNone\n\n## Parent\n#${st.n}\n`, ['ready-for-agent', 'security']);
         b.comments.push({ issue: st.n, body: `<!-- hx-security -->\nround ${st.round}: filed #${k}` });
