@@ -6,7 +6,7 @@ import { workerArgs, type Project } from './config.ts';
 import * as gh from './github.ts';
 import type { Issue } from './github.ts';
 import { externalRefs, issueKey, parseParent, plan, prdKey, refKey, render, type Action, type Plan } from './state.ts';
-import { addWorktree, auditWorktree, implWorktree, prdWorktree, removeWorktree } from './worktree.ts';
+import { addWorktree, auditWorktree, cleanStaleWorktrees, implWorktree, prdWorktree, removeWorktree } from './worktree.ts';
 import { rateLimitOf, runGoal, runTurn, type GoalResult, type RateLimit } from './agent.ts';
 import { clearLive, otherRunner, readLive, readPause, writeLive, type LiveSession, type LiveState } from './runstate.ts';
 import { fmt, recordUsage, totalTokens } from './usage.ts';
@@ -92,6 +92,8 @@ export async function runPool(p: Project, o: PoolOptions): Promise<number> {
   const live: LiveState = { pid: process.pid, startedAt: new Date().toISOString(), repo: c.repo, workers: o.workers, sessions: [] };
   const save = () => { try { writeLive(p.stateDir, live); } catch {} };
   await recoverStaleClaims(p);
+  // a removal that failed last run (a file held open on Windows) left its directory behind; no session runs yet
+  for (const d of await cleanStaleWorktrees(p.root, c.worktreeRoot).catch(() => [])) log(`removed leftover directory ${d}`);
   save();
 
   let wake = () => {}; // set while the loop waits; called to wake it early
