@@ -66,6 +66,7 @@ role prompts, promise-based completion.
 | 3 | Robustness: pause / pause --now with checkpoint + handoff, crash recovery, one runner per repo, proactive usage-window holds, live `hx status` | done |
 | 4 | Token optimisation: lean workers, one-call `ship` script, shorter prompts — **−84% tokens** on the benchmark | done |
 | 5 | Auditor per issue (#1) + CI gate (#4): audit eval 6/6 planted defects caught; benchmark 6/6 with the auditor on | done |
+| 6 | Gauntlet (#3): a critic → reviser loop hardens a PRD before decompose; a security pass checks its merged work before it closes | done |
 
 ### Next: the rest of Harness's features, ordered by how much they improve the quality of what Hx ships
 
@@ -75,7 +76,7 @@ Agreed order (2026-10-30), highest quality gain first. Build them in this order.
 |---|---|---|---|
 | 1 | ~~**Auditor per issue**~~ done | a fresh session checks the implementer's work against the issue before merge; a failed audit goes back to the implementer | biggest quality gain; measure with the benchmark (hidden tests, tokens) |
 | 2 | ~~**Grill session**~~ done | `hx grill` interviews the user until the PRD is unambiguous, then files it | interactive `claude`, not headless |
-| 3 | **Gauntlet / security audit** | PRD review in rounds with a critic, plus a security pass; gaps become issues | builds on the auditor |
+| 3 | ~~**Gauntlet / security audit**~~ done | PRD review in rounds with a critic, plus a security pass; gaps become issues | builds on the auditor; `gauntlet`/`gauntletRounds`, `security`/`securityRounds` |
 | 4 | ~~**CI gate**~~ done | no new claims while the default branch is red; running sessions continue | Harness: `ci_gate_ok` |
 | 5 | **rtdd** | names the tests a change needs and the changed lines no test reaches | check `npx github:VocanicZ/rtdd` on Windows first |
 | 6 | **Bug lane** | `bug` issues: a triage session, then a fix session; priority over normal issues | reuses auditor + CI gate |
