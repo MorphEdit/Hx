@@ -83,6 +83,24 @@ Agreed order (2026-10-30), highest quality gain first. Build them in this order.
 | 9 | **Author filter** | only issues (and PRDs) opened by allowed authors (default: the `gh` login) are claimed | a safety item rather than a quality one: until it lands, only label issues `ready-for-agent` / `prd` yourself, and remember workers run with bypassPermissions |
 | 10 | **Multi-repo / multi-CLI** | one fleet over several repos; other agent CLIs | only when there is a real need |
 
+### When Hx may build itself (self-hosting)
+
+Harness builds itself: every issue in its repo is `[AFK]` and was done by its own fleet, and a failed
+release gate files a bug that its bug lane fixes. It could do that because its engine had already
+proven itself in another project, and because nothing merges unchecked.
+
+Hx is **not** used on its own repo until both of these exist **and are measured**:
+
+1. **Auditor per issue (#1)** — an independent session checks each PR against its issue before merge.
+   Measured by an audit eval: PRs with planted defects that pass their own tests, mixed with correct
+   PRs. The auditor must catch the defects without blocking the correct ones.
+2. **CI gate (#4, pulled forward)** — after each merge the default branch is tested; while it is red,
+   nothing new is claimed except the issue that fixes it. Shown by an end-to-end test.
+
+Then the benchmark is re-run with the auditor on (quality must stay 6/6; the token cost is reported).
+Only after that: write PRDs for the remaining features and let `hx run --watch` build them, with the
+human reviewing merged PRs. Self-healing (a red gate filing its own bug for the bug lane) comes with #6.
+
 Every phase ships with tests; anything that can change quality or tokens is re-measured with
 `node bench/run.mjs hx3` (and `hx1`/`chat` when comparing).
 

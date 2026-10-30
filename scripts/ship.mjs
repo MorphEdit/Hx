@@ -6,16 +6,33 @@
 //
 //   node ship.mjs --repo owner/name --base main --issue 12 --title "feat: add x" --test "npm test"
 //
+// With an auditor in the loop the routine is split in two:
+//   --no-merge  stops after the PR is open, prints `READY #<issue> PR #<pr>`, and remembers its
+//               arguments in the worktree's git dir (hx-ship.json)
+//   --resume    run later by hx itself once the audit passed: the remembered arguments, then
+//               rebase → test → push → merge → close (a base that moved meanwhile is re-tested)
+//
 // Exit codes, each with a one-line reason on stderr:
 //   0 shipped · 2 bad arguments · 3 rebase conflict (rebase aborted; resolve by hand, then re-run)
 //   4 tests failed on the rebased branch (output tail printed) · 5 a git/gh step failed
 import { spawnSync } from 'node:child_process';
 
+import { readFileSync, writeFileSync } from 'node:fs';
+import path from 'node:path';
+
 const args = process.argv.slice(2);
 const opt = (n) => { const i = args.indexOf(`--${n}`); return i < 0 ? undefined : args[i + 1]; };
-const repo = opt('repo'), base = opt('base') ?? 'main', issue = opt('issue'), title = opt('title'), testCmd = opt('test');
+const noMerge = args.includes('--no-merge');
+const gitDir = spawnSync('git', ['rev-parse', '--absolute-git-dir'], { encoding: 'utf8' }).stdout.trim();
+const stateFile = path.join(gitDir || '.', 'hx-ship.json');
+let saved = {};
+if (args.includes('--resume')) {
+  try { saved = JSON.parse(readFileSync(stateFile, 'utf8')); } catch { console.error(`ship: --resume: no ${stateFile}; run ship --no-merge first`); process.exit(2); }
+}
+const repo = opt('repo') ?? saved.repo, base = opt('base') ?? saved.base ?? 'main', issue = opt('issue') ?? saved.issue,
+  title = opt('title') ?? saved.title, testCmd = opt('test') ?? saved.test;
 if (!repo || !issue || !title || !testCmd) {
-  console.error('usage: ship.mjs --repo owner/name --base main --issue N --title "type: summary" --test "<test command>"');
+  console.error('usage: ship.mjs --repo owner/name --base main --issue N --title "type: summary" --test "<test command>" [--no-merge | --resume]');
   process.exit(2);
 }
 
@@ -68,6 +85,11 @@ let pr = ok('gh', ['pr', 'list', '-R', repo, '--head', branch, '--state', 'open'
 if (!pr) {
   const url = ok('gh', ['pr', 'create', '-R', repo, '--base', base, '--head', branch, '--title', title, '--body', `Closes #${issue}`], 'gh pr create');
   pr = /\/pull\/(\d+)/.exec(url)?.[1] ?? '';
+}
+if (noMerge) {
+  writeFileSync(stateFile, JSON.stringify({ repo, base, issue, title, test: testCmd, pr }, null, 2));
+  console.log(`READY #${issue} PR #${pr}`);
+  process.exit(0);
 }
 const m = run('gh', ['pr', 'merge', pr, '-R', repo, '--squash']);
 if (m.status !== 0) {
