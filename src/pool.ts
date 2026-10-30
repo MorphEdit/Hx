@@ -2,7 +2,7 @@ import { execFile } from 'node:child_process';
 import { appendFileSync, mkdirSync, readFileSync, renameSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { workerArgs, type Project } from './config.ts';
+import { effectiveRtddBin, workerArgs, type Project } from './config.ts';
 import * as gh from './github.ts';
 import type { Issue } from './github.ts';
 import { externalRefs, fenceFindings, isTrusted, issueKey, parseParent, plan, prdKey, refKey, render, trustedSet, type Action, type Plan } from './state.ts';
@@ -12,6 +12,7 @@ import { clearLive, otherRunner, readLive, readPause, writeLive, type LiveSessio
 import { fmt, recordUsage, totalTokens } from './usage.ts';
 import { gateIssueBody, gateIssueTitle, readGate, remoteSha, runGate, writeGate, type GateResult } from './gate.ts';
 import { run as runCmd } from './exec.ts';
+import { appendSkills, resolveSkills, rtddCheck, rtddEnv, SKILL_CHECKS, skillNames, skillsLogLine, type Skill } from './skills.ts';
 
 const PROMPTS = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'prompts');
 // the one-call commit → rebase → test → push → PR → merge → close routine (forward slashes: the agent's shell may be bash)
@@ -73,6 +74,7 @@ interface WorkContext {
   rateLimit: (rl: RateLimit) => void;
   merged?: (testCommand?: string) => void; // a PR reached the default branch: the CI gate re-tests it
   trusted: Set<string>; // this run's trusted set: only their comments count in hx's own logic; passed to every session as HX_TRUSTED
+  skills?: Record<string, Skill[]>; // role → the skills appended to its prompt, resolved once per run
 }
 
 const sleep = (ms: number, signal?: AbortSignal) => new Promise<void>((r) => {
@@ -141,10 +143,16 @@ export async function runPool(p: Project, o: PoolOptions): Promise<number> {
   const pausedMode = readPause(p.stateDir);
   if (pausedMode) { log(`paused (${pausedMode}) — run  hx resume  first.`); return 3; }
 
+  // skills: resolved once per run (rtdd only when its binary works and .rtdd/ is on origin)
+  const skills = await resolveSkills(p.root, c.roleSkills ?? {}, c.skillMaxChars,
+    { checks: { ...SKILL_CHECKS, rtdd: rtddCheck(p.root, c.defaultBranch, effectiveRtddBin(c)) } });
+  for (const l of skills.lines) log(l);
+  log(skillsLogLine(skills.byRole));
+
   // Ctrl+C (o.signal) and `hx pause --now` both stop running sessions with a checkpoint
   const stop = new AbortController();
   o.signal.addEventListener('abort', () => stop.abort(), { once: true });
-  const live: LiveState = { pid: process.pid, startedAt: new Date().toISOString(), repo: c.repo, workers: o.workers, sessions: [] };
+  const live: LiveState = { pid: process.pid, startedAt: new Date().toISOString(), repo: c.repo, workers: o.workers, sessions: [], skills: skillNames(skills.byRole) };
   const save = () => { try { writeLive(p.stateDir, live); } catch {} };
   await recoverStaleClaims(p);
   // a removal that failed last run (a file held open on Windows) left its directory behind; no session runs yet
@@ -212,6 +220,7 @@ export async function runPool(p: Project, o: PoolOptions): Promise<number> {
   const ctx: WorkContext = {
     signal: stop.signal,
     trusted,
+    skills: skills.byRole,
     started: (s) => { live.sessions.push(s); save(); },
     merged: (testCommand) => {
       if (testCommand && !gs.command) { gs.command = testCommand; writeGate(p.stateDir, gs); }
@@ -407,11 +416,14 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
   /** One role session (a fresh Claude session with its Ralph loop), logged and counted. */
   const goal = (role: string, cwd: string, promptFile: string, promise: string, extra: Record<string, string | number> = {}) => {
     const v = { ...vars, ...extra, PROMISE: promise };
+    // the role's skills go after the rendered prompt (never rendered themselves); the continue prompt gets none
+    const skills = ctx.skills?.[role] ?? [];
     return runGoal({
       bin: c.claudeBin, cwd, model: c.model, effort: c.effort, extraArgs: workerArgs(c), timeoutMs: c.turnTimeoutMinutes * 60_000,
-      prompt: render(readFileSync(path.join(PROMPTS, promptFile), 'utf8'), v),
+      prompt: appendSkills(render(readFileSync(path.join(PROMPTS, promptFile), 'utf8'), v), skills, PROMPTS),
       continuePrompt: render(readFileSync(path.join(PROMPTS, 'continue.md'), 'utf8'), v),
-      promise, maxIterations: c.maxIterations, signal: ctx.signal, env,
+      promise, maxIterations: c.maxIterations, signal: ctx.signal,
+      env: rtddEnv(env, skills.some((s) => s.name === 'rtdd'), effectiveRtddBin(c)),
       onEvent: (ev) => {
         appendFileSync(eventLog, JSON.stringify(ev) + '\n');
         const rl = rateLimitOf(ev);

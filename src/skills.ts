@@ -6,6 +6,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { run } from './exec.ts';
 
 export interface Skill {
   name: string;
@@ -115,4 +116,25 @@ export function appendSkills(prompt: string, skills: Skill[], promptsDir: string
     out += `${out.endsWith('\n') ? '' : '\n'}\n## Skill: ${s.name}\n${s.body}\n${note ? note + '\n' : ''}`;
   }
   return out;
+}
+
+/** rtdd's check: `.rtdd/config.yaml` on origin/<base> as last fetched (no fetch), then `<bin> --version`.
+ *  Not set up → the binary is never spawned. */
+export function rtddCheck(root: string, base: string, bin: string): SkillCheck {
+  return async () => {
+    const onOrigin = await run(process.env.HX_GIT_BIN || 'git', ['-C', root, 'cat-file', '-e', `origin/${base}:.rtdd/config.yaml`]);
+    if (onOrigin.code !== 0) return `skill rtdd dropped: .rtdd/config.yaml is not on origin/${base} — run rtdd init and commit .rtdd/`;
+    const v = await run(bin, ['--version'], { cwd: root });
+    if (v.code !== 0) return `skill rtdd dropped: rtdd not found (\`${bin} --version\` failed: ${(v.stderr || v.stdout).trim().slice(0, 160) || `exit ${v.code}`})`;
+    return null;
+  };
+}
+
+/** A session's env with `bin`'s directory first on PATH when rtdd is active and `bin` is a path; else `env` itself.
+ *  The key is the one the process env already uses (`Path` on Windows), so the session gets one PATH entry. */
+export function rtddEnv(env: Record<string, string>, active: boolean, bin: string, base: NodeJS.ProcessEnv = process.env): Record<string, string> {
+  if (!active || !/[\\/]/.test(bin)) return env;
+  const key = Object.keys(base).find((k) => k.toUpperCase() === 'PATH') ?? 'PATH';
+  const cur = base[key];
+  return { ...env, [key]: path.dirname(path.resolve(bin)) + (cur ? path.delimiter + cur : '') };
 }

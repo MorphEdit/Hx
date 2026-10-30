@@ -30,7 +30,7 @@ export function alive(pid: number): boolean {
   try { process.kill(pid, 0); return true; } catch (e: any) { return e?.code === 'EPERM'; }
 }
 
-/** What the fake claude recorded of every session turn in fakeDir: its role, whether it was a checkpoint, its HX_TRUSTED. */
-export function sessionEnvs(fakeDir: string): { role: string; checkpoint: boolean; trusted: string | null }[] {
+/** What the fake claude recorded of every session turn in fakeDir: its role, whether it was a checkpoint, its HX_TRUSTED and PATH. */
+export function sessionEnvs(fakeDir: string): { role: string; checkpoint: boolean; trusted: string | null; path: string | null }[] {
   return readdirSync(fakeDir).filter((f) => /\.env-\d+\.json$/.test(f)).map((f) => JSON.parse(readFileSync(path.join(fakeDir, f), 'utf8')));
 }

@@ -66,7 +66,7 @@ process.stdin.on('data', (d) => (prompt += d)).on('end', () => {
   writeFileSync(counter, JSON.stringify(st));
   writeFileSync(path.join(process.env.HX_FAKE_DIR, `${sid}.prompt-${st.turns}.txt`), prompt);
   // the session's HX_TRUSTED, for the tests that every session gets the trusted set
-  writeFileSync(path.join(process.env.HX_FAKE_DIR, `${sid}.env-${st.turns}.json`), JSON.stringify({ role: st.role, checkpoint: /HX CHECKPOINT/.test(prompt), trusted: process.env.HX_TRUSTED ?? null }));
+  writeFileSync(path.join(process.env.HX_FAKE_DIR, `${sid}.env-${st.turns}.json`), JSON.stringify({ role: st.role, checkpoint: /HX CHECKPOINT/.test(prompt), trusted: process.env.HX_TRUSTED ?? null, path: process.env.PATH ?? null }));
   if (a.includes('--resume') !== st.turns > 1) { process.stderr.write('resume flag mismatch'); process.exit(4); }
   const checkpoint = /HX CHECKPOINT/.test(prompt);
   // FAKE_CLAUDE_RATE=<0..1>: report that much of the five-hour window used, resetting in 2s

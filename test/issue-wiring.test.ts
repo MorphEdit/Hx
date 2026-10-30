@@ -16,7 +16,7 @@ const READERS = ['impl.md', 'audit.md', 'critic.md', 'decompose.md', 'review.md'
 const prompt = (f: string) => readFileSync(path.join(prompts, f), 'utf8');
 
 test('no prompt runs gh issue view or --comments; gh issue edit / create / comment / close stay', () => {
-  for (const f of readdirSync(prompts)) {
+  for (const f of readdirSync(prompts, { recursive: true }).map(String).filter((f) => f.endsWith('.md'))) { // skills/ notes too
     assert.doesNotMatch(prompt(f), /--comments/, f);
     assert.doesNotMatch(prompt(f), /gh issue view/, f);
   }
