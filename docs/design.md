@@ -32,7 +32,7 @@ All state lives in GitHub (issues, labels, branches, PRs), so a fleet can stop a
 Most of the engine's complexity (pane regexes, stall detection, trust dialogs, nudging frozen
 sessions) exists because it drives a TUI through tmux.
 
-## What hx does instead
+## What Hx does instead
 
 Claude Code has a headless mode that gives the same capability without a terminal:
 
@@ -46,7 +46,7 @@ claude -p --output-format stream-json --verbose --resume <uuid> ...       (each 
 - Exact token usage (input, cache read, cache write, output) arrives with every turn.
 - A usage limit shows up as a `rate_limit_event` with `status: rejected`, with its reset time.
 
-| Harness | hx |
+| Harness | Hx |
 |---|---|
 | tmux session per worker | `child_process.spawn`, one Node process |
 | `flock` + claim files | in-memory claims in one process, plus the `agent-working` label |

@@ -1,10 +1,10 @@
-# hx
+# Hx
 
 A Windows-native pool of autonomous Claude Code workers for a GitHub-issues board.
 Inspired by [VocanicZ/Harness](https://github.com/VocanicZ/Harness).
 
 Every issue gets its own git worktree and a **fresh Claude session**, re-prompted until the agent
-finishes (tests → PR → merge → issue closed). No tmux, no screen scraping: hx drives
+finishes (tests → PR → merge → issue closed). No tmux, no screen scraping: Hx drives
 `claude -p --output-format stream-json` directly, so it runs on plain Windows (and anywhere else Node runs).
 
 ## Requirements
@@ -15,8 +15,8 @@ finishes (tests → PR → merge → issue closed). No tmux, no screen scraping:
 ## Install
 
 ```bash
-git clone https://github.com/MorphEdit/hx
-cd hx
+git clone https://github.com/MorphEdit/Hx
+cd Hx
 npm link
 ```
 
@@ -49,13 +49,13 @@ continues where it left off. Ctrl+C twice force-quits.
 
 ## What happens to an issue
 
-| Outcome | hx does |
+| Outcome | Hx does |
 |---|---|
 | agent prints `<promise>ISSUE n DONE</promise>` and the issue is closed | removes `agent-working` and the worktree |
 | no promise after `maxIterations` turns, or the agent errors | comments the reason and last reply on the issue, labels it `agent-blocked`, keeps the worktree |
 | usage limit hit | releases the issue, stops claiming until the limit resets |
 
-Remove `agent-blocked` from an issue to let hx try it again.
+Remove `agent-blocked` from an issue to let Hx try it again.
 
 ## Config (`.hx/config.json`)
 
@@ -91,13 +91,13 @@ npm test
 The end-to-end test uses real git (a local bare repo as origin) with fake `gh` and `claude`
 (`test/fakes/`).
 
-See [docs/design.md](docs/design.md) for how hx relates to Harness and the roadmap.
+See [docs/design.md](docs/design.md) for how Hx relates to Harness and the roadmap.
 
 ## Credits
 
 The core ideas come from [VocanicZ/Harness](https://github.com/VocanicZ/Harness) (MIT): GitHub issues
 as the only state, the `## Blocked by` grammar, one worktree per issue, a Ralph loop ending on a
-`<promise>`, and role-specific prompts. hx's code is written from scratch.
+`<promise>`, and role-specific prompts. Hx's code is written from scratch.
 
 ## License
 
