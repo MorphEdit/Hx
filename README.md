@@ -128,7 +128,7 @@ the limit anyway, its issue is handed back and picked up again after the reset.
 ## PRD flow
 
 Write what you want as a PRD (a markdown file: goal, requirements, acceptance criteria) and file it
-with `hx prd`. `hx run` then takes it all the way:
+with `hx prd`. `hx run` then takes it all the way — `gauntlet → decompose → building → review → security → done`:
 
 ```
 PRD #20 [prd] ──gauntlet──▶ [prd-hardened] ──decompose──▶ child issues [ready-for-agent], each ending in

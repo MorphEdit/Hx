@@ -34,8 +34,13 @@ const HELP = `usage: hx <command> [options]
 
 Ctrl+C in hx run = pause --now for that run; Ctrl+C again force-quits (sessions are killed).
 
-A PRD (label prd) is decomposed into child issues, each child is implemented, then the PRD is
-reviewed (which may file gap issues), gets a security pass (which may file security issues) and is closed. An issue is picked up when it is open, labelled
+A PRD (label prd) goes gauntlet -> decompose -> building -> review -> security -> done. The gauntlet
+(gauntlet, gauntletRounds) has a critic critique the PRD and a reviser rewrite it in rounds, then labels
+it prd-hardened; it is decomposed into child issues and each child is implemented; the review may file
+gap issues (prd-reviewed on sign-off); the security pass (security, securityRounds) checks the merged
+work and may file security issues (security-reviewed when clean); then the PRD is closed.
+
+An issue is picked up when it is open, labelled
 ready-for-agent, not agent-working / agent-blocked, and every issue under its "## Blocked by"
 heading is closed (a child also waits for its PRD's own "## Blocked by").`;
 

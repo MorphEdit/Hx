@@ -10,7 +10,7 @@ roadmap and the agreed order of the next features) before changing anything.
   Erasable syntax only (no enums, no parameter properties); imports end in `.ts`.
   `state.ts` pure board logic · `pool.ts` runner + sessions · `agent.ts` claude process + Ralph loop ·
   `runstate.ts` live.json / pause · `github.ts` gh wrapper · `worktree.ts` · `config.ts` · `cli.ts`
-- `prompts/` — one per role (`impl`, `decompose`, `review`, `continue`, `checkpoint`, `grill`), `{{VAR}}` placeholders
+- `prompts/` — one per role (`impl`, `decompose`, `review`, `continue`, `checkpoint`, `grill`, `audit`, `critic`, `revise`, `security`), `{{VAR}}` placeholders
 - `scripts/ship.mjs` — the one-call commit → rebase → test → push → PR → merge → close routine workers use
 - `test/` — `npm test`. End-to-end tests use real git (local bare origin) with fake `gh` and `claude`
   in `test/fakes/` (`HX_GH_BIN`, `claudeBin` pointing at a `.mjs` run under node)
@@ -28,7 +28,8 @@ roadmap and the agreed order of the next features) before changing anything.
   question first.
 
 ## Next up
-The auditor (#1), the CI gate (#4) and the grill session (#2, `hx grill`) are done. Next is #3 (gauntlet):
-write PRDs for the next features in the roadmap order (#3 gauntlet, #5 rtdd, #6 bug lane, …) — `hx grill` helps — and run
+The auditor (#1), the CI gate (#4), the grill session (#2, `hx grill`) and the gauntlet (#3: a critic →
+reviser loop before decompose, a security pass before a PRD closes) are done. Next is #5 (rtdd): write
+PRDs for the next features in the roadmap order (#5 rtdd, #6 bug lane, …) — `hx grill` helps — and run
 `hx run --watch` on this repo, reviewing the merged PRs. Re-run the benchmark and the audit eval
 (`node bench/audit-eval.mjs`) after changes to prompts, roles or the merge path.
