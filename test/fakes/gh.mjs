@@ -1,5 +1,5 @@
 // Fake `gh` for tests: the board lives in the JSON file named by HX_FAKE_STATE.
-import { readFileSync } from 'node:fs';
+import { appendFileSync, readFileSync } from 'node:fs';
 import { loadJson, locked, saveJson } from './lock.mjs';
 
 const file = process.env.HX_FAKE_STATE;
@@ -14,11 +14,14 @@ const mutate = (fn) => locked(file, () => { const cur = load(); const r = fn(cur
 const ghLabels = (i) => i.labels.map((name) => ({ name }));
 
 const s = load();
+// HX_FAKE_GH_LOG: every call appends its arguments as one line (tests count calls)
+if (process.env.HX_FAKE_GH_LOG) appendFileSync(process.env.HX_FAKE_GH_LOG, a.join(' ') + '\n');
 // the account gh is logged in as: state.login (default 'me'); state.loginFails makes `gh api user` fail.
 // An issue or comment without an `author` was opened by it; author '' = a deleted account (gh gives no login).
 const LOGIN = s.login ?? 'me';
 const author = (x) => ({ login: x.author ?? LOGIN });
 if (a[0] === 'issue' && a[1] === 'list') {
+  if (s.listFails) { process.stderr.write('HTTP 502: Bad Gateway'); process.exit(1); }
   const state = opt('--state') ?? 'open';
   const out = s.issues.filter((i) => state === 'all' || i.state === state.toUpperCase()).map((i) => ({ ...i, labels: ghLabels(i), author: author(i) }));
   process.stdout.write(JSON.stringify(out));

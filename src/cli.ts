@@ -9,6 +9,7 @@ import { log, lookupTrusted, printPlan, readPlan, runPool, trustedEnv } from './
 import { killAllSessions } from './agent.ts';
 import { clearPause, otherRunner, pidAlive, readLive, readPause, setPause } from './runstate.ts';
 import { readGate } from './gate.ts';
+import { DEFAULT_PORT, serveDashboard } from './dashboard.ts';
 import { filePrd } from './prd.ts';
 import { grillArgs, grillPaths, grillPrompt, ideaFrom } from './grill.ts';
 import { fmt, readUsage, summarize, totalTokens, type UsageRow } from './usage.ts';
@@ -30,6 +31,9 @@ const HELP = `usage: hx <command> [options]
                            push and leave a handoff note, then stop). Works on a running hx run.
   resume                   clear a pause; then hx run continues where it stopped
   usage [--by issue|role|model|day]   token usage recorded by hx
+  dashboard [--port N] [--open]
+                           a read-only page on http://127.0.0.1:${DEFAULT_PORT}/ (localhost only): the runner,
+                           sessions, gate, usage by PRD/role/model/day, run log and the board (--open: browser)
   help
 
 Ctrl+C in hx run = pause --now for that run; Ctrl+C again force-quits (sessions are killed).
@@ -64,6 +68,7 @@ export async function main(argv: string[]): Promise<number> {
     case 'pause': return pause(args);
     case 'resume': return resume();
     case 'usage': return usage(args);
+    case 'dashboard': return dashboard(args);
     case undefined: case 'help': case '-h': case '--help': console.log(HELP); return 0;
     default: console.error(`unknown command: ${cmd}\n\n${HELP}`); return 2;
   }
@@ -253,5 +258,16 @@ function usage(args: string[]): number {
   console.log(cols([`by ${by}`, 'sessions', 'turns', 'total', 'cache rd', 'cache wr', 'output', 'per turn']));
   for (const r of rows) console.log(line(r));
   console.log(line(all));
+  return 0;
+}
+
+async function dashboard(args: string[]): Promise<number> {
+  const p = loadProject();
+  const port = Number(flag(args, '--port') ?? DEFAULT_PORT);
+  if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error('--port must be a port number (0-65535)');
+  const d = await serveDashboard(p, { port, open: args.includes('--open') });
+  console.log(`hx dashboard on ${d.url} (read-only, localhost only) — Ctrl+C to stop`);
+  await new Promise<void>((resolve) => process.once('SIGINT', () => resolve()));
+  await d.close();
   return 0;
 }

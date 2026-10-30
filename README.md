@@ -131,6 +131,7 @@ hx run --issue 12,15    # only these issues / PRDs
 hx pause [--now]        # from another terminal: stop a running hx run (see below)
 hx resume               # clear a pause
 hx usage --by role      # recorded token usage (by issue | role | model | day)
+hx dashboard [--open]   # a read-only page on http://127.0.0.1:4777/ (localhost only; --port N)
 ```
 
 ## Stopping and resuming

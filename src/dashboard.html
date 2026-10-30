@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>hx dashboard</title>
+<style>body { font: 14px system-ui, sans-serif; margin: 2rem; } pre { white-space: pre-wrap; }</style>
+</head>
+<body>
+<h1>hx dashboard</h1>
+<pre id="state">loading…</pre>
+<script>
+fetch('/api/state').then((r) => r.json()).then((s) => { document.getElementById('state').textContent = JSON.stringify(s, null, 2); });
+</script>
+</body>
+</html>
