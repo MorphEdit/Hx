@@ -67,11 +67,17 @@ export async function createIssue(repo: string, title: string, body: string, lab
   return (await runOk(GH, args, { input: body })).trim();
 }
 
-/** The open PR whose head is `branch`, or null. */
+/**
+ * The open PR whose head is `branch` in `repo` itself, or null. `--head` matches the branch name only, so a
+ * PR from a fork with a branch of the same name matches too: those are never ours and never taken.
+ */
 export async function openPrFor(repo: string, branch: string): Promise<number | null> {
-  const r = await run(GH, ['pr', 'list', '-R', repo, '--head', branch, '--state', 'open', '--json', 'number', '-q', '.[0].number']);
-  const n = Number(r.stdout.trim());
-  return r.code === 0 && n > 0 ? n : null;
+  const r = await run(GH, ['pr', 'list', '-R', repo, '--head', branch, '--state', 'open', '--json', 'number,isCrossRepository']);
+  if (r.code !== 0) return null;
+  try {
+    const own = (JSON.parse(r.stdout) as { number: number; isCrossRepository: boolean }[]).find((p) => p.isCrossRepository === false);
+    return own ? own.number : null;
+  } catch { return null; }
 }
 
 export async function closeIssue(repo: string, n: number, commentBody: string): Promise<void> {

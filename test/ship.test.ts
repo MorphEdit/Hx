@@ -136,3 +136,21 @@ test('ship: a bad --test-timeout is a usage error', E2E, () => {
   assert.equal(r.status, 2);
   assert.match(r.stderr, /--test-timeout <minutes>/);
 });
+
+test('ship: a fork PR from a branch of the same name is never taken or merged; ours merges at the tested commit', E2E, () => {
+  const env = setup();
+  // a stranger opened a PR from their fork's own `issue/7` before ship ran: `gh pr list --head` lists it too
+  const b0 = board(env);
+  b0.prs.push({ number: 99, head: 'issue/7', base: 'main', title: 'evil', state: 'OPEN', fork: true });
+  writeFileSync(env.board, JSON.stringify(b0));
+  writeFileSync(path.join(env.wt, 'c.txt'), 'mine\n');
+
+  const r = ship(env, 'node -e "process.exit(0)"');
+  assert.equal(r.status, 0, r.stderr);
+  const b = board(env);
+  assert.equal(b.prs.find((p: any) => p.number === 99).state, 'OPEN', 'the fork PR is untouched');
+  const ours = b.prs.find((p: any) => p.number !== 99);
+  assert.match(r.stdout, new RegExp(`SHIPPED #7 via PR #${ours.number}`));
+  assert.equal(ours.state, 'MERGED');
+  assert.equal(ours.mergedHead, git(env.wt, 'rev-parse', 'HEAD'), 'merged with --match-head-commit = the tested commit');
+});

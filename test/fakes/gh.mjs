@@ -23,8 +23,10 @@ if (a[0] === 'issue' && a[1] === 'list') {
   const out = s.issues.filter((i) => state === 'all' || i.state === state.toUpperCase()).map((i) => ({ ...i, labels: ghLabels(i), author: author(i) }));
   process.stdout.write(JSON.stringify(out));
 } else if (a[0] === 'pr' && a[1] === 'list') {
-  const pr = (s.prs ?? []).find((p) => p.head === opt('--head') && p.state === 'OPEN');
-  process.stdout.write(pr ? `${pr.number}\n` : '\n');
+  // like gh, --head matches the branch name only: a PR from a fork (`fork: true`) with that name matches too
+  const prs = (s.prs ?? []).filter((p) => p.head === opt('--head') && p.state === 'OPEN');
+  if (opt('-q')) process.stdout.write(prs[0] ? `${prs[0].number}\n` : '\n');
+  else process.stdout.write(JSON.stringify(prs.map((p) => ({ number: p.number, isCrossRepository: !!p.fork }))));
 } else if (a[0] === 'pr' && a[1] === 'create') {
   const number = mutate((cur) => {
     cur.prs ??= [];
@@ -39,6 +41,7 @@ if (a[0] === 'issue' && a[1] === 'list') {
   mutate((cur) => {
     const pr = (cur.prs ?? []).find((p) => p.number === Number(a[2]));
     pr.state = 'MERGED';
+    pr.mergedHead = opt('--match-head-commit');
     if (process.env.HX_FAKE_AUTOMERGE) { const n = Number(/issue\/(\d+)/.exec(pr.head)?.[1]); const i = find(cur, n); if (i) i.state = 'CLOSED'; }
   });
 } else if (a[0] === 'issue' && a[1] === 'view' && opt('-q') === '.state') {

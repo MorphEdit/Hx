@@ -118,7 +118,11 @@ say('tests pass');
 
 // 4. push, PR, merge, clean up, close
 ok('git', ['push', '-q', '--force-with-lease', '-u', 'origin', `HEAD:${branch}`], 'git push');
-let pr = ok('gh', ['pr', 'list', '-R', repo, '--head', branch, '--state', 'open', '--json', 'number', '-q', '.[0].number'], 'gh pr list');
+// `--head` matches the branch name only: a fork's PR from a branch of the same name must never be taken
+let pr = String(JSON.parse(ok('gh', ['pr', 'list', '-R', repo, '--head', branch, '--state', 'open', '--json', 'number,isCrossRepository'], 'gh pr list') || '[]')
+  .find((p) => p.isCrossRepository === false)?.number ?? '');
+// merge exactly the commit tested and pushed here: GitHub refuses if the PR's head has moved since
+const head = ok('git', ['rev-parse', 'HEAD'], 'git rev-parse');
 if (!pr) {
   const url = ok('gh', ['pr', 'create', '-R', repo, '--base', base, '--head', branch, '--title', title, '--body', `Closes #${issue}`], 'gh pr create');
   pr = /\/pull\/(\d+)/.exec(url)?.[1] ?? '';
@@ -131,13 +135,13 @@ if (noMerge) {
 // right after a push GitHub may still be computing mergeability: retry before falling back to auto-merge
 let m;
 for (let i = 1; i <= 5; i++) {
-  m = run('gh', ['pr', 'merge', pr, '-R', repo, '--squash']);
+  m = run('gh', ['pr', 'merge', pr, '-R', repo, '--squash', '--match-head-commit', head]);
   if (m.status === 0) break;
   sleep(Number(process.env.HX_SHIP_RETRY_MS ?? 3000) * i);
 }
 if (m.status !== 0) {
   // some repos only allow auto-merge
-  const a = run('gh', ['pr', 'merge', pr, '-R', repo, '--squash', '--auto']);
+  const a = run('gh', ['pr', 'merge', pr, '-R', repo, '--squash', '--auto', '--match-head-commit', head]);
   if (a.status !== 0) { console.error(`ship: merging PR #${pr} failed: ${(m.stderr + a.stderr).trim().slice(-800)}`); process.exit(5); }
   console.log(`AUTO-MERGE set on PR #${pr}: #${issue} closes when it merges`);
   process.exit(0);
