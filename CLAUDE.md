@@ -11,6 +11,7 @@ roadmap and the agreed order of the next features) before changing anything.
   `state.ts` pure board logic · `pool.ts` runner + sessions · `agent.ts` claude process + Ralph loop ·
   `runstate.ts` live.json / pause · `github.ts` gh wrapper · `worktree.ts` · `config.ts` · `cli.ts`
 - `prompts/` — one per role (`impl`, `decompose`, `review`, `continue`, `checkpoint`, `grill`, `audit`, `critic`, `revise`, `security`), `{{VAR}}` placeholders
+- `scripts/issue.mjs` — prints an issue with comments from untrusted accounts removed (`HX_TRUSTED`); the only way agents read issues
 - `scripts/ship.mjs` — the one-call commit → rebase → test → push → PR → merge → close routine workers use
 - `test/` — `npm test`. End-to-end tests use real git (local bare origin) with fake `gh` and `claude`
   in `test/fakes/` (`HX_GH_BIN`, `claudeBin` pointing at a `.mjs` run under node)
@@ -25,7 +26,8 @@ roadmap and the agreed order of the next features) before changing anything.
 - Defaults: model `claude-opus-5-5` (full id; the `opus` alias resolved to an older Opus), effort `medium`.
 - Windows: keep paths short (worktrees), spawn without a shell, pass prompts and bodies via stdin.
 - Workers run with bypassPermissions. Anything that lets text from GitHub reach a prompt is a security
-  question first.
+  question first. Agents read issues only through `scripts/issue.mjs` (never `gh issue view --comments`);
+  only issues opened by trusted accounts (the `gh` login + `trustedAuthors`) are claimed.
 
 ## Next up
 The auditor (#1), the CI gate (#4), the grill session (#2, `hx grill`) and the gauntlet (#3: a critic →
