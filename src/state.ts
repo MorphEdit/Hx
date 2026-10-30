@@ -139,6 +139,7 @@ export interface Plan {
   actions: Action[]; // in priority order: PRD sessions, engine-only steps, then implementation
   prds: PrdRow[];
   board: BoardRow[];
+  parents: Record<number, number>; // issue → its PRD (closed PRDs too), from the issue's `## Parent`
 }
 
 /** Session keys the pool tracks in flight: one session per PRD, one per issue. */
@@ -223,7 +224,8 @@ export function plan(all: Issue[], repo: string, labels: Labels, states: Map<str
   const inFlight = new Set([...busy].filter((k) => k.startsWith('issue:')).map((k) => Number(k.slice(6))));
   const rows = board(all, repo, labels, states, inFlight, inherited, opts.trusted, untrustedPrd);
   for (const r of rows) if (r.status === 'claimable') actions.push({ kind: 'impl', issue: r.number, title: r.title });
-  return { actions: [...actions.filter((a) => a.kind !== 'impl'), ...engine, ...actions.filter((a) => a.kind === 'impl')], prds, board: rows };
+  return { actions: [...actions.filter((a) => a.kind !== 'impl'), ...engine, ...actions.filter((a) => a.kind === 'impl')], prds, board: rows,
+    parents: Object.fromEntries(parentOf) };
 }
 
 /** Every ref the ready issues depend on that lives in another repo (resolved one by one). */
