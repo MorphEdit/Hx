@@ -131,8 +131,8 @@ Write what you want as a PRD (a markdown file: goal, requirements, acceptance cr
 with `hx prd`. `hx run` then takes it all the way:
 
 ```
-PRD #20 [prd] ──decompose──▶ child issues [ready-for-agent], each ending in
-                              ## Blocked by  (#n / None)   and   ## Parent  #20
+PRD #20 [prd] ──gauntlet──▶ [prd-hardened] ──decompose──▶ child issues [ready-for-agent], each ending in
+                                                    ## Blocked by  (#n / None)   and   ## Parent  #20
      │
      ├─ children are implemented in parallel, in dependency order (one session each)
      │
@@ -142,6 +142,10 @@ PRD #20 [prd] ──decompose──▶ child issues [ready-for-agent], each endi
      └─ reviewed + all children closed ──▶ Hx closes the PRD
 ```
 
+- The gauntlet runs before decompose, one round per session: an independent critic reads the PRD and
+  the code; on FAIL a reviser rewrites the body to resolve its findings (the original body is kept once in
+  a `<!-- hx-prd-original -->` comment). Every round posts a `<!-- hx-gauntlet -->` comment. A PASS, or
+  `gauntletRounds` rounds, labels the PRD `prd-hardened`. A PRD that already has children never goes back.
 - A PRD's own `## Blocked by` sequences PRDs: nothing of PRD #21 runs until #20 is closed.
   PRDs without blockers run in parallel.
 - Every review posts a `<!-- hx-review -->` comment on the PRD. After `reviewRounds` reviews
@@ -206,6 +210,8 @@ Remove `agent-blocked` from an issue to let Hx try it again.
 | `model` | `claude-opus-5-5` | model for every session; prefer a full id — the `opus` alias may resolve to an older Opus |
 | `effort` | `medium` | `claude --effort`: `low`, `medium`, `high`, `xhigh`, `max`, or `""` for the CLI default |
 | `maxIterations` | 8 | turns per session before giving up |
+| `gauntlet` | `true` | critique and revise a PRD in rounds before it is decomposed |
+| `gauntletRounds` | 2 | critic → reviser rounds before the PRD is decomposed anyway |
 | `reviewRounds` | 3 | PRD reviews before a human has to look |
 | `audit` | `true` | an independent auditor checks every implementation PR before hx merges it |
 | `auditRounds` | 3 | implement → audit attempts before the issue goes to a human |
@@ -219,7 +225,7 @@ Remove `agent-blocked` from an issue to let Hx try it again.
 | `claudeArgs` | `[]` | extra flags for every `claude` call |
 | `leanWorkers` | `true` | workers start without MCP servers, skills, slash commands or user-level settings and plugins (~8K instead of ~44K tokens of base context per call) |
 | `workerTools` | `Bash Read Edit Write Glob Grep` | the only built-in tools a lean worker gets; add e.g. `Agent` or `WebFetch` if your issues need them |
-| `labels` | `ready-for-agent`, `agent-working`, `agent-blocked`, `prd`, `prd-reviewed` | |
+| `labels` | `ready-for-agent`, `agent-working`, `agent-blocked`, `prd`, `prd-hardened`, `prd-reviewed` | |
 
 ## ⚠️ Safety
 

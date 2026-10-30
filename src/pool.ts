@@ -18,8 +18,11 @@ const PROMPTS = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'p
 const SHIP = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'scripts', 'ship.mjs').replace(/\\/g, '/');
 export const REVIEW_MARKER = '<!-- hx-review -->';
 export const HANDOFF_MARKER = '<!-- hx-handoff -->';
+export const GAUNTLET_MARKER = '<!-- hx-gauntlet -->';
+export const ORIGINAL_MARKER = '<!-- hx-prd-original -->';
+const firstLineIs = (marker: string) => (b: string) => b.trimStart().split(/\r?\n/, 1)[0].trim() === marker;
 
-type SessionAction = Extract<Action, { kind: 'impl' | 'decompose' | 'review' }>;
+type SessionAction = Extract<Action, { kind: 'impl' | 'gauntlet' | 'decompose' | 'review' }>;
 
 export interface PoolOptions {
   workers: number;
@@ -58,7 +61,7 @@ export async function readPlan(p: Project, busy: Set<string> = new Set()): Promi
     const s = await gh.issueState(r.repo, r.number);
     if (s) states.set(refKey(r), s);
   }
-  return plan(issues, repo, labels, states, busy);
+  return plan(issues, repo, labels, states, busy, p.config);
 }
 
 const target = (a: Action) => ('issue' in a ? a.issue : a.prd);
@@ -285,6 +288,8 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
       log(`review round cap (${c.reviewRounds}) reached — labelled ${c.labels.blocked}`, n);
       return undefined;
     }
+  } else if (a.kind === 'gauntlet') {
+    round = (await gh.commentBodies(c.repo, n)).filter(firstLineIs(GAUNTLET_MARKER)).length + 1;
   }
 
   await gh.editLabels(c.repo, n, [c.labels.working]);
@@ -311,12 +316,13 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
   const audited = a.kind === 'impl' && c.audit;
   const vars: Record<string, string | number> = {
     REPO: c.repo, BASE: c.defaultBranch, TITLE: title, SHIP,
-    LABEL_READY: L.ready, LABEL_REVIEWED: L.reviewed, ROUND: round, ROUNDS: c.reviewRounds,
+    LABEL_READY: L.ready, LABEL_REVIEWED: L.reviewed, ROUND: round, ROUNDS: a.kind === 'gauntlet' ? c.gauntletRounds : c.reviewRounds,
     ISSUE: n, PRD: n, BRANCH: `issue/${n}`,
     EXISTING: a.kind === 'decompose' ? childList(a.children) : '', CHILDREN: a.kind === 'review' ? childList(a.children) : '',
     RESUMED: resumeNote,
     SUBJECT: a.kind === 'impl' ? `issue #${n} (branch issue/${n}): look at \`git status\`, its PR (\`gh pr list -R ${c.repo} --head issue/${n}\`) and the issue`
-      : a.kind === 'decompose' ? `PRD #${n}: list the issues you have filed for it so far` : `the review of PRD #${n}`,
+      : a.kind === 'decompose' ? `PRD #${n}: list the issues you have filed for it so far`
+      : a.kind === 'gauntlet' ? `gauntlet round ${round} of PRD #${n}` : `the review of PRD #${n}`,
     // with an auditor the implementer stops at an open PR; hx merges once the audit passes
     SHIP_FLAGS: audited ? ' --no-merge' : '',
     SHIP_WHAT: audited ? ' (it does NOT merge: an independent auditor checks the PR first)' : ', squash-merges it, deletes the branch and closes the issue',
@@ -369,6 +375,54 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
   };
   const stopped = (r: GoalResult) => r.stopReason === 'aborted' || r.stopReason === 'limited' || r.stopReason === 'fatal';
   const promise = `${a.kind === 'impl' ? 'ISSUE' : a.kind.toUpperCase()} ${n} DONE`;
+
+  // gauntlet: one round = a critic in a fresh checkout; on FAIL a reviser rewrites the PRD body
+  if (a.kind === 'gauntlet') {
+    let reviseDir = '';
+    try {
+      const N = c.gauntletRounds;
+      const cr = await goal('critic', wt.dir, 'critic.md', `CRITIC ${n} DONE`);
+      await removeWorktree(p.root, wt.dir);
+      let summary = `${fmt(sessionTokens)} tokens`;
+      if (stopped(cr)) return handBack(cr, summary);
+      const v = auditVerdict(cr.done ? cr.last?.text ?? '' : '');
+      if (!v) return fail(cr, cr.done ? 'the critic gave no VERDICT line'
+        : cr.stopReason === 'max-iterations' ? `no completion after ${cr.iterations} turns` : `agent error: ${cr.last?.error ?? 'unknown'}`, summary);
+      if (v.pass) {
+        await gh.comment(c.repo, n, `${GAUNTLET_MARKER}\n**hx gauntlet round ${round}/${N}: PASS ✓**\n\n${v.findings}`).catch(() => {});
+        await gh.editLabels(c.repo, n, [L.hardened], [L.working]);
+        log(`gauntlet round ${round}/${N}: PASS ✓ — labelled ${L.hardened} (${summary})`, n);
+        return { ...cr, done: true };
+      }
+      log(`gauntlet round ${round}/${N}: FAIL ✗ — ${v.findings.split('\n')[0].slice(0, 140)}`, n);
+      const before = await gh.issueBody(c.repo, n);
+      // keep the body as it was before the first revision, once
+      if (!(await gh.commentBodies(c.repo, n)).some(firstLineIs(ORIGINAL_MARKER)))
+        await gh.comment(c.repo, n, `${ORIGINAL_MARKER}\n${before}`);
+      const rwt = await addWorktree(p.root, c.worktreeRoot, prdWorktree(n, c.defaultBranch));
+      reviseDir = rwt.dir;
+      const rr = await goal('revise', rwt.dir, 'revise.md', `REVISE ${n} DONE`, { FINDINGS: v.findings });
+      await removeWorktree(p.root, rwt.dir);
+      summary = `${fmt(sessionTokens)} tokens`;
+      if (stopped(rr)) return handBack(rr, summary);
+      // a reviser that failed or changed nothing still uses up the round: the PRD must not stall here
+      const unchanged = (await gh.issueBody(c.repo, n)) === before;
+      if (!rr.done || unchanged)
+        log(`reviser ${!rr.done ? `did not complete (${rr.last?.error ?? rr.stopReason})` : 'left the body unchanged'} — round ${round} counted, carrying on`, n);
+      const note = !rr.done ? '\n\n_The reviser did not complete._' : unchanged ? '\n\n_The reviser left the body unchanged._' : '';
+      await gh.comment(c.repo, n, `${GAUNTLET_MARKER}\n**hx gauntlet round ${round}/${N}: FAIL ✗ → revised**\n\n${v.findings}${note}`);
+      const last = round >= N;
+      await gh.editLabels(c.repo, n, last ? [L.hardened] : [], [L.working]);
+      log(`gauntlet round ${round}/${N} done${last ? ` — round cap reached, labelled ${L.hardened}` : ''} (${summary})`, n);
+      return { ...rr, done: true };
+    } catch (e) {
+      // every path ends with the claim released and no worktree left behind
+      await gh.editLabels(c.repo, n, [], [L.working]).catch(() => {});
+      await removeWorktree(p.root, wt.dir);
+      if (reviseDir) await removeWorktree(p.root, reviseDir);
+      throw e;
+    }
+  }
 
   if (!audited) {
     const r = await goal(a.kind, wt.dir, `${a.kind}.md`, promise);

@@ -2,6 +2,8 @@
 //   implement: turn 1 "working", turn 2 closes the issue and prints the promise (never, if the body says FAIL)
 //   decompose: files two children (the second blocked by the first) and prints the promise
 //   review:    round 1 files a gap issue; later rounds sign off. Both post the review comment.
+//   critic:    FAIL until the PRD body holds the fake reviser's marker (GAUNTLETNEVER in the body: always FAIL)
+//   revise:    appends its marker to the body with `gh issue edit --body-file` (REVISENOOP in the body: changes nothing)
 //   grill:     interactive (prompt as the last argument, not stdin): writes a PRD to the output path the prompt
 //              names (FAKE_GRILL_NOWRITE=1: writes nothing, =blank: whitespace only) and exits
 // FAKE_CLAUDE_MODE=limit / crash for the error paths.
@@ -17,6 +19,7 @@ const out = (o) => process.stdout.write(JSON.stringify({ ...o, session_id: sid }
 const usage = { input_tokens: 10, cache_creation_input_tokens: 1000, cache_read_input_tokens: 5000, output_tokens: 200 };
 const boardFile = process.env.HX_FAKE_STATE;
 const GIT_ID = { GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' };
+const REVISED = '<!-- fake-revised -->';
 const loadBoard = () => loadJson(boardFile);
 const saveBoard = (b) => saveJson(boardFile, b);
 const file = (b, title, body, labels) => {
@@ -97,6 +100,22 @@ function finish(st, checkpoint, prompt) {
     g('commit', '-q', '-m', `fix: main is green again (closes #${st.n})`); g('push', '-q', 'origin', 'HEAD:main');
     locked(boardFile, () => { const b = loadBoard(); b.issues.find((i) => i.number === st.n).state = 'CLOSED'; saveBoard(b); });
     return reply(`fixed main. ${done()}`);
+  }
+  // gauntlet critic and reviser
+  if (st.role === 'critic') {
+    const body = loadBoard().issues.find((i) => i.number === st.n).body;
+    const pass = !/GAUNTLETNEVER/.test(body) && body.includes(REVISED);
+    return reply(pass ? `VERDICT: PASS\nFINDINGS:\n- none\n\n${done()}`
+      : `VERDICT: FAIL\nFINDINGS:\n- PRD #${st.n} says "fast" — two readings — body line 1\n\n${done()}`);
+  }
+  if (st.role === 'revise') {
+    const body = loadBoard().issues.find((i) => i.number === st.n).body;
+    if (/REVISENOOP/.test(body)) return reply(`nothing to change. ${done()}`);
+    const f = path.join(process.env.HX_FAKE_DIR, `revise-${sid}.md`);
+    writeFileSync(f, `${body}\n\n## Assumptions\n- fast = under 1s\n${REVISED}\n`);
+    const repo = /Repo (\S+)/.exec(prompt)[1];
+    const r = spawnSync(process.execPath, [process.env.HX_GH_BIN, 'issue', 'edit', String(st.n), '-R', repo, '--body-file', f], { encoding: 'utf8' });
+    return reply(r.status === 0 ? `body updated. ${done()}` : `gh failed: ${r.stderr}`);
   }
   // auditor: body AUDITFAIL fails the first round, AUDITNEVER fails every round, anything else passes
   if (st.role === 'audit') {
