@@ -6,16 +6,33 @@
 //
 //   node ship.mjs --repo owner/name --base main --issue 12 --title "feat: add x" --test "npm test"
 //
+// With an auditor in the loop the routine is split in two:
+//   --no-merge  stops after the PR is open, prints `READY #<issue> PR #<pr>`, and remembers its
+//               arguments in the worktree's git dir (hx-ship.json)
+//   --resume    run later by hx itself once the audit passed: the remembered arguments, then
+//               rebase → test → push → merge → close (a base that moved meanwhile is re-tested)
+//
 // Exit codes, each with a one-line reason on stderr:
 //   0 shipped · 2 bad arguments · 3 rebase conflict (rebase aborted; resolve by hand, then re-run)
 //   4 tests failed on the rebased branch (output tail printed) · 5 a git/gh step failed
 import { spawnSync } from 'node:child_process';
 
+import { readFileSync, writeFileSync } from 'node:fs';
+import path from 'node:path';
+
 const args = process.argv.slice(2);
 const opt = (n) => { const i = args.indexOf(`--${n}`); return i < 0 ? undefined : args[i + 1]; };
-const repo = opt('repo'), base = opt('base') ?? 'main', issue = opt('issue'), title = opt('title'), testCmd = opt('test');
+const noMerge = args.includes('--no-merge');
+const gitDir = spawnSync('git', ['rev-parse', '--absolute-git-dir'], { encoding: 'utf8' }).stdout.trim();
+const stateFile = path.join(gitDir || '.', 'hx-ship.json');
+let saved = {};
+if (args.includes('--resume')) {
+  try { saved = JSON.parse(readFileSync(stateFile, 'utf8')); } catch { console.error(`ship: --resume: no ${stateFile}; run ship --no-merge first`); process.exit(2); }
+}
+const repo = opt('repo') ?? saved.repo, base = opt('base') ?? saved.base ?? 'main', issue = opt('issue') ?? saved.issue,
+  title = opt('title') ?? saved.title, testCmd = opt('test') ?? saved.test;
 if (!repo || !issue || !title || !testCmd) {
-  console.error('usage: ship.mjs --repo owner/name --base main --issue N --title "type: summary" --test "<test command>"');
+  console.error('usage: ship.mjs --repo owner/name --base main --issue N --title "type: summary" --test "<test command>" [--no-merge | --resume]');
   process.exit(2);
 }
 
@@ -32,6 +49,16 @@ const ok = (cmd, a, step) => {
   return r.stdout.trim();
 };
 const say = (m) => console.log(`ship: ${m}`);
+const sleep = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+// another worktree of the same repo may be fetching at the same moment: the ref update can race
+const fetchBase = () => {
+  for (let i = 1; ; i++) {
+    const r = run('git', ['fetch', '-q', 'origin', base]);
+    if (r.status === 0) return;
+    if (i >= 4) { console.error(`ship: git fetch failed: ${(r.stderr || '').trim().slice(-400)}`); process.exit(5); }
+    sleep(1000 * i);
+  }
+};
 
 const branch = ok('git', ['rev-parse', '--abbrev-ref', 'HEAD'], 'reading the branch');
 if (branch === base) { console.error(`ship: on ${base}; run from the issue branch`); process.exit(2); }
@@ -44,7 +71,7 @@ if (run('git', ['diff', '--cached', '--quiet']).status !== 0) {
 }
 
 // 2. rebase on the current base: other workers merge while this one works
-ok('git', ['fetch', '-q', 'origin', base], 'git fetch');
+fetchBase();
 const rb = run('git', ['rebase', `origin/${base}`]);
 if (rb.status !== 0) {
   const files = run('git', ['diff', '--name-only', '--diff-filter=U']).stdout.trim().split('\n').filter(Boolean);
@@ -69,7 +96,18 @@ if (!pr) {
   const url = ok('gh', ['pr', 'create', '-R', repo, '--base', base, '--head', branch, '--title', title, '--body', `Closes #${issue}`], 'gh pr create');
   pr = /\/pull\/(\d+)/.exec(url)?.[1] ?? '';
 }
-const m = run('gh', ['pr', 'merge', pr, '-R', repo, '--squash']);
+if (noMerge) {
+  writeFileSync(stateFile, JSON.stringify({ repo, base, issue, title, test: testCmd, pr }, null, 2));
+  console.log(`READY #${issue} PR #${pr}`);
+  process.exit(0);
+}
+// right after a push GitHub may still be computing mergeability: retry before falling back to auto-merge
+let m;
+for (let i = 1; i <= 5; i++) {
+  m = run('gh', ['pr', 'merge', pr, '-R', repo, '--squash']);
+  if (m.status === 0) break;
+  sleep(Number(process.env.HX_SHIP_RETRY_MS ?? 3000) * i);
+}
 if (m.status !== 0) {
   // some repos only allow auto-merge
   const a = run('gh', ['pr', 'merge', pr, '-R', repo, '--squash', '--auto']);

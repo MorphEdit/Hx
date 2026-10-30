@@ -38,7 +38,7 @@ function setupProject() {
 }
 
 const baseConfig = () => ({ ...DEFAULTS, repo: 'me/app', defaultBranch: 'main', worktreeRoot: path.join(tmp, 'wt'),
-  claudeBin: fakeClaude, maxIterations: 3, pollSeconds: 1 });
+  claudeBin: fakeClaude, maxIterations: 3, pollSeconds: 1, audit: false });
 
 function setup() {
   const issue = (number: number, labels: string[], body = '') => ({ number, title: `task ${number}`, body, state: 'OPEN', labels });

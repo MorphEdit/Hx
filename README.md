@@ -20,35 +20,51 @@ the figures are drawn (and animated) from the logs in [`bench/results/`](bench/r
 
 ![Benchmark summary](docs/figures/bench-summary.svg)
 
-| | Single session | Hx · 1 worker | Hx · 3 workers |
-|---|---|---|---|
-| How | one Claude session does all 6 in a row | a fresh session per issue, one at a time | fresh sessions, in parallel where `Blocked by` allows |
-| Wall time | **3.2 min** | 6.0 min | 3.6 min |
-| Tokens | 0.67M | **0.40M** | **0.40M** |
-| Tokens per issue | — | ~66K | ~66K |
-| Issues closed · PRs merged | 6 · 6 | 6 · 6 | 6 · 6 |
-| Hidden tests | 6/6 | 6/6 | 6/6 |
+| | Single session | Hx · 1 worker | Hx · 3 workers | Hx · 3 workers + auditor (default) |
+|---|---|---|---|---|
+| How | one Claude session does all 6 in a row | a fresh session per issue, one at a time | fresh sessions, in parallel where `Blocked by` allows | the same, and every PR is audited by a second session before hx merges it |
+| Wall time | **3.2 min** | 6.0 min | 3.6 min | 5.5 min |
+| Tokens | 0.67M | **0.40M** | **0.40M** | 0.69M |
+| Sessions | 1 | 6 | 6 | 12 |
+| Issues closed · PRs merged | 6 · 6 | 6 · 6 | 6 · 6 | 6 · 6 |
+| Hidden tests | 6/6 | 6/6 | 6/6 | 6/6 |
+| Independent check before merge | no | no | no | **yes** |
 
 `claude-opus-5-5`, medium effort, 2026-10-30. No human input after the start in any run.
 
 **What this shows:**
 
 - **Phase 4 cut Hx's tokens by 84%** (2.45M → 0.40M for the same six issues, same hidden-test score).
-  The first run showed where they went: every Hx session paid a ~44K-token base context on every call
-  — the system prompt plus 44 tools, 32 MCP servers and 78 skills installed on the machine, none of
-  which a worker needs. Lean workers now start at ~8K, and one `ship` script replaces the 5–6 calls the
-  commit → rebase → test → PR → merge routine used to take.
-- **Hx now uses fewer tokens than one long session** on the same work (0.40M vs 0.67M), and that gap
-  only grows with the project: a single session carries its whole history into every call (hundreds of
-  K tokens per message after a few hours), while an Hx session's cost per issue stays flat.
-- **Parallelism works:** 3 workers finish in 60% of the time of 1 worker for the same tokens, by
-  running `#1 #3 #6` together, then `#2 #4`, then `#5`.
-- **The single session is still a bit faster here:** 3.2 vs 3.6 min. Six tiny issues favour one warm
-  session that never re-reads the repo. Not measured yet: long projects, where Hx also survives
-  crashes and usage limits (checkpoint + handoff) and decomposes and reviews PRDs on its own.
+  Every Hx session used to pay a ~44K-token base context on every call — the system prompt plus 44
+  tools, 32 MCP servers and 78 skills installed on the machine, none of which a worker needs. Lean
+  workers start at ~8K, and one `ship` script replaces the 5–6 calls the commit → rebase → test →
+  PR → merge routine took.
+- **The auditor costs about 0.05M tokens and 30 s per issue**, and is now on by default. These six
+  issues were all done right first time, so here it only adds cost; what it is for is measured below.
+- **Parallelism works:** 3 workers finish in 60% of the time of 1 worker for the same tokens.
+- **The single session is still faster on six tiny issues** (one warm session never re-reads the repo)
+  but has no second pair of eyes, and its cost per call grows with the project.
 
-Before phase 4 (same issues, same model): Hx · 1 worker 7.3 min / 2.57M tokens, Hx · 3 workers
-3.6 min / 2.45M tokens ([`bench/results/phase3/`](bench/results/phase3)).
+### Does the auditor catch real mistakes?
+
+[`bench/audit-eval.mjs`](bench/audit-eval.mjs): for each of the six issues, one correct PR and one with
+a **planted defect** that breaks a rule or an example stated in the issue while the PR's own tests still
+pass (the way a careless implementer's tests would). Twelve independent audits, in random order, not
+told which is which ([results](bench/results/audit-eval.json)):
+
+| | |
+|---|---|
+| Planted defects caught | **6 / 6** — each with the exact rule, the wrong output, and how it was seen |
+| Correct PRs passed | 5 / 6 |
+| Cost | ~45K tokens and ~30 s per audit |
+
+The one correct PR sent back (#1) was sent back for a real reason: the issue says "Add tests for these"
+about six examples and the PR tested three. The auditor said the code itself was correct and named the
+missing tests; in a real run that costs one more implement round.
+
+Before the auditor (same issues, same model): Hx · 3 workers 3.6 min / 0.40M tokens
+([`bench/results/phase4/`](bench/results/phase4)); before phase 4: 3.6 min / 2.45M
+([`bench/results/phase3/`](bench/results/phase3)).
 
 Reproduce (creates private repos on your GitHub account and spends real usage):
 
@@ -56,6 +72,7 @@ Reproduce (creates private repos on your GitHub account and spends real usage):
 node bench/run.mjs chat
 node bench/run.mjs hx1
 node bench/run.mjs hx3
+node bench/audit-eval.mjs
 node bench/figures.mjs
 ```
 
@@ -142,11 +159,33 @@ other-owner/other-repo#3
 
 Write `None` under the heading (or leave it out) for an issue with no dependencies.
 
+## Every PR is audited before it merges
+
+The implementer never merges its own work. It ships with `ship.mjs --no-merge` and stops at an open PR.
+Then a **separate auditor session**, in its own fresh checkout of the pushed branch, checks the PR
+against the issue — every rule and example, by reading the code and running the cases itself, and
+whether the new tests would fail if the feature were wrong. It answers `VERDICT: PASS` or `FAIL`
+with findings, posted on the issue.
+
+```
+implement ──▶ PR open ──▶ audit ──PASS──▶ hx rebases, re-tests, merges, closes the issue
+                 ▲                  │
+                 └── findings ◀─FAIL┘   (after auditRounds FAILs: agent-blocked, for a human)
+```
+
+## CI gate
+
+After every merge (and when `hx run` starts) Hx runs the project's test command on a fresh checkout of
+the default branch. If it fails, Hx files one `hx-gate-fix` issue with the output and **claims nothing
+else** until a later run is green — no worker builds on a broken base. The command is `gateCommand`,
+or the test command the first audited merge used. `hx status` shows the gate.
+
 ## What happens to an issue
 
 | Outcome | Hx does |
 |---|---|
-| agent prints `<promise>ISSUE n DONE</promise>` and the issue is closed | removes `agent-working` and the worktree |
+| the audit passes and the merge goes through | hx merges the PR, closes the issue, removes `agent-working` and the worktree |
+| the audit fails | the findings go to a fresh implementer session on the same branch; after `auditRounds` FAILs: `agent-blocked` |
 | no promise after `maxIterations` turns, or the agent errors | comments the reason and last reply on the issue, labels it `agent-blocked`, keeps the worktree |
 | usage limit hit | releases the issue, stops claiming until the limit resets |
 | Claude rejects the setup (API 400/401/403/404: unknown model, outdated CLI, auth) | hands the issue back untouched and stops the whole run with the reason |
@@ -162,6 +201,10 @@ Remove `agent-blocked` from an issue to let Hx try it again.
 | `effort` | `medium` | `claude --effort`: `low`, `medium`, `high`, `xhigh`, `max`, or `""` for the CLI default |
 | `maxIterations` | 8 | turns per session before giving up |
 | `reviewRounds` | 3 | PRD reviews before a human has to look |
+| `audit` | `true` | an independent auditor checks every implementation PR before hx merges it |
+| `auditRounds` | 3 | implement → audit attempts before the issue goes to a human |
+| `gate` | `true` | test the default branch after every merge; while red, claim only its fix |
+| `gateCommand` | `""` | the gate's test command (empty: learned from the first audited merge) |
 | `usagePauseAt` | 0.9 | claim nothing new once a usage window is this full (0..1) |
 | `checkpointMinutes` | 10 | time a stopped session gets to commit, push and write its handoff |
 | `turnTimeoutMinutes` | 45 | wall-clock limit for one turn |

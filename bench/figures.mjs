@@ -30,11 +30,11 @@ const FONT = `font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvet
 const COLORS = `
   :root { --bg:#ffffff; --panel:#f6f8fa; --border:#d0d7de; --fg:#1f2328; --muted:#656d76; --track:#eaeef2;
           --impl:#2f81f7; --decompose:#8250df; --review:#bf8700; --checkpoint:#cf222e; --chat:#57606a; --good:#1a7f37; --bad:#cf222e;
-          --implbg:#ddf4ff; --goodbg:#dafbe1; }
+          --implbg:#ddf4ff; --goodbg:#dafbe1; --audit:#1b7c83; --auditbg:#d8f3f5; }
   @media (prefers-color-scheme: dark) {
     :root { --bg:#0d1117; --panel:#161b22; --border:#30363d; --fg:#e6edf3; --muted:#8b949e; --track:#21262d;
             --impl:#4493f8; --decompose:#a371f7; --review:#d29922; --checkpoint:#f85149; --chat:#8b949e; --good:#3fb950; --bad:#f85149;
-            --implbg:#0c2d6b; --goodbg:#0f3d1e; }
+            --implbg:#0c2d6b; --goodbg:#0f3d1e; --audit:#39c5cf; --auditbg:#0b3a3f; }
   }
   .bg { fill: var(--bg); } .panel { fill: var(--panel); stroke: var(--border); }
   .fg { fill: var(--fg); } .muted { fill: var(--muted); } .track { fill: var(--track); }
@@ -51,6 +51,7 @@ const COLORS = `
   .n-working { fill: var(--implbg); stroke: var(--impl); stroke-width: 2; }
   .n-closed { fill: var(--goodbg); stroke: var(--good); }
   .t-working { fill: var(--impl); } .t-closed { fill: var(--good); }
+  .audit { fill: var(--audit); } .n-audit { fill: var(--auditbg); stroke: var(--audit); stroke-width: 2; } .t-audit { fill: var(--audit); }
   @media (prefers-reduced-motion: reduce) { * { animation: none !important; } }`;
 
 /**
@@ -147,7 +148,7 @@ mkdirSync(out, { recursive: true });
   const H = axisY + 40;
   // legend: only the kinds of bar that appear
   const present = new Set(runs.flatMap(({ r }) => r.timeline.map((t) => (r.config === 'chat' ? 'chat' : t.role))));
-  const legend = [['chat', 'single session'], ['impl', 'implement (Hx)'], ['decompose', 'decompose'], ['review', 'review'], ['checkpoint', 'checkpoint']]
+  const legend = [['chat', 'single session'], ['impl', 'implement (Hx)'], ['audit', 'audit (Hx)'], ['decompose', 'decompose'], ['review', 'review'], ['checkpoint', 'checkpoint']]
     .filter(([c]) => present.has(c))
     .map(([c, l], i, all) => { const lx = W - 20 - (all.length - i) * 130; return `<rect class="${c}" x="${lx}" y="${H - 22}" width="12" height="12" rx="2"/><text class="muted" x="${lx + 18}" y="${H - 12}" font-size="11">${l}</text>`; }).join('');
   writeFileSync(path.join(out, 'bench-timeline.svg'), svgDoc(W, H, A.css(), `
@@ -175,7 +176,9 @@ ${legend}`));
     const depth = [];
     const d = (i) => (depth[i] ??= blockers[i].length ? 1 + Math.max(...blockers[i].map((b) => d(b - 1))) : 0);
     issues.forEach((_, i) => d(i));
-    const session = (n) => r.timeline.find((t) => t.issue === n && t.role === 'impl');
+    // an issue's sessions in order: implement, audit, (implement again after a FAIL, audit again) …
+    const sessionsOf = (n) => r.timeline.filter((t) => t.issue === n && (t.role === 'impl' || t.role === 'audit')).sort((a, b) => a.start - b.start);
+    const doneAt = (n) => sessionsOf(n).at(-1)?.end ?? 0;
     // node geometry: one column per dependency depth
     const nodeW = 196, nodeH = 52, colX = (c) => 40 + c * 300, top = 104;
     const byCol = {};
@@ -189,14 +192,16 @@ ${legend}`));
     }));
     // nodes: blocked → ready → agent-working · W# → closed, at the recorded times
     issues.forEach((it, i) => {
-      const n = i + 1, s = session(n), { x, y } = pos[i];
-      if (!s) return;
-      const readyAt = blockers[i].length ? Math.max(...blockers[i].map((b) => session(b)?.end ?? 0)) : 0;
+      const n = i + 1, ss = sessionsOf(n), { x, y } = pos[i];
+      if (!ss.length) return;
+      const readyAt = blockers[i].length ? Math.max(...blockers[i].map((b) => doneAt(b))) : 0;
       const states = [
         ['blocked', 0, readyAt, 'blocked', 'muted'],
-        ['ready', readyAt, s.start, 'ready', 'muted'],
-        ['working', s.start, s.end, `agent-working · W${s.lane + 1}`, 't-working'],
-        ['closed', s.end, Infinity, 'closed ✓', 't-closed'],
+        ['ready', readyAt, ss[0].start, 'ready', 'muted'],
+        ...ss.map((s, k) => s.role === 'audit'
+          ? ['audit', s.start, ss[k + 1]?.start ?? s.end, `auditing the PR · W${s.lane + 1}`, 't-audit']
+          : ['working', s.start, ss[k + 1]?.start ?? s.end, `${k ? 're-implementing after audit' : 'agent-working'} · W${s.lane + 1}`, 't-working']),
+        ['closed', doneAt(n), Infinity, 'closed ✓', 't-closed'],
       ].filter(([, a, b]) => b > a);
       for (const [k, a, b, label, tc] of states) {
         parts.push(`<g style="${A.during(a, b)};opacity:${b === Infinity ? 1 : 0}"><rect class="n-${k}" x="${x}" y="${y}" width="${nodeW}" height="${nodeH}" rx="8"/>`
@@ -216,7 +221,8 @@ ${legend}`));
       let free = 0;
       for (const t of mine) {
         if (t.start > free) parts.push(`<text class="muted" style="${A.during(free, t.start)};opacity:0" x="140" y="${ly}" font-size="13">idle — nothing unblocked</text>`);
-        parts.push(`<text class="t-working" style="${A.during(t.start, t.end)};opacity:0" x="140" y="${ly}" font-size="13">#${t.issue} ${esc(short(issues[t.issue - 1].title))} — fresh session: read issue → code + tests → ship</text>`);
+        const what = t.role === 'audit' ? 'independent audit of the PR: rules, examples, tests' : 'fresh session: read issue → code + tests → PR';
+        parts.push(`<text class="${t.role === 'audit' ? 't-audit' : 't-working'}" style="${A.during(t.start, t.end)};opacity:0" x="140" y="${ly}" font-size="13">#${t.issue} ${esc(short(issues[t.issue - 1].title))} — ${what}</text>`);
         free = t.end;
       }
       parts.push(`<text class="muted" style="${A.during(free)}" x="140" y="${ly}" font-size="13">done</text>`);
@@ -244,9 +250,12 @@ ${parts.join('\n')}`));
   // rows: each run, with its earlier measurement (bench/results/<phase>/) faded just above it
   const rows = [];
   for (const run of runs) {
-    for (const phase of ['phase3']) {
+    // earlier measurements of the same configuration, oldest first (only those that differ from the current)
+    for (const [phase, label] of [['phase3', 'before phase 4'], ['phase4', 'no auditor']]) {
       const f = path.join(here, 'results', phase, `${run.id}.json`);
-      if (existsSync(f)) rows.push({ id: run.id, name: `${run.name} · before`, r: JSON.parse(readFileSync(f, 'utf8')), old: true });
+      if (!existsSync(f)) continue;
+      const old = JSON.parse(readFileSync(f, 'utf8'));
+      if (old.startedAt !== run.r.startedAt) rows.push({ id: run.id, name: label, r: old, old: true });
     }
     rows.push(run);
   }
@@ -261,7 +270,7 @@ ${parts.join('\n')}`));
       const y = top + ri * (barH + gap);
       const v = m.get(r);
       const w = Math.max(2, (colW - 190) * (v / (max || 1)));
-      parts.push(`<text class="muted" x="${x0 + 10}" y="${y + 15}" font-size="10.5">${esc(old ? 'before phase 4' : name)}</text>`);
+      parts.push(`<text class="muted" x="${x0 + 10}" y="${y + 15}" font-size="10.5">${esc(name)}</text>`);
       parts.push(`<rect class="${id === 'chat' ? 'chat' : 'impl'}"${old ? ' opacity="0.35"' : ''} x="${x0 + 100}" y="${y}" width="${w}" height="${barH}" rx="3"/>`);
       parts.push(`<text class="${old ? 'muted' : 'fg'}" x="${x0 + 106 + w}" y="${y + 15}" font-size="12" font-weight="600">${m.unit(v)}</text>`);
     });

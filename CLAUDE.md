@@ -28,5 +28,7 @@ roadmap and the agreed order of the next features) before changing anything.
   question first.
 
 ## Next up
-The roadmap in `docs/design.md` lists the remaining features in the order the user chose (highest
-quality gain first): the auditor per issue (#1) is next, then the grill session (#2).
+The auditor (#1) and the CI gate (#4) are done and measured, so Hx may now build itself: write PRDs for
+the next features in the roadmap order (#2 grill, #3 gauntlet, #5 rtdd, #6 bug lane, …) and run
+`hx run --watch` on this repo, reviewing the merged PRs. Re-run the benchmark and the audit eval
+(`node bench/audit-eval.mjs`) after changes to prompts, roles or the merge path.

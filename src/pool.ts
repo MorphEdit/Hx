@@ -1,3 +1,4 @@
+import { execFile } from 'node:child_process';
 import { appendFileSync, mkdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -5,10 +6,12 @@ import { workerArgs, type Project } from './config.ts';
 import * as gh from './github.ts';
 import type { Issue } from './github.ts';
 import { externalRefs, issueKey, parseParent, plan, prdKey, refKey, render, type Action, type Plan } from './state.ts';
-import { addWorktree, implWorktree, prdWorktree, removeWorktree } from './worktree.ts';
+import { addWorktree, auditWorktree, implWorktree, prdWorktree, removeWorktree } from './worktree.ts';
 import { rateLimitOf, runGoal, runTurn, type GoalResult, type RateLimit } from './agent.ts';
 import { clearLive, otherRunner, readLive, readPause, writeLive, type LiveSession, type LiveState } from './runstate.ts';
 import { fmt, recordUsage, totalTokens } from './usage.ts';
+import { gateIssueBody, gateIssueTitle, readGate, remoteSha, runGate, writeGate, type GateResult } from './gate.ts';
+import { run as runCmd } from './exec.ts';
 
 const PROMPTS = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'prompts');
 // the one-call commit → rebase → test → push → PR → merge → close routine (forward slashes: the agent's shell may be bash)
@@ -37,6 +40,7 @@ interface WorkContext {
   started: (s: LiveSession) => void;
   progress: (key: string, turn: number, tokens: number) => void;
   rateLimit: (rl: RateLimit) => void;
+  merged?: (testCommand?: string) => void; // a PR reached the default branch: the CI gate re-tests it
 }
 
 const sleep = (ms: number, signal?: AbortSignal) => new Promise<void>((r) => {
@@ -90,13 +94,58 @@ export async function runPool(p: Project, o: PoolOptions): Promise<number> {
   await recoverStaleClaims(p);
   save();
 
+  let wake = () => {}; // set while the loop waits; called to wake it early
+
+  // CI gate: test the default branch at start and after every merge; while it is red, claim only its fix
+  const gs = readGate(p.stateDir);
+  let gateRunning: Promise<void> | null = null;
+  let gateAgain = false;
+  let gateWarned = false;
+  const gateCommand = () => c.gateCommand || gs.command;
+  const gateRed = () => c.gate && !!gs.last && !gs.last.ok;
+  const showGate = () => { live.gate = gs.last ? { ok: gs.last.ok, sha: gs.last.sha, at: gs.last.at, fixIssue: gs.fixIssue } : undefined; save(); };
+  const gateCheck = (): Promise<void> => {
+    if (!c.gate) return Promise.resolve();
+    const cmd = gateCommand();
+    if (!cmd) {
+      if (!gateWarned) { log('gate: no test command known yet (set gateCommand, or it is learned from the first audited merge)'); gateWarned = true; }
+      return Promise.resolve();
+    }
+    if (gateRunning) { gateAgain = true; return gateRunning; }
+    gateRunning = (async () => {
+      do {
+        gateAgain = false;
+        const r = await runGate(p.root, c.worktreeRoot, c.defaultBranch, cmd).catch((e) => ({ sha: '', ok: true, command: cmd, output: String(e.message), at: new Date().toISOString(), error: true }));
+        if ('error' in r) { log(`gate: could not run (${r.output.slice(0, 160)}) — retried after the next merge`); continue; }
+        const wasRed = gateRed();
+        gs.last = r;
+        if (!r.ok) {
+          log(`gate RED ✗ — \`${cmd}\` fails on ${c.defaultBranch} at ${r.sha.slice(0, 7)}; claiming only its fix`);
+          await fileGateIssue(r).catch((e) => log(`gate: filing the fix issue failed: ${e.message}`));
+        } else {
+          log(wasRed ? `gate green ✓ again at ${r.sha.slice(0, 7)}` : `gate green ✓ at ${r.sha.slice(0, 7)}`);
+          gs.fixIssue = undefined;
+        }
+        writeGate(p.stateDir, gs);
+        showGate();
+      } while (gateAgain);
+    })().finally(() => { gateRunning = null; wake(); });
+    return gateRunning;
+  };
+  const fileGateIssue = async (r: GateResult) => {
+    if (gs.fixIssue && (await gh.issueState(c.repo, gs.fixIssue)) === 'OPEN') return; // one fix issue per red
+    const url = await gh.createIssue(c.repo, gateIssueTitle(c.defaultBranch, r), gateIssueBody(c.defaultBranch, r), [c.labels.ready, c.labels.gateFix]);
+    gs.fixIssue = Number(/\/issues\/(\d+)/.exec(url)?.[1]) || undefined;
+    log(`gate: filed #${gs.fixIssue} to fix ${c.defaultBranch}`);
+  };
+  await gateCheck();
+
   const inFlight = new Map<string, Promise<void>>();
   let idleLogged = false;
   let failures = 0;
   let engineRetries = 0;
   let fatal: string | undefined; // a setup error: stop claiming, let running sessions finish
   let finished = 0; // sessions ended so far: a plan read while one was ending is already stale
-  let wake = () => {};
   const holdUntil = (until: number, why: string) => {
     if (until <= (live.pausedUntil ?? 0)) return;
     live.pausedUntil = until; live.pauseReason = why; save();
@@ -105,6 +154,10 @@ export async function runPool(p: Project, o: PoolOptions): Promise<number> {
   const ctx: WorkContext = {
     signal: stop.signal,
     started: (s) => { live.sessions.push(s); save(); },
+    merged: (testCommand) => {
+      if (testCommand && !gs.command) { gs.command = testCommand; writeGate(p.stateDir, gs); }
+      void gateCheck();
+    },
     progress: (key, turn, tokens) => { const s = live.sessions.find((x) => x.key === key); if (s) { s.turn = turn; s.tokens = tokens; save(); } },
     rateLimit: (rl) => {
       live.rateLimit = { ...rl, at: new Date().toISOString() }; save();
@@ -130,6 +183,11 @@ export async function runPool(p: Project, o: PoolOptions): Promise<number> {
         try {
           const pl = await readPlan(p, new Set(inFlight.keys()));
           actions = pl.actions.filter((a) => !o.only || o.only.includes(target(a)));
+          if (gateRed()) {
+            // someone may have fixed the base by hand: re-test when it moved
+            if (!gateRunning && gs.last && (await remoteSha(p.root, c.defaultBranch)) !== gs.last.sha) void gateCheck();
+            actions = actions.filter((a) => a.kind === 'impl' && a.issue === gs.fixIssue);
+          }
         } catch (e: any) {
           log(`board read failed, retrying next poll: ${e.message}`);
         }
@@ -152,6 +210,7 @@ export async function runPool(p: Project, o: PoolOptions): Promise<number> {
         inFlight.set(key, task);
       }
 
+      if (!inFlight.size && gateRunning) { await gateRunning; continue; } // its result decides what may run
       if (!inFlight.size) {
         if (live.draining) { log('paused — every session has finished'); break; }
         if (finished !== finishedBefore) continue; // the plan predates a session ending: read it again
@@ -246,67 +305,163 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
       + (handoff ? `\nThat session's handoff note:\n\n${handoff.replace(HANDOFF_MARKER, '').trim()}\n` : '');
   }
 
-  const promise = `${a.kind === 'impl' ? 'ISSUE' : a.kind.toUpperCase()} ${n} DONE`;
   const L = c.labels;
+  const audited = a.kind === 'impl' && c.audit;
   const vars: Record<string, string | number> = {
-    REPO: c.repo, BASE: c.defaultBranch, PROMISE: promise, TITLE: title, SHIP,
+    REPO: c.repo, BASE: c.defaultBranch, TITLE: title, SHIP,
     LABEL_READY: L.ready, LABEL_REVIEWED: L.reviewed, ROUND: round, ROUNDS: c.reviewRounds,
     ISSUE: n, PRD: n, BRANCH: `issue/${n}`,
     EXISTING: a.kind === 'decompose' ? childList(a.children) : '', CHILDREN: a.kind === 'review' ? childList(a.children) : '',
     RESUMED: resumeNote,
     SUBJECT: a.kind === 'impl' ? `issue #${n} (branch issue/${n}): look at \`git status\`, its PR (\`gh pr list -R ${c.repo} --head issue/${n}\`) and the issue`
       : a.kind === 'decompose' ? `PRD #${n}: list the issues you have filed for it so far` : `the review of PRD #${n}`,
+    // with an auditor the implementer stops at an open PR; hx merges once the audit passes
+    SHIP_FLAGS: audited ? ' --no-merge' : '',
+    SHIP_WHAT: audited ? ' (it does NOT merge: an independent auditor checks the PR first)' : ', squash-merges it, deletes the branch and closes the issue',
+    SHIP_DONE: audited ? 'READY' : 'SHIPPED',
+    SHIP_NOTE: audited ? 'Do not merge the PR or close the issue yourself.\n' : '',
   };
-  const prompt = render(readFileSync(path.join(PROMPTS, `${a.kind}.md`), 'utf8'), vars);
-  const cont = render(readFileSync(path.join(PROMPTS, 'continue.md'), 'utf8'), vars);
   const logDir = path.join(p.stateDir, 'logs');
   mkdirSync(logDir, { recursive: true });
   const eventLog = path.join(logDir, `${a.kind === 'impl' ? 'issue' : a.kind}-${n}.jsonl`);
+  let sessionTokens = 0;
+  /** One role session (a fresh Claude session with its Ralph loop), logged and counted. */
+  const goal = (role: string, cwd: string, promptFile: string, promise: string, extra: Record<string, string | number> = {}) => {
+    const v = { ...vars, ...extra, PROMISE: promise };
+    return runGoal({
+      bin: c.claudeBin, cwd, model: c.model, effort: c.effort, extraArgs: workerArgs(c), timeoutMs: c.turnTimeoutMinutes * 60_000,
+      prompt: render(readFileSync(path.join(PROMPTS, promptFile), 'utf8'), v),
+      continuePrompt: render(readFileSync(path.join(PROMPTS, 'continue.md'), 'utf8'), v),
+      promise, maxIterations: c.maxIterations, signal: ctx.signal,
+      onEvent: (ev) => {
+        appendFileSync(eventLog, JSON.stringify(ev) + '\n');
+        const rl = rateLimitOf(ev);
+        if (rl) ctx.rateLimit(rl);
+      },
+      onTurn: (i, sessionId, t) => {
+        sessionTokens += totalTokens(t.usage);
+        ctx.progress(key, i, sessionTokens);
+        recordUsage(p.stateDir, { ts: new Date().toISOString(), issue: n, role, sessionId, iteration: i, model: c.model,
+          ok: t.ok, usage: t.usage, costUsd: t.costUsd, durationMs: t.durationMs, numTurns: t.numTurns });
+        log(`${role} turn ${i}: ${t.ok ? 'ok' : 'error'} · ${fmt(totalTokens(t.usage))} tokens (${fmt(t.usage.output)} out) · ${Math.round(t.durationMs / 1000)}s${t.error ? ` · ${t.error.slice(0, 160)}` : ''}`, n);
+      },
+    });
+  };
   log(`working in ${wt.dir}${wt.resumed ? ' (resuming earlier work)' : ''}`, n);
 
-  let sessionTokens = 0;
-  const r = await runGoal({
-    bin: c.claudeBin, cwd: wt.dir, model: c.model, effort: c.effort, extraArgs: workerArgs(c), timeoutMs: c.turnTimeoutMinutes * 60_000,
-    prompt, continuePrompt: cont, promise, maxIterations: c.maxIterations, signal: ctx.signal,
-    onEvent: (ev) => {
-      appendFileSync(eventLog, JSON.stringify(ev) + '\n');
-      const rl = rateLimitOf(ev);
-      if (rl) ctx.rateLimit(rl);
-    },
-    onTurn: (i, sessionId, t) => {
-      sessionTokens += totalTokens(t.usage);
-      ctx.progress(key, i, sessionTokens);
-      recordUsage(p.stateDir, { ts: new Date().toISOString(), issue: n, role: a.kind, sessionId, iteration: i, model: c.model,
-        ok: t.ok, usage: t.usage, costUsd: t.costUsd, durationMs: t.durationMs, numTurns: t.numTurns });
-      log(`turn ${i}: ${t.ok ? 'ok' : 'error'} · ${fmt(totalTokens(t.usage))} tokens (${fmt(t.usage.output)} out) · ${Math.round(t.durationMs / 1000)}s${t.error ? ` · ${t.error.slice(0, 160)}` : ''}`, n);
-    },
-  });
-
   const keepOnStop = a.kind === 'impl'; // only an implementation worktree can hold unpushed work
-  const summary = `${r.iterations} turn(s), ${fmt(totalTokens(r.usage))} tokens`;
-  if (r.stopReason === 'aborted' && a.kind === 'impl' && r.iterations > 0) await checkpoint(p, n, r.sessionId, wt.dir, vars, eventLog);
-  if (r.stopReason === 'aborted' || r.stopReason === 'limited' || r.stopReason === 'fatal') {
+  const handBack = async (r: GoalResult, summary: string) => {
     // not a failure of the issue: hand it back untouched
     await gh.editLabels(c.repo, n, [], [L.working]).catch(() => {});
     if (!keepOnStop) await removeWorktree(p.root, wt.dir);
-    const what = { aborted: 'stopped', limited: 'paused by usage limit', fatal: `stopped by a setup error (${r.last?.error?.slice(0, 200)})` }[r.stopReason];
+    const what = { aborted: 'stopped', limited: 'paused by usage limit', fatal: `stopped by a setup error (${r.last?.error?.slice(0, 200)})` }[r.stopReason as 'aborted'];
     log(`${what} — released (${summary})${keepOnStop ? '; worktree kept' : ''}`, n);
     return r;
+  };
+  const fail = async (r: GoalResult, reason: string, summary: string) => {
+    await gh.comment(c.repo, n, `**hx:** ${a.kind} stopped — ${reason} (${summary}).\n\nLast reply:\n\n${(r.last?.text ?? '').slice(-1500).replace(/^/gm, '> ')}\n\n${a.kind === 'impl' ? `Work is on branch \`issue/${n}\` if it was pushed. ` : ''}Remove the \`${L.blocked}\` label to let hx try again.`).catch(() => {});
+    await gh.editLabels(c.repo, n, [L.blocked], [L.working]).catch(() => {});
+    if (!keepOnStop) await removeWorktree(p.root, wt.dir);
+    log(`${a.kind} FAILED ✗ — ${reason} (${summary}); labelled ${L.blocked}${keepOnStop ? ', worktree kept' : ''}`, n);
+    return { ...r, done: false };
+  };
+  const stopped = (r: GoalResult) => r.stopReason === 'aborted' || r.stopReason === 'limited' || r.stopReason === 'fatal';
+  const promise = `${a.kind === 'impl' ? 'ISSUE' : a.kind.toUpperCase()} ${n} DONE`;
+
+  if (!audited) {
+    const r = await goal(a.kind, wt.dir, `${a.kind}.md`, promise);
+    const summary = `${r.iterations} turn(s), ${fmt(totalTokens(r.usage))} tokens`;
+    if (r.stopReason === 'aborted' && a.kind === 'impl' && r.iterations > 0) await checkpoint(p, n, r.sessionId, wt.dir, vars, eventLog);
+    if (stopped(r)) return handBack(r, summary);
+    const why = await verify(p, a, n);
+    if (!why) {
+      await gh.editLabels(c.repo, n, [], [L.working]).catch(() => {});
+      await removeWorktree(p.root, wt.dir);
+      log(`${a.kind} DONE ✓ (${summary})`, n);
+      if (a.kind === 'impl') ctx.merged?.();
+      return { ...r, done: true };
+    }
+    return fail(r, r.done ? why : r.stopReason === 'max-iterations' ? `no completion after ${r.iterations} turns` : `agent error: ${r.last?.error ?? 'unknown'}`, summary);
   }
 
-  const why = await verify(p, a, n);
-  if (!why) {
-    await gh.editLabels(c.repo, n, [], [L.working]).catch(() => {});
-    await removeWorktree(p.root, wt.dir);
-    log(`${a.kind} DONE ✓ (${summary})`, n);
-    return { ...r, done: true };
+  // implement → independent audit → (hx merges | back to the implementer with the findings)
+  let extra: Record<string, string | number> = {};
+  for (let attempt = 1; ; attempt++) {
+    const r = await goal('impl', wt.dir, 'impl.md', promise, extra);
+    let summary = `${fmt(sessionTokens)} tokens so far`;
+    if (r.stopReason === 'aborted' && r.iterations > 0) await checkpoint(p, n, r.sessionId, wt.dir, vars, eventLog);
+    if (stopped(r)) return handBack(r, summary);
+    const pr = r.done ? await gh.openPrFor(c.repo, `issue/${n}`) : null;
+    if (!pr) return fail(r, r.done ? 'the implementer reported ready but no open PR for its branch exists'
+      : r.stopReason === 'max-iterations' ? `no completion after ${r.iterations} turns` : `agent error: ${r.last?.error ?? 'unknown'}`, summary);
+
+    // the auditor works in its own fresh checkout of the pushed branch and never sees the implementer's session
+    const awt = await addWorktree(p.root, c.worktreeRoot, auditWorktree(n));
+    log(`audit ${attempt}/${c.auditRounds}: PR #${pr}`, n);
+    const ar = await goal('audit', awt.dir, 'audit.md', `AUDIT ${n} DONE`, { PR: pr, ROUND: attempt, ROUNDS: c.auditRounds });
+    await removeWorktree(p.root, awt.dir);
+    summary = `${fmt(sessionTokens)} tokens`;
+    if (stopped(ar)) return handBack(ar, summary);
+    const v = auditVerdict(ar.done ? ar.last?.text ?? '' : '');
+    if (!v) return fail(ar, ar.done ? 'the auditor gave no VERDICT line' : `audit did not complete: ${ar.last?.error ?? ar.stopReason}`, summary);
+    await gh.comment(c.repo, n, `${AUDIT_MARKER}\n**hx audit ${attempt}/${c.auditRounds}: ${v.pass ? 'PASS ✓' : 'FAIL ✗'}** (PR #${pr})\n\n${v.findings}`).catch(() => {});
+    log(`audit ${v.pass ? 'PASS ✓' : 'FAIL ✗'}${v.pass ? '' : ` — ${v.findings.split('\n')[0].slice(0, 140)}`}`, n);
+
+    let feedback: string;
+    if (v.pass) {
+      const m = await mergeAudited(wt.dir);
+      // the repo only took an auto-merge: it lands within moments, wait for it rather than fail
+      if (!m.ok && /AUTO-MERGE set/.test(m.output)) m.ok = await waitClosed(c.repo, n, 10 * 60_000);
+      if (m.ok && (await gh.issueState(c.repo, n)) === 'CLOSED') {
+        const shipped = await shipInfo(wt.dir);
+        await gh.editLabels(c.repo, n, [], [L.working]).catch(() => {});
+        await removeWorktree(p.root, wt.dir);
+        log(`DONE ✓ audited and merged (${attempt} round(s), ${summary})`, n);
+        ctx.merged?.(shipped?.test);
+        return { ...r, done: true };
+      }
+      if (!m.retry) return fail(r, `merging the audited PR failed: ${m.output.slice(-300)}`, summary);
+      feedback = `The audit passed, but merging failed after rebasing on the latest ${c.defaultBranch}:\n\n${m.output.slice(-1500)}\n\nFix that on your branch, then ship again with --no-merge.`;
+    } else {
+      feedback = `An independent audit of PR #${pr} FAILED with these findings — fix every one (add a test for each), then ship again with --no-merge:\n\n${v.findings}`;
+    }
+    if (attempt >= c.auditRounds) return fail(r, `still not passing after ${attempt} audit round(s); last findings: ${feedback.slice(0, 400)}`, summary);
+    extra = { RESUMED: `NOTE: this branch already has your earlier work (PR #${pr} is open).\n${feedback}\n` };
   }
-  const reason = r.done ? why : r.stopReason === 'max-iterations' ? `no completion after ${r.iterations} turns` : `agent error: ${r.last?.error ?? 'unknown'}`;
-  await gh.comment(c.repo, n, `**hx:** ${a.kind} stopped — ${reason} (${summary}).\n\nLast reply:\n\n${(r.last?.text ?? '').slice(-1500).replace(/^/gm, '> ')}\n\n${a.kind === 'impl' ? `Work is on branch \`issue/${n}\` if it was pushed. ` : ''}Remove the \`${L.blocked}\` label to let hx try again.`).catch(() => {});
-  await gh.editLabels(c.repo, n, [L.blocked], [L.working]).catch(() => {});
-  if (!keepOnStop) await removeWorktree(p.root, wt.dir);
-  log(`${a.kind} FAILED ✗ — ${reason} (${summary}); labelled ${L.blocked}${keepOnStop ? ', worktree kept' : ''}`, n);
-  return { ...r, done: false };
+}
+
+export const AUDIT_MARKER = '<!-- hx-audit -->';
+
+/** The auditor's verdict from its final message, or null when it gave none. */
+export function auditVerdict(text: string): { pass: boolean; findings: string } | null {
+  const m = /VERDICT:\s*\**\s*(PASS|FAIL)\b/i.exec(text);
+  if (!m) return null;
+  const f = /FINDINGS:\s*([\s\S]*?)(?:<promise>|$)/i.exec(text.slice(m.index));
+  return { pass: m[1].toUpperCase() === 'PASS', findings: (f?.[1] ?? '').trim() || '(none given)' };
+}
+
+/** Poll until the issue is closed (an auto-merge landed), up to `ms`. */
+async function waitClosed(repo: string, n: number, ms: number): Promise<boolean> {
+  for (const end = Date.now() + ms; Date.now() < end; await new Promise((r) => setTimeout(r, 10_000)))
+    if ((await gh.issueState(repo, n)) === 'CLOSED') return true;
+  return false;
+}
+
+/** What the implementer's `ship --no-merge` recorded in its worktree (repo, base, test command, PR). */
+async function shipInfo(cwd: string): Promise<{ test?: string } | null> {
+  const dir = (await runCmd('git', ['-C', cwd, 'rev-parse', '--absolute-git-dir'])).stdout.trim();
+  try { return JSON.parse(readFileSync(path.join(dir, 'hx-ship.json'), 'utf8')); } catch { return null; }
+}
+
+/** Rebase, re-test, push and merge the audited branch (ship.mjs --resume, run by hx, not by an agent). */
+function mergeAudited(cwd: string): Promise<{ ok: boolean; retry: boolean; output: string }> {
+  return new Promise((resolve) => {
+    execFile(process.execPath, [SHIP, '--resume'], { cwd, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 }, (err, stdout, stderr) => {
+      const code = err ? (typeof (err as any).code === 'number' ? (err as any).code : 1) : 0;
+      // 3 = rebase conflict, 4 = tests fail after the rebase: the implementer can fix those
+      resolve({ ok: code === 0 && /SHIPPED #/.test(stdout), retry: code === 3 || code === 4, output: `${stdout}\n${stderr}`.trim() });
+    });
+  });
 }
 
 /**

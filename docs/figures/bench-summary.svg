@@ -1,12 +1,12 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 310" width="960" height="310" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 342" width="960" height="342" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif">
 <style>
   :root { --bg:#ffffff; --panel:#f6f8fa; --border:#d0d7de; --fg:#1f2328; --muted:#656d76; --track:#eaeef2;
           --impl:#2f81f7; --decompose:#8250df; --review:#bf8700; --checkpoint:#cf222e; --chat:#57606a; --good:#1a7f37; --bad:#cf222e;
-          --implbg:#ddf4ff; --goodbg:#dafbe1; }
+          --implbg:#ddf4ff; --goodbg:#dafbe1; --audit:#1b7c83; --auditbg:#d8f3f5; }
   @media (prefers-color-scheme: dark) {
     :root { --bg:#0d1117; --panel:#161b22; --border:#30363d; --fg:#e6edf3; --muted:#8b949e; --track:#21262d;
             --impl:#4493f8; --decompose:#a371f7; --review:#d29922; --checkpoint:#f85149; --chat:#8b949e; --good:#3fb950; --bad:#f85149;
-            --implbg:#0c2d6b; --goodbg:#0f3d1e; }
+            --implbg:#0c2d6b; --goodbg:#0f3d1e; --audit:#39c5cf; --auditbg:#0b3a3f; }
   }
   .bg { fill: var(--bg); } .panel { fill: var(--panel); stroke: var(--border); }
   .fg { fill: var(--fg); } .muted { fill: var(--muted); } .track { fill: var(--track); }
@@ -23,10 +23,11 @@
   .n-working { fill: var(--implbg); stroke: var(--impl); stroke-width: 2; }
   .n-closed { fill: var(--goodbg); stroke: var(--good); }
   .t-working { fill: var(--impl); } .t-closed { fill: var(--good); }
+  .audit { fill: var(--audit); } .n-audit { fill: var(--auditbg); stroke: var(--audit); stroke-width: 2; } .t-audit { fill: var(--audit); }
   @media (prefers-reduced-motion: reduce) { * { animation: none !important; } }
 
 </style>
-<rect class="bg" width="960" height="310" rx="10"/>
+<rect class="bg" width="960" height="342" rx="10"/>
 
 <text class="fg" x="20" y="34" font-size="20" font-weight="700">Benchmark summary</text>
 <text class="muted" x="20" y="54" font-size="12">6 issues with dependencies · graded by hidden tests the agents never saw · claude-opus-5-5 (medium)</text>
@@ -43,9 +44,12 @@
 <text class="muted" x="30" y="211" font-size="10.5">before phase 4</text>
 <rect class="impl" opacity="0.35" x="120" y="196" width="57.596022298000946" height="22" rx="3"/>
 <text class="muted" x="183.59602229800095" y="211" font-size="12" font-weight="600">3.6 min</text>
-<text class="muted" x="30" y="243" font-size="10.5">Hx · 3 workers</text>
-<rect class="impl" x="120" y="228" width="56.50706247055256" height="22" rx="3"/>
-<text class="fg" x="182.50706247055257" y="243" font-size="12" font-weight="600">3.6 min</text>
+<text class="muted" x="30" y="243" font-size="10.5">no auditor</text>
+<rect class="impl" opacity="0.35" x="120" y="228" width="56.50706247055256" height="22" rx="3"/>
+<text class="muted" x="182.50706247055257" y="243" font-size="12" font-weight="600">3.6 min</text>
+<text class="muted" x="30" y="275" font-size="10.5">Hx · 3 workers</text>
+<rect class="impl" x="120" y="260" width="87.03843614508676" height="22" rx="3"/>
+<text class="fg" x="213.03843614508676" y="275" font-size="12" font-weight="600">5.5 min</text>
 <text class="fg" x="336.6666666666667" y="86" font-size="14" font-weight="600">Tokens <tspan class="muted" font-weight="400" font-size="11">(lower is better)</tspan></text>
 <text class="muted" x="336.6666666666667" y="115" font-size="10.5">Single session</text>
 <rect class="chat" x="426.6666666666667" y="100" width="30.3267907250882" height="22" rx="3"/>
@@ -59,9 +63,12 @@
 <text class="muted" x="336.6666666666667" y="211" font-size="10.5">before phase 4</text>
 <rect class="impl" opacity="0.35" x="426.6666666666667" y="196" width="111.14479243363688" height="22" rx="3"/>
 <text class="muted" x="543.8114591003035" y="211" font-size="12" font-weight="600">2.45M</text>
-<text class="muted" x="336.6666666666667" y="243" font-size="10.5">Hx · 3 workers</text>
-<rect class="impl" x="426.6666666666667" y="228" width="18.236896535048263" height="22" rx="3"/>
-<text class="fg" x="450.903563201715" y="243" font-size="12" font-weight="600">0.40M</text>
+<text class="muted" x="336.6666666666667" y="243" font-size="10.5">no auditor</text>
+<rect class="impl" opacity="0.35" x="426.6666666666667" y="228" width="18.236896535048263" height="22" rx="3"/>
+<text class="muted" x="450.903563201715" y="243" font-size="12" font-weight="600">0.40M</text>
+<text class="muted" x="336.6666666666667" y="275" font-size="10.5">Hx · 3 workers</text>
+<rect class="impl" x="426.6666666666667" y="260" width="31.267886247324157" height="22" rx="3"/>
+<text class="fg" x="463.93455291399084" y="275" font-size="12" font-weight="600">0.69M</text>
 <text class="fg" x="643.3333333333334" y="86" font-size="14" font-weight="600">Hidden tests passed</text>
 <text class="muted" x="643.3333333333334" y="115" font-size="10.5">Single session</text>
 <rect class="chat" x="733.3333333333334" y="100" width="116.66666666666669" height="22" rx="3"/>
@@ -75,7 +82,10 @@
 <text class="muted" x="643.3333333333334" y="211" font-size="10.5">before phase 4</text>
 <rect class="impl" opacity="0.35" x="733.3333333333334" y="196" width="116.66666666666669" height="22" rx="3"/>
 <text class="muted" x="856" y="211" font-size="12" font-weight="600">6/6</text>
-<text class="muted" x="643.3333333333334" y="243" font-size="10.5">Hx · 3 workers</text>
-<rect class="impl" x="733.3333333333334" y="228" width="116.66666666666669" height="22" rx="3"/>
-<text class="fg" x="856" y="243" font-size="12" font-weight="600">6/6</text>
+<text class="muted" x="643.3333333333334" y="243" font-size="10.5">no auditor</text>
+<rect class="impl" opacity="0.35" x="733.3333333333334" y="228" width="116.66666666666669" height="22" rx="3"/>
+<text class="muted" x="856" y="243" font-size="12" font-weight="600">6/6</text>
+<text class="muted" x="643.3333333333334" y="275" font-size="10.5">Hx · 3 workers</text>
+<rect class="impl" x="733.3333333333334" y="260" width="116.66666666666669" height="22" rx="3"/>
+<text class="fg" x="856" y="275" font-size="12" font-weight="600">6/6</text>
 </svg>

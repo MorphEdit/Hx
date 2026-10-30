@@ -3,6 +3,7 @@
 //   decompose: files two children (the second blocked by the first) and prints the promise
 //   review:    round 1 files a gap issue; later rounds sign off. Both post the review comment.
 // FAKE_CLAUDE_MODE=limit / crash for the error paths.
+import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { locked } from './lock.mjs';
@@ -13,6 +14,7 @@ const mode = process.env.FAKE_CLAUDE_MODE || 'work';
 const out = (o) => process.stdout.write(JSON.stringify({ ...o, session_id: sid }) + '\n');
 const usage = { input_tokens: 10, cache_creation_input_tokens: 1000, cache_read_input_tokens: 5000, output_tokens: 200 };
 const boardFile = process.env.HX_FAKE_STATE;
+const GIT_ID = { GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' };
 const loadBoard = () => JSON.parse(readFileSync(boardFile, 'utf8'));
 const saveBoard = (b) => { writeFileSync(boardFile + '.tmp', JSON.stringify(b, null, 2)); renameSync(boardFile + '.tmp', boardFile); };
 const file = (b, title, body, labels) => {
@@ -38,7 +40,7 @@ process.stdin.on('data', (d) => (prompt += d)).on('end', () => {
   const counter = path.join(process.env.HX_FAKE_DIR, `${sid}.json`);
   const st = existsSync(counter) ? JSON.parse(readFileSync(counter, 'utf8'))
     : { turns: 0, role: /Role: (\w+)/.exec(prompt)?.[1] ?? 'implement', n: Number(/(?:Issue|PRD): #(\d+)/.exec(prompt)?.[1]),
-        round: Number(/review round (\d+)/.exec(prompt)?.[1] ?? 0) };
+        round: Number(/(?:review|audit) round (\d+)/.exec(prompt)?.[1] ?? 0) };
   st.turns++;
   writeFileSync(counter, JSON.stringify(st));
   writeFileSync(path.join(process.env.HX_FAKE_DIR, `${sid}.prompt-${st.turns}.txt`), prompt);
@@ -49,11 +51,41 @@ process.stdin.on('data', (d) => (prompt += d)).on('end', () => {
     out({ type: 'rate_limit_event', rate_limit_info: { status: 'allowed_warning', utilization: Number(process.env.FAKE_CLAUDE_RATE),
       resetsAt: Math.ceil(Date.now() / 1000) + 2, rateLimitType: 'five_hour' } });
   // FAKE_CLAUDE_DELAY_MS: a slow turn, so a test can pause or stop the run mid-session
-  setTimeout(() => finish(st, checkpoint), checkpoint ? 0 : Number(process.env.FAKE_CLAUDE_DELAY_MS ?? 0));
+  setTimeout(() => finish(st, checkpoint, prompt), checkpoint ? 0 : Number(process.env.FAKE_CLAUDE_DELAY_MS ?? 0));
 });
 
-function finish(st, checkpoint) {
+function reply(text) {
+  out({ type: 'system', subtype: 'init' });
+  out({ type: 'assistant', message: { content: [{ type: 'text', text }] } });
+  out({ type: 'result', subtype: 'success', is_error: false, result: text, num_turns: 3, usage, total_cost_usd: 0.01 });
+}
+
+function finish(st, checkpoint, prompt) {
   const done = () => `<promise>${st.role === 'implement' ? 'ISSUE' : st.role.toUpperCase()} ${st.n} DONE</promise>`;
+  // audited implementer: really commit, then really run ship.mjs --no-merge (real git, fake gh)
+  if (st.role === 'implement' && / --no-merge/.test(prompt) && !checkpoint) {
+    const ship = /node "([^"]+ship\.mjs)"/.exec(prompt)[1];
+    const repo = /Repo (\S+)/.exec(prompt)[1];
+    writeFileSync(path.join(process.cwd(), `impl-${st.n}.txt`), `attempt ${Date.now()}\n`);
+    const r = spawnSync(process.execPath, [ship, '--repo', repo, '--base', 'main', '--issue', String(st.n), '--title', `feat: issue ${st.n}`,
+      '--test', 'node -e "process.exit(0)"', '--no-merge'], { encoding: 'utf8', env: { ...process.env, ...GIT_ID } });
+    return reply(r.status === 0 ? `${r.stdout.trim()}\n${done()}` : `ship failed ${r.status}: ${r.stderr}`);
+  }
+  // the fix for a red default branch: really repair main (remove BROKEN) and push it
+  if (st.role === 'implement' && !checkpoint && /^Default branch is red/.test(loadBoard().issues.find((i) => i.number === st.n)?.title ?? '')) {
+    const g = (...a) => spawnSync('git', a, { encoding: 'utf8', env: { ...process.env, ...GIT_ID } });
+    g('fetch', '-q', 'origin', 'main'); g('reset', '-q', '--hard', 'origin/main'); g('rm', '-q', 'BROKEN');
+    g('commit', '-q', '-m', `fix: main is green again (closes #${st.n})`); g('push', '-q', 'origin', 'HEAD:main');
+    locked(boardFile, () => { const b = loadBoard(); b.issues.find((i) => i.number === st.n).state = 'CLOSED'; saveBoard(b); });
+    return reply(`fixed main. ${done()}`);
+  }
+  // auditor: body AUDITFAIL fails the first round, AUDITNEVER fails every round, anything else passes
+  if (st.role === 'audit') {
+    const body = loadBoard().issues.find((i) => i.number === st.n).body;
+    const failing = /AUDITNEVER/.test(body) || (/AUDITFAIL/.test(body) && st.round === 1);
+    return reply(failing ? `VERDICT: FAIL\nFINDINGS:\n- issue #${st.n} requires X — code does Y — ran it\n\n${done()}`
+      : `VERDICT: PASS\nFINDINGS:\n- none\n\n${done()}`);
+  }
   const text = locked(boardFile, () => {
     const b = loadBoard();
     const me = b.issues.find((i) => i.number === st.n);
@@ -77,7 +109,5 @@ function finish(st, checkpoint) {
     saveBoard(b);
     return t;
   });
-  out({ type: 'system', subtype: 'init' });
-  out({ type: 'assistant', message: { content: [{ type: 'text', text }] } });
-  out({ type: 'result', subtype: 'success', is_error: false, result: text, num_turns: 3, usage, total_cost_usd: 0.01 });
+  reply(text);
 }

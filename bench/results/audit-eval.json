@@ -1,0 +1,147 @@
+{
+  "repo": "MorphEdit/hx-audit-eval-202610300633",
+  "model": "claude-opus-5-5",
+  "effort": "medium",
+  "at": "2026-10-30T06:36:07.856Z",
+  "defectsCaught": 6,
+  "defects": 6,
+  "falseAlarms": 1,
+  "correctPrs": 6,
+  "noVerdict": 0,
+  "tokensPerAudit": 45070,
+  "secondsPerAudit": 30,
+  "results": [
+    {
+      "issue": 1,
+      "kind": "bug",
+      "expected": "FAIL",
+      "got": "FAIL",
+      "correct": true,
+      "findings": "- Apostrophes at the start or end of a word must be stripped (example: `tokenize(\"'quoted' words\")` → `[\"quoted\",\"words\"]`) — the code returns `[\"'quoted'\",\"words\"]`. The regex keeps edge apostrophes and nothing strips them afterwards — seen by running `node -e` against `src/tokenize.js`.\n- A word that is empty after stripping must be dropped — `tokenize(\"'''\")` returns `[\"'''\"]` instead of `[]`. The `.filter(Boolean)` step does nothing because nothing was stripped first — seen by running `node -e`.\n- The tests must cover every issue example — `test/tokenize.test.js` leaves out `\"'quoted' words\"`, `\"café 42\"` and `\"  ,,, \"`. That is why `npm test` passes (2/2) even with the apostrophe bug — seen by reading the test file and running `npm test`.",
+      "defect": "leading/trailing apostrophes are kept: tokenize(\"'quoted' words\") gives [\"'quoted'\", \"words\"] (an example in the issue)",
+      "ms": 22676,
+      "tokens": 40678
+    },
+    {
+      "issue": 1,
+      "kind": "ok",
+      "expected": "PASS",
+      "got": "FAIL",
+      "correct": false,
+      "findings": "- Issue says \"Add tests for these\" (all 6 examples) — `test/tokenize.test.js` only tests 3 of them: `\"Don't stop, believing!\"`, `\"Hello, HELLO hello\"` and `\"\"`. There are no tests for `\"'quoted' words\"`, `\"café 42\"` or `\"  ,,, \"` — seen by reading the test file in the diff.\n- New tests must catch a wrong implementation — they would not. Code that never strips leading/trailing apostrophes, or that only matches ASCII `[a-z0-9']`, would still pass every assertion, so the stripping rule and the Unicode letters/digits rule have no test — seen by checking each assertion against those two rules.\n- Implementation in `src/tokenize.js` — correct. All 6 examples give the expected output, and so do the edge cases `\"'''\"`→`[]`, `\"a''b\"`→`[\"a''b\"]`, `\"x_y a-b\"` split as separators, and `Straße` / Arabic-Indic digits / CJK — seen via `node -e`. `npm test` passes (2 tests, 0 failures).",
+      "defect": null,
+      "ms": 40169,
+      "tokens": 41486
+    },
+    {
+      "issue": 2,
+      "kind": "bug",
+      "expected": "FAIL",
+      "got": "FAIL",
+      "correct": true,
+      "findings": "- When counts are equal, words must be sorted alphabetically, e.g. `wordFreq(\"z y x\")` → `[[\"x\",1],[\"y\",1],[\"z\",1]]` — the sort compares only counts (`b[1] - a[1]`) and has no tie-break, so it returns `[[\"z\",1],[\"y\",1],[\"x\",1]]` — seen by running `node -e` on `src/freq.js` and reading `src/freq.js:6`.\n- The tests should cover the tie-break rule and the `\"z y x\"` example — `test/freq.test.js` never checks equal counts or the empty-input case, so it passes even though the code is wrong — seen by reading the test and getting 2/2 passing from `npm test`.",
+      "defect": "equal counts keep first-seen order instead of alphabetical: wordFreq(\"z y x\") gives z, y, x (an example in the issue)",
+      "ms": 21309,
+      "tokens": 41001
+    },
+    {
+      "issue": 2,
+      "kind": "ok",
+      "expected": "PASS",
+      "got": "PASS",
+      "correct": true,
+      "findings": "- none\n\nThe code meets every rule and example in the issue. I checked this by running the code and by reading `src/freq.js:3-8`:\n- **Sort order:** `wordFreq(\"b a b c a b\")` returns `[[\"b\",3],[\"a\",2],[\"c\",1]]`. Equal counts are ordered alphabetically: `wordFreq(\"z y x\")` returns `[[\"x\",1],[\"y\",1],[\"z\",1]]`. Case is normalised by `tokenize`, so `\"B b a A\"` returns `[[\"a\",2],[\"b\",2]]`.\n- **`top`:** `{top:2}` returns `[[\"b\",3],[\"a\",2]]`, `{top:1}` returns `[[\"a\",1]]`, and `{top:5}` on two words returns both pairs.\n- **No words:** both `\"\"` and `\"!!! ,,\"` return `[]`.\n- **Uses `tokenize`:** it imports it from `./tokenize.js`.\n- **Tests:** `npm test` passes, 2 of 2. The new test would fail if count ordering or `top` slicing were wrong.\n\nThe new tests leave two rules unchecked: alphabetical order for equal counts (the `\"z y x\"` example) and the `[]` result for no words. Both behave correctly when run by hand, and the issue didn't ask for full coverage, so this isn't a defect.",
+      "defect": null,
+      "ms": 31143,
+      "tokens": 55223
+    },
+    {
+      "issue": 3,
+      "kind": "bug",
+      "expected": "FAIL",
+      "got": "FAIL",
+      "correct": true,
+      "findings": "- Remove diacritics by normalizing to NFKD and dropping combining marks — `src/slugify.js:2` never calls `normalize('NFKD')`, so precomposed accented letters are treated as separators — running `slugify(\"Héllo, Wörld!\")` gave `\"h-llo-w-rld\"`, but the issue expects `\"hello-world\"`.\n- Example `slugify(\"Héllo, Wörld!\")` → `\"hello-world\"` — this example is not in `test/slugify.test.js`, which only checks the three ASCII examples, so the suite passes (2/2) even though diacritic removal is missing — read the test file and ran `npm test`.",
+      "defect": "no diacritic removal: slugify(\"Héllo, Wörld!\") gives \"h-llo-w-rld\" (an example in the issue)",
+      "ms": 33540,
+      "tokens": 53729
+    },
+    {
+      "issue": 3,
+      "kind": "ok",
+      "expected": "PASS",
+      "got": "PASS",
+      "correct": true,
+      "findings": "- none",
+      "defect": null,
+      "ms": 30611,
+      "tokens": 40940
+    },
+    {
+      "issue": 4,
+      "kind": "bug",
+      "expected": "FAIL",
+      "got": "FAIL",
+      "correct": true,
+      "findings": "- The issue says a `wpm` that is not a number greater than 0 must throw a `RangeError`, and gives the example `readingTime(\"hi\", 0)` → throws `RangeError` — `src/reading.js` never checks `wpm`, so nothing is thrown. `wpm = 0` returns `Infinity`, `-1` returns `-1`, and `NaN` or `'abc'` return `NaN` — seen in the code and by running each case with `node -e`.\n- Tests must cover the rules — `test/reading.test.js` only checks the three word-count examples. It has no test for the `RangeError` rule or for 0 words → `0`, so the suite passes (2/2 under `npm test`) even with the missing check — seen in the test file and the test run.\n- The rest is correct: 200→1, 201→2, 250 at wpm 100→3, empty text→0 and 1 word→1 all give the expected results, and words are counted with `tokenize` — confirmed with `node -e` and the tests.",
+      "defect": "an invalid wpm is not rejected: readingTime(\"hi\", 0) returns Infinity instead of throwing RangeError (a rule and example in the issue)",
+      "ms": 24084,
+      "tokens": 41236
+    },
+    {
+      "issue": 4,
+      "kind": "ok",
+      "expected": "PASS",
+      "got": "PASS",
+      "correct": true,
+      "findings": "- none",
+      "defect": null,
+      "ms": 28394,
+      "tokens": 40803
+    },
+    {
+      "issue": 5,
+      "kind": "bug",
+      "expected": "FAIL",
+      "got": "FAIL",
+      "correct": true,
+      "findings": "- The issue says exit code `2` when the file can't be read, with the error printed to stderr — `read()` in `bin/textstat.js` calls `fail(String(e.message), 1)`, so the CLI exits with `1` — running `node bin/textstat.js freq nope.txt` and `node bin/textstat.js time nope.txt` printed ENOENT to stderr and returned `exit=1`.\n- The tests should check the exit codes the issue lists — `test/textstat.test.js` only checks `nope` → 1 and never tries a file that can't be read, so it passes even though the code above is wrong — I read the test, and `npm test` passed 2/2.",
+      "defect": "an unreadable file exits 1 instead of 2 (an exit-code rule in the issue)",
+      "ms": 31771,
+      "tokens": 44830
+    },
+    {
+      "issue": 5,
+      "kind": "ok",
+      "expected": "PASS",
+      "got": "PASS",
+      "correct": true,
+      "findings": "- none — I checked all three commands, the newline after each result, and exit codes 0, 1 and 2 against the code in `bin/textstat.js` and by running the CLI myself. `freq` prints `b 3`/`a 2`/`c 1`, and `--top` works before or after the file. `slug Héllo Wörld` prints `hello-world`. `time` defaults to 200 wpm. Missing or bad arguments (`--top 0`, `--top x`, `--wpm -1`) exit 1 with the usage line listing all three commands. A missing file or a directory exits 2 with the error on stderr. `npm test` passes 2 of 2. The new test runs the CLI with `spawnSync` and checks exact output, so it would fail if the output were wrong. Two things it doesn't check: exit code 2 and running with no command. Neither is a defect against the issue.",
+      "defect": null,
+      "ms": 33022,
+      "tokens": 57766
+    },
+    {
+      "issue": 6,
+      "kind": "bug",
+      "expected": "FAIL",
+      "got": "FAIL",
+      "correct": true,
+      "findings": "- Hard cut must be the first `max - suffix.length` chars plus suffix, so `truncate(\"abcdefghij\", 5)` → `\"abcd…\"` — the code returns `text.slice(0, max) + suffix`, which gives `\"abcde…\"` (length 6, over `max`) — ran `node -e` on src/truncate.js:9\n- The result must be at most `max` characters, suffix included — every hard-cut result is `max + suffix.length` long (e.g. `\"  abcdef\", 5` → `\"  abc…\"`, length 6) — ran `node -e`\n- Tests must cover the feature — test/truncate.test.js has no test for the hard-cut example or the RangeError example, so the hard-cut bug passes; `npm test` shows 2/2 passing — read the test file and ran `npm test`",
+      "defect": "the hard cut keeps max characters then adds the suffix, so truncate(\"abcdefghij\", 5) gives \"abcde…\" (6 chars; an example in the issue)",
+      "ms": 26223,
+      "tokens": 41365
+    },
+    {
+      "issue": 6,
+      "kind": "ok",
+      "expected": "PASS",
+      "got": "PASS",
+      "correct": true,
+      "findings": "- none",
+      "defect": null,
+      "ms": 34785,
+      "tokens": 41782
+    }
+  ]
+}

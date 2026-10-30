@@ -65,6 +65,7 @@ role prompts, promise-based completion.
 | 2 | PRD flow: decompose a PRD into issues, review (gap issues or sign-off), close the PRD, PRD sequencing | done |
 | 3 | Robustness: pause / pause --now with checkpoint + handoff, crash recovery, one runner per repo, proactive usage-window holds, live `hx status` | done |
 | 4 | Token optimisation: lean workers, one-call `ship` script, shorter prompts — **−84% tokens** on the benchmark | done |
+| 5 | Auditor per issue (#1) + CI gate (#4): audit eval 6/6 planted defects caught; benchmark 6/6 with the auditor on | done |
 
 ### Next: the rest of Harness's features, ordered by how much they improve the quality of what Hx ships
 
@@ -72,16 +73,38 @@ Agreed order (2026-10-30), highest quality gain first. Build them in this order.
 
 | # | Feature | What it adds | Notes |
 |---|---|---|---|
-| 1 | **Auditor per issue** | a fresh session checks the implementer's work against the issue before merge; a failed audit goes back to the implementer | biggest quality gain; measure with the benchmark (hidden tests, tokens) |
+| 1 | ~~**Auditor per issue**~~ done | a fresh session checks the implementer's work against the issue before merge; a failed audit goes back to the implementer | biggest quality gain; measure with the benchmark (hidden tests, tokens) |
 | 2 | **Grill session** | `hx grill` interviews the user until the PRD is unambiguous, then files it | interactive `claude`, not headless |
 | 3 | **Gauntlet / security audit** | PRD review in rounds with a critic, plus a security pass; gaps become issues | builds on the auditor |
-| 4 | **CI gate** | no new claims while the default branch is red; running sessions continue | Harness: `ci_gate_ok` |
+| 4 | ~~**CI gate**~~ done | no new claims while the default branch is red; running sessions continue | Harness: `ci_gate_ok` |
 | 5 | **rtdd** | names the tests a change needs and the changed lines no test reaches | check `npx github:VocanicZ/rtdd` on Windows first |
 | 6 | **Bug lane** | `bug` issues: a triage session, then a fix session; priority over normal issues | reuses auditor + CI gate |
 | 7 | **Inject into a running fleet** | `hx prd/issue` while `hx run --watch` runs (grill → file) | mostly done: `--watch` already picks new issues up |
 | 8 | **Web dashboard / stats** | read-only local page over `live.json`, `usage.jsonl`, the board; stats per PRD/role/model | |
 | 9 | **Author filter** | only issues (and PRDs) opened by allowed authors (default: the `gh` login) are claimed | a safety item rather than a quality one: until it lands, only label issues `ready-for-agent` / `prd` yourself, and remember workers run with bypassPermissions |
 | 10 | **Multi-repo / multi-CLI** | one fleet over several repos; other agent CLIs | only when there is a real need |
+
+### When Hx may build itself (self-hosting)
+
+Harness builds itself: every issue in its repo is `[AFK]` and was done by its own fleet, and a failed
+release gate files a bug that its bug lane fixes. It could do that because its engine had already
+proven itself in another project, and because nothing merges unchecked.
+
+Status (2026-10-30): **both done and measured** — audit eval 6/6 planted defects caught (5/6 correct PRs
+passed, the sixth sent back for tests the issue asked for), CI gate shown end to end, benchmark 6/6 with
+the auditor on. Self-hosting can start.
+
+Hx was not used on its own repo until both of these existed **and were measured**:
+
+1. **Auditor per issue (#1)** — an independent session checks each PR against its issue before merge.
+   Measured by an audit eval: PRs with planted defects that pass their own tests, mixed with correct
+   PRs. The auditor must catch the defects without blocking the correct ones.
+2. **CI gate (#4, pulled forward)** — after each merge the default branch is tested; while it is red,
+   nothing new is claimed except the issue that fixes it. Shown by an end-to-end test.
+
+Then the benchmark is re-run with the auditor on (quality must stay 6/6; the token cost is reported).
+Only after that: write PRDs for the remaining features and let `hx run --watch` build them, with the
+human reviewing merged PRs. Self-healing (a red gate filing its own bug for the bug lane) comes with #6.
 
 Every phase ships with tests; anything that can change quality or tokens is re-measured with
 `node bench/run.mjs hx3` (and `hx1`/`chat` when comparing).

@@ -1,0 +1,8 @@
+{
+  "1": { "file": "src/tokenize.js", "defect": "leading/trailing apostrophes are kept: tokenize(\"'quoted' words\") gives [\"'quoted'\", \"words\"] (an example in the issue)" },
+  "2": { "file": "src/freq.js", "defect": "equal counts keep first-seen order instead of alphabetical: wordFreq(\"z y x\") gives z, y, x (an example in the issue)" },
+  "3": { "file": "src/slugify.js", "defect": "no diacritic removal: slugify(\"Héllo, Wörld!\") gives \"h-llo-w-rld\" (an example in the issue)" },
+  "4": { "file": "src/reading.js", "defect": "an invalid wpm is not rejected: readingTime(\"hi\", 0) returns Infinity instead of throwing RangeError (a rule and example in the issue)" },
+  "5": { "file": "bin/textstat.js", "defect": "an unreadable file exits 1 instead of 2 (an exit-code rule in the issue)" },
+  "6": { "file": "src/truncate.js", "defect": "the hard cut keeps max characters then adds the suffix, so truncate(\"abcdefghij\", 5) gives \"abcde…\" (6 chars; an example in the issue)" }
+}

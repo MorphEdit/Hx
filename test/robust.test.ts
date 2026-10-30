@@ -33,7 +33,7 @@ git(root, 'push', '-q', 'origin', 'HEAD:main');
 const stateDir = path.join(root, '.hx');
 mkdirSync(stateDir);
 const project = () => ({ root, stateDir, config: { ...DEFAULTS, repo: 'me/app', defaultBranch: 'main', worktreeRoot: path.join(tmp, 'wt'),
-  claudeBin: path.join(here, 'fakes', 'claude.mjs'), maxIterations: 3, pollSeconds: 1 } });
+  claudeBin: path.join(here, 'fakes', 'claude.mjs'), maxIterations: 3, pollSeconds: 1, audit: false } });
 
 const issue = (number: number, labels: string[] = [L.ready], body = '') => ({ number, title: `task ${number}`, body, state: 'OPEN', labels });
 const board = (issues: any[]) => writeFileSync(stateFile, JSON.stringify({ comments: [], issues }));

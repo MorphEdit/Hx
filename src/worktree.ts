@@ -12,7 +12,9 @@ export interface WorktreeSpec {
 }
 
 export const implWorktree = (issue: number, base: string): WorktreeSpec => ({ name: `i${issue}`, branch: `issue/${issue}`, base, fresh: false });
-export const prdWorktree = (prd: number, base: string): WorktreeSpec => ({ name: `p${prd}`, branch: `hx/prd-${prd}`, base, fresh: true });
+/** A read-only checkout of the implementer's pushed branch, for the auditor. */
+export const auditWorktree = (issue: number): WorktreeSpec => ({ name: `a${issue}`, branch: `hx/audit-${issue}`, base: `issue/${issue}`, fresh: true });
+export const prdWorktree =(prd: number, base: string): WorktreeSpec => ({ name: `p${prd}`, branch: `hx/prd-${prd}`, base, fresh: true });
 
 // Worktree commands of parallel workers write the same .git/config and index locks; run them one at a time.
 let queue: Promise<unknown> = Promise.resolve();
@@ -45,7 +47,13 @@ async function addWorktreeNow(checkout: string, root: string, { name, branch, ba
   }
   const lp = await run(GIT, ['-C', checkout, 'config', '--get', 'core.longpaths']);
   if (lp.stdout.trim() !== 'true') await run(GIT, ['-C', checkout, 'config', 'core.longpaths', 'true']);
-  await runOk(GIT, ['-C', checkout, 'fetch', '-q', 'origin', base]);
+  // a ship.mjs in another worktree may be fetching the same ref right now: retry the race
+  for (let i = 1; ; i++) {
+    const f = await run(GIT, ['-C', checkout, 'fetch', '-q', 'origin', base]);
+    if (f.code === 0) break;
+    if (i >= 4) throw new Error(`git fetch origin ${base} failed: ${f.stderr.trim()}`);
+    await new Promise((r) => setTimeout(r, 1000 * i));
+  }
   const remote = fresh ? null : await run(GIT, ['-C', checkout, 'ls-remote', '--heads', 'origin', branch]);
   const resumed = !!remote && remote.code === 0 && remote.stdout.trim() !== '';
   if (resumed) await runOk(GIT, ['-C', checkout, 'fetch', '-q', 'origin', `${branch}:refs/remotes/origin/${branch}`]);

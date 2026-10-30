@@ -30,7 +30,13 @@ if (a[0] === 'issue' && a[1] === 'list') {
   });
   process.stdout.write(`https://github.com/me/app/pull/${number}\n`);
 } else if (a[0] === 'pr' && a[1] === 'merge') {
-  mutate((cur) => { (cur.prs ?? []).find((p) => p.number === Number(a[2])).state = 'MERGED'; });
+  // HX_FAKE_AUTOMERGE: the repo only accepts auto-merge, which lands (and closes the issue) at once
+  if (process.env.HX_FAKE_AUTOMERGE && !a.includes('--auto')) { process.stderr.write('Pull request is not mergeable'); process.exit(1); }
+  mutate((cur) => {
+    const pr = (cur.prs ?? []).find((p) => p.number === Number(a[2]));
+    pr.state = 'MERGED';
+    if (process.env.HX_FAKE_AUTOMERGE) { const n = Number(/issue\/(\d+)/.exec(pr.head)?.[1]); const i = find(cur, n); if (i) i.state = 'CLOSED'; }
+  });
 } else if (a[0] === 'issue' && a[1] === 'view' && opt('-q') === '.state') {
   process.stdout.write(find(s, a[2]).state + '\n');
 } else if (a[0] === 'issue' && a[1] === 'view') {
