@@ -1,6 +1,7 @@
 // Worktree cleanup never fails finished work: real git (a local bare origin), the real ship.mjs, fake gh and claude.
 // Removing a worktree directory throws (Windows: EPERM, a file still open) → the issue still ends DONE ✓,
 // the gate re-runs after the merge, and the leftover directory is removed on the next start.
+import { E2E } from './isolate.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
@@ -49,7 +50,7 @@ async function run() {
   } finally { console.log = orig; }
 }
 
-test('removing the worktree throws after the merge: the issue still ends DONE ✓, rc 0, the gate re-runs', async () => {
+test('removing the worktree throws after the merge: the issue still ends DONE ✓, rc 0, the gate re-runs', E2E, async () => {
   board([{ number: 1, title: 'task 1', body: '', state: 'OPEN', labels: [L.ready] }]);
   const real = worktreeFs.removeDir;
   const stuck: string[] = [];
@@ -77,7 +78,7 @@ test('removing the worktree throws after the merge: the issue still ends DONE �
   assert.ok(!read().issues[0].labels.includes(L.blocked));
 });
 
-test('next start: a leftover directory git no longer lists is removed; listed worktrees stay', async () => {
+test('next start: a leftover directory git no longer lists is removed; listed worktrees stay', E2E, async () => {
   const leftover = path.join(wtRoot, 'i7');
   mkdirSync(path.join(leftover, 'node_modules', 'x'), { recursive: true });
   writeFileSync(path.join(leftover, 'node_modules', 'x', 'f.js'), 'x');

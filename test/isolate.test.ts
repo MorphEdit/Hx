@@ -2,6 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -19,4 +20,18 @@ test('isolate: HX_* / FAKE_* / GIT_DIR from the caller are dropped, git gets an 
   assert.equal(env.GIT_CONFIG_NOSYSTEM, '1');
   assert.equal(env.GIT_TERMINAL_PROMPT, '0');
   assert.ok(env.GIT_CONFIG_GLOBAL);
+});
+
+test('every end-to-end test file (fake gh / claude, ship.mjs, runPool) imports isolate.ts first and gives each test() E2E', () => {
+  const e2e = readdirSync(here).filter((f) => f.endsWith('.test.ts') && f !== 'isolate.test.ts')
+    .map((f) => ({ f, src: readFileSync(path.join(here, f), 'utf8') }))
+    .filter(({ src }) => /fakes|ship\.mjs|runPool/.test(src));
+  assert.ok(e2e.some(({ f }) => f === 'cleanup.test.ts'), e2e.map(({ f }) => f).join());
+  for (const { f, src } of e2e) {
+    const firstImport = src.split(/\r?\n/).find((l) => /^import /.test(l));
+    assert.match(firstImport ?? '', /from '\.\/isolate\.ts'/, `${f}: isolate.ts is not the first import`);
+    const tests = src.split(/\r?\n/).filter((l) => /^test\(/.test(l));
+    assert.ok(tests.length > 0, f);
+    for (const t of tests) assert.match(t, /, E2E, /, `${f}: no E2E timeout: ${t}`);
+  }
 });
