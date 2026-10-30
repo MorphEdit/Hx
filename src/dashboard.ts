@@ -24,18 +24,26 @@ const LOG_LINES = 200;
 
 interface BoardEntry { at: number; plan?: Plan; error?: string }
 
-/** The board, fetched at most once per ttl; concurrent callers share one fetch; a failure is cached too. */
-function boardCache(p: Project, ttl = BOARD_TTL_MS): () => Promise<BoardEntry> {
+/** What /api/state knows of the board without fetching it: the last successful plan and the latest error. */
+export interface BoardSeen { plan?: Plan; error?: string }
+
+/** The board, fetched at most once per ttl; concurrent callers share one fetch; a failure is cached too.
+ *  `seen()` never fetches: the last successful plan (kept across later failures) and the latest error. */
+function boardCache(p: Project, ttl = BOARD_TTL_MS): { fetch(): Promise<BoardEntry>; seen(): BoardSeen } {
   let entry: BoardEntry | null = null;
+  let lastPlan: Plan | undefined;
   let inFlight: Promise<BoardEntry> | null = null;
-  return () => {
-    if (entry && Date.now() - entry.at < ttl) return Promise.resolve(entry);
-    return inFlight ??= (async () => {
-      try { entry = { at: Date.now(), plan: await readPlan(p, await lookupTrusted(p.config)) }; }
-      catch (e: any) { entry = { at: Date.now(), error: String(e?.message ?? e) }; }
-      inFlight = null;
-      return entry;
-    })();
+  return {
+    fetch: () => {
+      if (entry && Date.now() - entry.at < ttl) return Promise.resolve(entry);
+      return inFlight ??= (async () => {
+        try { entry = { at: Date.now(), plan: lastPlan = await readPlan(p, await lookupTrusted(p.config)) }; }
+        catch (e: any) { entry = { at: Date.now(), error: String(e?.message ?? e) }; }
+        inFlight = null;
+        return entry;
+      })();
+    },
+    seen: () => ({ plan: lastPlan, error: entry?.error }),
   };
 }
 
@@ -69,8 +77,8 @@ function rows(recs: UsageRecord[], keyOf: (r: UsageRecord) => string): Row[] {
   return summarize(recs, keyOf).map((r) => ({ ...r, tokens: totalTokens(r.usage), durationMs: dur.get(r.key) ?? 0 }));
 }
 
-/** Everything but the board-derived usage-by-PRD comes from .hx/ only, so it works when gh fails. */
-export async function dashboardState(p: Project, board: () => Promise<BoardEntry>): Promise<object> {
+/** Reads .hx/ only and never calls gh: usage by PRD comes from the last board /api/board fetched, null before one. */
+export function dashboardState(p: Project, board: () => BoardSeen): object {
   const dir = p.stateDir, now = Date.now();
   const live = readLive(dir);
   const running = !!live && pidAlive(live.pid);
@@ -85,16 +93,15 @@ export async function dashboardState(p: Project, board: () => Promise<BoardEntry
   const gate = g.last ? { sha: g.last.sha, ok: g.last.ok, at: g.last.at, command: g.last.command, fixIssue: g.fixIssue ?? null } : null;
 
   const recs = readUsage(dir);
-  const b = await board();
-  const parents = b.plan?.parents ?? {};
+  const b = board();
+  const parents = b.plan?.parents;
   const usage = {
     total: rows(recs, () => 'total')[0] ?? null,
     byRole: rows(recs, (r) => r.role ?? 'impl'),
     byModel: rows(recs, (r) => r.model),
     byDay: rows(recs, (r) => r.ts.slice(0, 10)),
-    byPrd: rows(recs, (r) => String(parents[r.issue] ?? r.issue)),
-    byPrdSource: b.plan ? 'board' : 'issues',
-    ...(b.plan ? {} : { boardError: b.error }),
+    byPrd: parents ? rows(recs, (r) => String(parents[r.issue] ?? r.issue)) : null,
+    ...(b.error !== undefined ? { boardError: b.error } : {}),
   };
 
   const logFile = runLogFile(dir);
@@ -131,9 +138,9 @@ export async function serveDashboard(p: Project, opts: { port?: number; open?: b
     if (req.method !== 'GET') return send(res, 405, TEXT, 'method not allowed\n', { Allow: 'GET' });
     const route = (req.url ?? '/').split('?')[0];
     if (route === '/') return send(res, 200, 'text/html; charset=utf-8', html, { 'Content-Security-Policy': CSP });
-    if (route === '/api/state') return json(res, 200, await dashboardState(p, board));
+    if (route === '/api/state') return json(res, 200, dashboardState(p, board.seen));
     if (route === '/api/board') {
-      const b = await board();
+      const b = await board.fetch();
       return json(res, 200, { at: new Date(b.at).toISOString(), repo: p.config.repo, prds: b.plan?.prds ?? [], board: b.plan?.board ?? [],
         ...(b.error !== undefined ? { error: b.error } : {}) });
     }
