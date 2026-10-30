@@ -12,6 +12,7 @@ import { readGate } from './gate.ts';
 import { DEFAULT_PORT, serveDashboard } from './dashboard.ts';
 import { filePrd } from './prd.ts';
 import { grillArgs, grillPaths, grillPrompt, ideaFrom } from './grill.ts';
+import { formatSkills } from './skills.ts';
 import { fmt, readUsage, summarize, totalTokens, type UsageRow } from './usage.ts';
 
 const HELP = `usage: hx <command> [options]
@@ -213,6 +214,7 @@ async function status(): Promise<number> {
     console.log(`runner   running · pid ${live.pid} · up ${ago(live.startedAt)} · ${live.sessions.length}/${live.workers} worker(s) busy${live.draining ? ' · PAUSING' : ''}`);
     for (const s of live.sessions)
       console.log(`         #${String(s.number).padEnd(5)} ${s.kind.padEnd(9)} ${ago(s.since).padStart(7)}  turn ${s.turn}  ${fmt(s.tokens)} tok  ${s.title.slice(0, 50)}`);
+    if (live.skills) console.log(`skills   ${formatSkills(live.skills)}`);
     if (live.pausedUntil && live.pausedUntil > Date.now())
       console.log(`         no new claims until ${new Date(live.pausedUntil).toLocaleTimeString()} (${live.pauseReason})`);
     if (live.rateLimit) {

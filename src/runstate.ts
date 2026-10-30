@@ -26,6 +26,7 @@ export interface LiveState {
   pauseReason?: string;
   draining?: boolean;
   rateLimit?: RateLimit & { at: string };
+  skills?: Record<string, string[]>; // role → names of the skills its prompt gets
   gate?: { ok: boolean; sha: string; at: string; fixIssue?: number };
 }
 
