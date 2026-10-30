@@ -73,7 +73,7 @@ test('security files an issue → prd-reviewed removed → fixed → review agai
   assert.equal(marked(1, '<!-- hx-review -->').length, 3, 'gap, sign-off, then a review of the security fix');
   // order: review sign-off → security 1 → reviewed removed → fix → review 3 → security 2 → closed
   const at = (re: RegExp) => lines.findIndex((l) => re.test(l));
-  const order = [at(/\[#1\] review \(round 2\)/), at(/\[#1\] security \(round 1\)/), at(/\[#1\] security pass filed issue\(s\) — removed prd-reviewed/),
+  const order = [at(/\[#1\] review \(round 2\)/), at(/\[#1\] security \(round 1\)/), at(new RegExp(`\\[#1\\] security pass filed #${sec[0].number} — removed prd-reviewed`)),
     at(new RegExp(`\\[#${sec[0].number}\\] impl`)), at(/\[#1\] review \(round 3\)/), at(/\[#1\] security \(round 2\)/), at(/\[#1\] PRD closed/)];
   assert.ok(order.every((x, k) => x >= 0 && (k === 0 || x > order[k - 1])), `${order}\n${lines.join('\n')}`);
   assert.ok(read().comments.some((c: any) => c.issue === 1 && /passed review and the security pass — closed by hx/.test(c.body)), 'close message mentions security');

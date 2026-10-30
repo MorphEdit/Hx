@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { appendFileSync, mkdirSync, readFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, readFileSync, renameSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { workerArgs, type Project } from './config.ts';
@@ -40,9 +40,29 @@ export interface PoolOptions {
   signal: AbortSignal;
 }
 
+/** Where `hx run` keeps its log: `<stateDir>/run.log` (one old file, `run.log.1`). */
+export const runLogFile = (stateDir: string) => path.join(stateDir, 'run.log');
+
+let runLog: { file: string; maxBytes: number } | null = null;
+
+/** Also append every log() line to `file` (null = console only). */
+export function setRunLog(file: string | null, maxBytes = 2 * 1024 * 1024): void {
+  runLog = file ? { file, maxBytes } : null;
+}
+
 export function log(msg: string, issue?: number): void {
-  const t = new Date().toTimeString().slice(0, 8);
-  console.log(`${t} ${issue ? `[#${issue}] ` : ''}${msg}`);
+  const now = new Date();
+  console.log(`${now.toTimeString().slice(0, 8)} ${issue ? `[#${issue}] ` : ''}${msg}`);
+  if (!runLog) return;
+  // `<ISO> #<n> <msg>` or `<ISO> - <msg>`, one line per call; a write failure drops the line
+  try {
+    const { file, maxBytes } = runLog;
+    mkdirSync(path.dirname(file), { recursive: true });
+    let size = 0;
+    try { size = statSync(file).size; } catch {}
+    if (size > maxBytes) renameSync(file, `${file}.1`);
+    appendFileSync(file, `${now.toISOString()} ${issue ? `#${issue}` : '-'} ${msg.replace(/\r?\n|\r/g, ' ')}\n`);
+  } catch {}
 }
 
 /** How a session reports back to the pool while it runs. */
@@ -107,6 +127,7 @@ export function printPlan(pl: Plan, repo: string): void {
 
 export async function runPool(p: Project, o: PoolOptions): Promise<number> {
   const c = p.config;
+  setRunLog(runLogFile(p.stateDir));
   // who may put work on the board: looked up once per run; without it nothing is read or claimed
   let trusted: Set<string>;
   try { trusted = await lookupTrusted(c); } catch (e: any) { log(`STOPPED: ${e.message}`); return 2; }
@@ -483,10 +504,11 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
     const why = await verify(p, a, n, ctx.trusted, before);
     if (!why) {
       // the pass filed security issues: once they are fixed the PRD is reviewed, then checked, again
-      const filed = a.kind === 'security' && [...(await securitySnapshot(p, n, ctx.trusted)).issues].some((k) => !before?.issues.has(k));
+      const filedIssues = a.kind === 'security' ? [...(await securitySnapshot(p, n, ctx.trusted)).issues].filter((k) => !before?.issues.has(k)) : [];
+      const filed = filedIssues.length > 0;
       const drop = filed ? [L.reviewed, ...((await gh.issueLabels(c.repo, n)).includes(L.secured) ? [L.secured] : [])] : [];
       await gh.editLabels(c.repo, n, [], [L.working, ...drop]).catch(() => {});
-      if (filed) log(`security pass filed issue(s) — removed ${L.reviewed}`, n);
+      if (filed) log(`security pass filed ${filedIssues.map((k) => `#${k}`).join(', ')} — removed ${L.reviewed}`, n);
       await removeWorktree(p.root, wt.dir);
       log(`${a.kind} DONE ✓ (${summary})`, n);
       if (a.kind === 'impl') ctx.merged?.();
