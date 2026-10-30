@@ -66,7 +66,7 @@ test('--dry-run: untrusted rows show who opened them (or their PRD)', E2E, async
   assert.match(out, /PRD #4\s+untrusted\s+\(by @eve\) task 4/);
   assert.match(out, /PRD #3\s+decompose\s+task 3/);
   assert.match(out, /#2\s+untrusted\s+\(by @mallory\) task 2/);
-  assert.match(out, /#5\s+untrusted\s+\(PRD #4 by @eve\) task 5/);
+  assert.match(out, /#5\s+untrusted\s+\(parent #4 by @eve\) task 5/);
   assert.match(out, /#7\s+untrusted\s+\(by @ghost\) task 7/);
   assert.match(out, /#1\s+claimable\s+task 1/);
   assert.match(out, /#6\s+claimable\s+task 6/);
@@ -95,7 +95,8 @@ test('hx run builds only trusted work; each untrusted issue / PRD is logged once
   const once = (line: string) => assert.equal(lines.filter((l) => l.endsWith(line)).length, 1, `${line}\n${out}`);
   once('#2 skipped: opened by @mallory, who is not trusted (add them to trustedAuthors to allow)');
   once('#4 skipped: opened by @eve, who is not trusted (add them to trustedAuthors to allow)');
-  once('#5 skipped: its PRD #4 was opened by @eve, who is not trusted (add them to trustedAuthors to allow)');
+  // a child of an untrusted PRD gets no skip line of its own: the PRD's line covers it
+  assert.ok(!lines.some((l) => /(^|[\s\]])#5 skipped/.test(l)), out);
   once('#7 skipped: opened by @ghost, who is not trusted (add them to trustedAuthors to allow)');
 
   // every session got the trusted set as HX_TRUSTED (the gh login + trustedAuthors, lower-cased) ...

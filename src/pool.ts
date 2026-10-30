@@ -104,16 +104,15 @@ const keyOf = (a: SessionAction) => (a.kind === 'impl' ? issueKey(a.issue) : prd
 
 const who = (author: string | undefined) => `@${author || 'ghost'}`;
 
-/** Why a row is untrusted, for hx status / --dry-run: `(by @x) ` or `(PRD #12 by @x) `. */
+/** Why a row is untrusted, for hx status / --dry-run: `(by @x) ` or `(parent #12 by @x) `. */
 function untrustedNote(r: { author?: string; untrustedPrd?: { number: number; author: string } }): string {
-  if (r.untrustedPrd) return `(PRD #${r.untrustedPrd.number} by ${who(r.untrustedPrd.author)}) `;
+  if (r.untrustedPrd) return `(parent #${r.untrustedPrd.number} by ${who(r.untrustedPrd.author)}) `;
   return r.author !== undefined ? `(by ${who(r.author)}) ` : '';
 }
 
-/** The run-log line for an untrusted ready issue or PRD. */
-export function skipLine(r: { number: number; author?: string; untrustedPrd?: { number: number; author: string } }): string {
-  const by = r.untrustedPrd ? `its PRD #${r.untrustedPrd.number} was opened by ${who(r.untrustedPrd.author)}` : `opened by ${who(r.author)}`;
-  return `#${r.number} skipped: ${by}, who is not trusted (add them to trustedAuthors to allow)`;
+/** The run-log line for an untrusted ready issue or PRD (a child of an untrusted PRD gets none: the PRD's line covers it). */
+export function skipLine(r: { number: number; author?: string }): string {
+  return `#${r.number} skipped: opened by ${who(r.author)}, who is not trusted (add them to trustedAuthors to allow)`;
 }
 
 export function printPlan(pl: Plan, repo: string): void {
@@ -243,7 +242,7 @@ export async function runPool(p: Project, o: PoolOptions): Promise<number> {
         try {
           const pl = await readPlan(p, trusted, new Set(inFlight.keys()));
           for (const r of [...pl.prds, ...pl.board])
-            if (r.status === 'untrusted' && !skipped.has(r.number)) { skipped.add(r.number); log(skipLine(r)); }
+            if (r.status === 'untrusted' && !r.untrustedPrd && !skipped.has(r.number)) { skipped.add(r.number); log(skipLine(r)); }
           actions = pl.actions.filter((a) => !o.only || o.only.includes(target(a)));
           if (gateRed()) {
             // someone may have fixed the base by hand: re-test when it moved
