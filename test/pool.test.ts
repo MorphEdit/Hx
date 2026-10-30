@@ -118,7 +118,12 @@ test('PRD flow: decompose → build → review (gap, then sign-off) → close, P
   const first21 = lines.findIndex((l) => /\[#21\]/.test(l));
   assert.ok(closed20 > 0 && first21 > closed20, 'PRD #21 waits for PRD #20');
   const roles = new Set(readUsage(p.stateDir).map((r) => r.role));
-  assert.deepEqual([...roles].sort(), ['decompose', 'impl', 'review']);
+  assert.deepEqual([...roles].sort(), ['critic', 'decompose', 'impl', 'review', 'revise']);
+  // the gauntlet hardened each PRD before it was decomposed
+  for (const n of [20, 21]) {
+    assert.ok(s.issues.find((i: any) => i.number === n).labels.includes(L.hardened));
+    assert.equal(s.comments.filter((c: any) => c.issue === n && c.body.startsWith('<!-- hx-gauntlet -->')).length, 2);
+  }
 });
 
 test('a setup error (API 400) stops the pool and leaves the issues untouched', E2E, async () => {

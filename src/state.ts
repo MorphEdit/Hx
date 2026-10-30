@@ -95,6 +95,7 @@ export function parseParent(body: string, selfRepo: string): Ref | null {
 }
 
 export type Action =
+  | { kind: 'gauntlet'; prd: number; title: string }
   | { kind: 'decompose'; prd: number; title: string; children: Issue[] }
   | { kind: 'review'; prd: number; title: string; children: Issue[] }
   | { kind: 'close-prd'; prd: number }
@@ -104,7 +105,7 @@ export type Action =
 export interface PrdRow {
   number: number;
   title: string;
-  status: 'decompose' | 'building' | 'review' | 'done' | 'working' | 'waiting' | 'blocked-label';
+  status: 'gauntlet' | 'decompose' | 'building' | 'review' | 'done' | 'working' | 'waiting' | 'blocked-label';
   open: number; // open children
   closed: number;
   waitingOn: Ref[];
@@ -122,14 +123,17 @@ export const issueKey = (n: number) => `issue:${n}`;
 
 /**
  * The whole board, PRDs included. `all` is every issue (open and closed, no PRs).
- *  - a PRD (open, `prd` label) with no children → decompose
+ *  - a PRD (open, `prd` label) with no children and not yet `prd-hardened` → gauntlet (critique, revise),
+ *    unless `opts.gauntlet` is false; a PRD that already has children never goes back to the gauntlet
+ *  - a PRD with no children → decompose
  *  - children still open → they are built through the normal ready-issue flow
  *  - every child closed, not yet `reviewed` → review (may file gap issues: back to building)
  *  - reviewed and every child closed → the engine closes it
  * A PRD's own `## Blocked by` sequences PRDs: until it clears, nothing of that PRD runs.
  */
 export function plan(all: Issue[], repo: string, labels: Labels, states: Map<string, 'OPEN' | 'CLOSED'>,
-  busy: Set<string> = new Set()): Plan {
+  busy: Set<string> = new Set(), opts: { gauntlet?: boolean } = {}): Plan {
+  const gauntlet = opts.gauntlet ?? true;
   const prdIssues = all.filter((i) => i.labels.includes(labels.prd)).sort((a, b) => a.number - b.number);
   const prdNums = new Set(prdIssues.map((p) => p.number));
   const children = new Map<number, Issue[]>(prdIssues.map((p) => [p.number, []]));
@@ -162,12 +166,13 @@ export function plan(all: Issue[], repo: string, labels: Labels, states: Map<str
     if (p.labels.includes(labels.blocked)) status = 'blocked-label';
     else if (waitingOn.length) status = 'waiting';
     else if (busy.has(prdKey(p.number))) status = 'working';
-    else if (!kids.length) status = 'decompose';
+    else if (!kids.length) status = gauntlet && !p.labels.includes(labels.hardened) ? 'gauntlet' : 'decompose';
     else if (open.length) status = 'building';
     else status = p.labels.includes(labels.reviewed) ? 'done' : 'review';
     prds.push({ number: p.number, title: p.title, status, open: open.length, closed: kids.length - open.length, waitingOn });
 
-    if (status === 'decompose') actions.push({ kind: 'decompose', prd: p.number, title: p.title, children: kids });
+    if (status === 'gauntlet') actions.push({ kind: 'gauntlet', prd: p.number, title: p.title });
+    else if (status === 'decompose') actions.push({ kind: 'decompose', prd: p.number, title: p.title, children: kids });
     else if (status === 'review') actions.push({ kind: 'review', prd: p.number, title: p.title, children: kids });
     else if (status === 'done') engine.push({ kind: 'close-prd', prd: p.number });
     // an open child filed without any lane label would hold its PRD forever: make it claimable

@@ -1,4 +1,5 @@
 // Fake `gh` for tests: the board lives in the JSON file named by HX_FAKE_STATE.
+import { readFileSync } from 'node:fs';
 import { loadJson, locked, saveJson } from './lock.mjs';
 
 const file = process.env.HX_FAKE_STATE;
@@ -43,6 +44,7 @@ if (a[0] === 'issue' && a[1] === 'list') {
   const fields = opt('--json').split(',');
   const out = {};
   if (fields.includes('labels')) out.labels = ghLabels(i);
+  if (fields.includes('body')) out.body = i.body;
   if (fields.includes('comments')) out.comments = s.comments.filter((c) => c.issue === i.number).map((c) => ({ body: c.body }));
   process.stdout.write(JSON.stringify(out));
 } else if (a[0] === 'api') {
@@ -56,10 +58,18 @@ if (a[0] === 'issue' && a[1] === 'list') {
     process.stdout.write(s.issues.map((i) => `${i.number}\t${i.state.toLowerCase()}\n`).join(''));
   }
 } else if (a[0] === 'issue' && a[1] === 'edit') {
-  mutate((cur) => {
+  const edit = (body) => mutate((cur) => {
     const i = find(cur, a[2]);
     i.labels = [...new Set([...i.labels, ...all('--add-label')])].filter((l) => !all('--remove-label').includes(l));
+    if (body !== undefined) i.body = body;
   });
+  const bf = opt('--body-file');
+  if (bf === '-') withStdin(edit);
+  else edit(bf === undefined ? undefined : readFileSync(bf, 'utf8'));
+} else if (a[0] === 'label' && a[1] === 'create') {
+  mutate((cur) => { cur.labels = [...new Set([...(cur.labels ?? []), a[2]])]; });
+} else if (a[0] === 'repo' && a[1] === 'view') {
+  process.stdout.write(opt('-q') === '.defaultBranchRef.name' ? 'main\n' : 'me/app\n');
 } else if (a[0] === 'issue' && a[1] === 'comment') {
   withStdin((body) => mutate((cur) => { cur.comments.push({ issue: Number(a[2]), body }); }));
 } else if (a[0] === 'issue' && a[1] === 'close') {

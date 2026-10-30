@@ -82,13 +82,14 @@ async function init(): Promise<number> {
   await gh.ensureLabel(config.repo, L.blocked, 'd93f0b', 'hx: needs a human');
   await gh.ensureLabel(config.repo, L.prd, '5319e7', 'hx: a PRD, decomposed into child issues');
   await gh.ensureLabel(config.repo, L.reviewed, '1d76db', 'hx: PRD reviewed and signed off');
+  await gh.ensureLabel(config.repo, L.hardened, 'c5def5', 'hx: PRD passed the gauntlet (critique and revision) and may be decomposed');
   await gh.ensureLabel(config.repo, L.gateFix, 'b60205', 'hx: fixes a red default branch (the only work claimed while it is red)');
 
   console.log(`${existing ? 'updated' : 'created'} ${path.join(root, STATE_DIR, 'config.json')}
   repo        ${config.repo} (base ${config.defaultBranch})
   workers     ${config.workers}   model ${config.model}   max ${config.maxIterations} turns/issue
   worktrees   ${config.worktreeRoot}
-  labels      ${L.ready}, ${L.working}, ${L.blocked}, ${L.prd}, ${L.reviewed}
+  labels      ${L.ready}, ${L.working}, ${L.blocked}, ${L.prd}, ${L.hardened}, ${L.reviewed}
 
 Next: file a PRD with  hx prd <file.md>  or label an issue '${L.ready}', then run  hx status  and  hx run`);
   return 0;

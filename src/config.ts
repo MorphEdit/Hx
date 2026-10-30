@@ -7,6 +7,7 @@ export interface Labels {
   blocked: string;
   prd: string;
   reviewed: string;
+  hardened: string; // the gauntlet is done with a PRD: it may be decomposed
   gateFix: string;
 }
 
@@ -17,6 +18,8 @@ export interface Config {
   model: string;
   effort: string; // claude --effort: low | medium | high | xhigh | max ('' = the CLI's default)
   maxIterations: number; // Ralph-loop turns per issue before giving up
+  gauntlet: boolean; // critique and revise a PRD in rounds before it is decomposed
+  gauntletRounds: number; // critic → reviser rounds before the PRD is decomposed anyway
   reviewRounds: number; // PRD reviews (each may file gap issues) before a human has to look
   audit: boolean; // an independent auditor session checks every implementation PR before hx merges it
   auditRounds: number; // implement → audit attempts before the issue goes to a human
@@ -41,6 +44,8 @@ export const DEFAULTS: Omit<Config, 'repo' | 'defaultBranch' | 'worktreeRoot'> =
   model: 'claude-opus-5-5', // a full id: the `opus` alias may resolve to an older Opus
   effort: 'medium',
   maxIterations: 8,
+  gauntlet: true,
+  gauntletRounds: 2,
   reviewRounds: 3,
   audit: true,
   auditRounds: 3,
@@ -54,7 +59,7 @@ export const DEFAULTS: Omit<Config, 'repo' | 'defaultBranch' | 'worktreeRoot'> =
   claudeArgs: [],
   leanWorkers: true,
   workerTools: ['Bash', 'Read', 'Edit', 'Write', 'Glob', 'Grep'],
-  labels: { ready: 'ready-for-agent', working: 'agent-working', blocked: 'agent-blocked', prd: 'prd', reviewed: 'prd-reviewed', gateFix: 'hx-gate-fix' },
+  labels: { ready: 'ready-for-agent', working: 'agent-working', blocked: 'agent-blocked', prd: 'prd', reviewed: 'prd-reviewed', hardened: 'prd-hardened', gateFix: 'hx-gate-fix' },
 };
 
 export interface Project {

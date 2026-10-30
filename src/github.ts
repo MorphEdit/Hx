@@ -40,6 +40,11 @@ export async function issueLabels(repo: string, n: number): Promise<string[]> {
   return toIssue({ number: n, ...JSON.parse(out) }).labels;
 }
 
+export async function issueBody(repo: string, n: number): Promise<string> {
+  const out = await runOk(GH, ['issue', 'view', String(n), '-R', repo, '--json', 'body']);
+  return JSON.parse(out).body ?? '';
+}
+
 export async function commentBodies(repo: string, n: number): Promise<string[]> {
   const out = await runOk(GH, ['issue', 'view', String(n), '-R', repo, '--json', 'comments']);
   return (JSON.parse(out).comments ?? []).map((c: any) => c.body ?? '');

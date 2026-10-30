@@ -49,7 +49,7 @@ test('plan: PRD lifecycle and sequencing', () => {
   const i = (number: number, labels: string[], body = '', state: 'OPEN' | 'CLOSED' = 'OPEN') => ({ number, title: `t${number}`, body, state, labels });
   const kid = (n: number, prdN: number, state: 'OPEN' | 'CLOSED' = 'OPEN', labels = [L.ready]) => i(n, labels, `## Parent\n#${prdN}`, state);
   const all = [
-    i(1, [L.prd]),                                        // no children → decompose
+    i(1, [L.prd, L.hardened]),                            // no children, hardened → decompose
     i(2, [L.prd]), kid(10, 2), kid(11, 2, 'CLOSED'),        // building; #10 claimable
     i(3, [L.prd]), kid(12, 3, 'CLOSED'),                    // all closed, not reviewed → review
     i(4, [L.prd, L.reviewed]), kid(13, 4, 'CLOSED'),        // reviewed → engine closes
@@ -84,4 +84,37 @@ test('promise matching and render', () => {
   assert.ok(PROMISE_RE('ISSUE 4 DONE').test('ok <promise> ISSUE 4 DONE </promise>'));
   assert.ok(!PROMISE_RE('ISSUE 4 DONE').test('<promise>ISSUE 44 DONE</promise>'));
   assert.equal(render('#{{ISSUE}} {{NOPE}}', { ISSUE: 3 }), '#3 {{NOPE}}');
+});
+
+test('plan: the gauntlet runs before decompose, only on a PRD without children', () => {
+  const L = DEFAULTS.labels;
+  const i = (number: number, labels: string[], body = '', state: 'OPEN' | 'CLOSED' = 'OPEN') => ({ number, title: `t${number}`, body, state, labels });
+  const kid = (n: number, prdN: number, state: 'OPEN' | 'CLOSED' = 'OPEN') => i(n, [L.ready], `## Parent\n#${prdN}`, state);
+  const all = [
+    i(1, [L.prd]),                                    // no children, not hardened → gauntlet
+    i(2, [L.prd, L.hardened]),                        // hardened → decompose
+    i(3, [L.prd]), kid(10, 3),                        // children, no prd-hardened → building, never gauntlet
+    i(4, [L.prd]), kid(11, 4, 'CLOSED'),              // all closed, no prd-hardened → review, never gauntlet
+    i(5, [L.prd]),                                    // a gauntlet round is running → working
+    i(6, [L.prd], '## Blocked by\n#3'),               // waits on PRD #3 → no gauntlet yet
+    i(7, [L.prd, L.blocked]),                         // needs a human → no gauntlet
+    i(12, [L.ready]),
+  ];
+  const states = new Map(all.map((x) => [refKey({ repo: R, number: x.number }), x.state]));
+  const pl = plan(all, R, L, states, new Set([prdKey(5)]));
+  assert.deepEqual(pl.prds.map((p) => [p.number, p.status]), [
+    [1, 'gauntlet'], [2, 'decompose'], [3, 'building'], [4, 'review'], [5, 'working'], [6, 'waiting'], [7, 'blocked-label']]);
+  // a PRD session action: before the implementation work
+  assert.deepEqual(pl.actions.map((a) => `${a.kind}:${'issue' in a ? a.issue : a.prd}`),
+    ['gauntlet:1', 'decompose:2', 'review:4', 'impl:10', 'impl:12']);
+  assert.deepEqual(pl.actions[0], { kind: 'gauntlet', prd: 1, title: 't1' });
+  assert.ok(!pl.actions.some((a) => 'prd' in a && a.prd === 5), 'busy PRD: no decompose, no gauntlet');
+
+  // the gauntlet off: straight to decompose
+  const off = plan(all, R, L, states, new Set([prdKey(5)]), { gauntlet: false });
+  assert.deepEqual(off.prds.map((p) => [p.number, p.status]).slice(0, 2), [[1, 'decompose'], [2, 'decompose']]);
+  assert.ok(!off.actions.some((a) => a.kind === 'gauntlet'));
+  // on is the default
+  assert.deepEqual(plan(all, R, L, states, new Set(), { gauntlet: true }).actions[0], { kind: 'gauntlet', prd: 1, title: 't1' });
+  assert.equal(plan(all, R, L, states).prds.find((p) => p.number === 5)?.status, 'gauntlet');
 });
