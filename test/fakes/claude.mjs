@@ -80,6 +80,11 @@ function finish(st, checkpoint, prompt) {
   if (st.role === 'implement' && / --no-merge/.test(prompt) && !checkpoint) {
     const ship = /node "([^"]+ship\.mjs)"/.exec(prompt)[1];
     const repo = /Repo (\S+)/.exec(prompt)[1];
+    // told the merge hit a rebase conflict: take the latest main and redo the work on top of it
+    if (/merging failed after rebasing/.test(prompt)) {
+      const g = (...a) => spawnSync('git', a, { encoding: 'utf8', env: { ...process.env, ...GIT_ID } });
+      g('fetch', '-q', 'origin', 'main'); g('reset', '-q', '--hard', 'origin/main');
+    }
     writeFileSync(path.join(process.cwd(), `impl-${st.n}.txt`), `attempt ${Date.now()}\n`);
     const r = spawnSync(process.execPath, [ship, '--repo', repo, '--base', 'main', '--issue', String(st.n), '--title', `feat: issue ${st.n}`,
       '--test', 'node -e "process.exit(0)"', '--no-merge'], { encoding: 'utf8', env: { ...process.env, ...GIT_ID } });
@@ -97,6 +102,13 @@ function finish(st, checkpoint, prompt) {
   if (st.role === 'audit') {
     const body = loadBoard().issues.find((i) => i.number === st.n).body;
     const failing = /AUDITNEVER/.test(body) || (/AUDITFAIL/.test(body) && st.round === 1);
+    // AUDITCONFLICT: round 1 passes, but meanwhile main gets a conflicting impl file, so the merge hits a rebase conflict
+    if (/AUDITCONFLICT/.test(body) && st.round === 1) {
+      const g = (...a) => spawnSync('git', a, { encoding: 'utf8', env: { ...process.env, ...GIT_ID } });
+      g('fetch', '-q', 'origin', 'main'); g('checkout', '-q', '--detach', 'origin/main');
+      writeFileSync(path.join(process.cwd(), `impl-${st.n}.txt`), 'someone else\n');
+      g('add', '-A'); g('commit', '-q', '-m', 'conflicting work'); g('push', '-q', 'origin', 'HEAD:main');
+    }
     return reply(failing ? `VERDICT: FAIL\nFINDINGS:\n- issue #${st.n} requires X — code does Y — ran it\n\n${done()}`
       : `VERDICT: PASS\nFINDINGS:\n- none\n\n${done()}`);
   }

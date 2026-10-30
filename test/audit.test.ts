@@ -76,8 +76,10 @@ test('audit PASS: hx merges the PR the implementer left open', async () => {
 test('audit FAIL: the findings go back to a fresh implementer, then PASS and merge', async () => {
   board([issue(2, 'AUDITFAIL')]);
   const before = new Set(readdirSync(fakeDir));
-  const { rc } = await run([2]);
+  const { rc, lines } = await run([2]);
   assert.equal(rc, 0);
+  assert.ok(lines.some((l) => /\[#2\] audit failed — back to the implementer, round 2\/2/.test(l)), lines.join('\n'));
+  assert.ok(read().comments.some((c: any) => c.issue === 2 && c.body.startsWith('<!-- hx-retry -->') && /audit failed — back to the implementer, round 2\/2/.test(c.body)));
   const a = audits(2);
   assert.equal(a.length, 2);
   assert.match(a[0].body, /FAIL/);
@@ -118,4 +120,19 @@ test('a repo that only takes auto-merge: hx waits for it to land instead of fail
   const s = read();
   assert.equal(s.issues[0].state, 'CLOSED');
   assert.ok(!s.issues[0].labels.includes(L.blocked));
+});
+
+test('audit PASS but the merge hits a rebase conflict: logged and commented, back to the implementer, then merged', async () => {
+  board([issue(5, 'AUDITCONFLICT')]);
+  const { rc, lines } = await run([5]);
+  assert.equal(rc, 0, lines.join('\n'));
+  assert.ok(lines.some((l) => /\[#5\] merge after audit failed \(rebase conflict\) — back to the implementer, round 2\/2/.test(l)), lines.join('\n'));
+  const s = read();
+  const retry = s.comments.filter((c: any) => c.issue === 5 && c.body.startsWith('<!-- hx-retry -->'));
+  assert.equal(retry.length, 1);
+  assert.match(retry[0].body, /merge after audit failed \(rebase conflict\) — back to the implementer, round 2\/2 \(PR #\d+\)/);
+  assert.equal(audits(5).length, 2);
+  assert.equal(s.issues[0].state, 'CLOSED');
+  assert.ok(s.prs.some((p: any) => p.state === 'MERGED'));
+  assert.ok(lines.some((l) => /\[#5\] DONE ✓ audited and merged \(2 round/.test(l)));
 });

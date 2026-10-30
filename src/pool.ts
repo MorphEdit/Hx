@@ -409,7 +409,7 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
     await gh.comment(c.repo, n, `${AUDIT_MARKER}\n**hx audit ${attempt}/${c.auditRounds}: ${v.pass ? 'PASS ✓' : 'FAIL ✗'}** (PR #${pr})\n\n${v.findings}`).catch(() => {});
     log(`audit ${v.pass ? 'PASS ✓' : 'FAIL ✗'}${v.pass ? '' : ` — ${v.findings.split('\n')[0].slice(0, 140)}`}`, n);
 
-    let feedback: string;
+    let feedback: string, why: string;
     if (v.pass) {
       const m = await mergeAudited(wt.dir);
       // the repo only took an auto-merge: it lands within moments, wait for it rather than fail
@@ -424,15 +424,22 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
       }
       if (!m.retry) return fail(r, `merging the audited PR failed: ${m.output.slice(-300)}`, summary);
       feedback = `The audit passed, but merging failed after rebasing on the latest ${c.defaultBranch}:\n\n${m.output.slice(-1500)}\n\nFix that on your branch, then ship again with --no-merge.`;
+      why = `merge after audit failed (${m.code === 3 ? 'rebase conflict' : 'tests fail after the rebase'})`;
     } else {
       feedback = `An independent audit of PR #${pr} FAILED with these findings — fix every one (add a test for each), then ship again with --no-merge:\n\n${v.findings}`;
+      why = 'audit failed';
     }
     if (attempt >= c.auditRounds) return fail(r, `still not passing after ${attempt} audit round(s); last findings: ${feedback.slice(0, 400)}`, summary);
+    // say why the PR goes back, in the log and on the issue, so the extra round is not a mystery
+    const back = `${why} — back to the implementer, round ${attempt + 1}/${c.auditRounds}`;
+    log(back, n);
+    await gh.comment(c.repo, n, `${RETRY_MARKER}\n**hx:** ${back} (PR #${pr})`).catch(() => {});
     extra = { RESUMED: `NOTE: this branch already has your earlier work (PR #${pr} is open).\n${feedback}\n` };
   }
 }
 
 export const AUDIT_MARKER = '<!-- hx-audit -->';
+export const RETRY_MARKER = '<!-- hx-retry -->';
 
 /** The auditor's verdict from its final message, or null when it gave none. */
 export function auditVerdict(text: string): { pass: boolean; findings: string } | null {
@@ -456,12 +463,12 @@ async function shipInfo(cwd: string): Promise<{ test?: string } | null> {
 }
 
 /** Rebase, re-test, push and merge the audited branch (ship.mjs --resume, run by hx, not by an agent). */
-function mergeAudited(cwd: string): Promise<{ ok: boolean; retry: boolean; output: string }> {
+function mergeAudited(cwd: string): Promise<{ ok: boolean; retry: boolean; code: number; output: string }> {
   return new Promise((resolve) => {
     execFile(process.execPath, [SHIP, '--resume'], { cwd, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 }, (err, stdout, stderr) => {
       const code = err ? (typeof (err as any).code === 'number' ? (err as any).code : 1) : 0;
       // 3 = rebase conflict, 4 = tests fail after the rebase: the implementer can fix those
-      resolve({ ok: code === 0 && /SHIPPED #/.test(stdout), retry: code === 3 || code === 4, output: `${stdout}\n${stderr}`.trim() });
+      resolve({ ok: code === 0 && /SHIPPED #/.test(stdout), retry: code === 3 || code === 4, code, output: `${stdout}\n${stderr}`.trim() });
     });
   });
 }
