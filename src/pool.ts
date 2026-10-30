@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { workerArgs, type Project } from './config.ts';
 import * as gh from './github.ts';
 import type { Issue } from './github.ts';
-import { externalRefs, issueKey, parseParent, plan, prdKey, refKey, render, type Action, type Plan } from './state.ts';
+import { externalRefs, fenceFindings, issueKey, parseParent, plan, prdKey, refKey, render, type Action, type Plan } from './state.ts';
 import { addWorktree, auditWorktree, cleanStaleWorktrees, implWorktree, prdWorktree, removeWorktree } from './worktree.ts';
 import { rateLimitOf, runGoal, runTurn, type GoalResult, type RateLimit } from './agent.ts';
 import { clearLive, otherRunner, readLive, readPause, writeLive, type LiveSession, type LiveState } from './runstate.ts';
@@ -416,7 +416,7 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
         await gh.comment(c.repo, n, `${ORIGINAL_MARKER}\n${before}`);
       const rwt = await addWorktree(p.root, c.worktreeRoot, prdWorktree(n, c.defaultBranch));
       reviseDir = rwt.dir;
-      const rr = await goal('revise', rwt.dir, 'revise.md', `REVISE ${n} DONE`, { FINDINGS: v.findings });
+      const rr = await goal('revise', rwt.dir, 'revise.md', `REVISE ${n} DONE`, { FINDINGS: fenceFindings(v.findings) });
       await removeWorktree(p.root, rwt.dir);
       summary = `${fmt(sessionTokens)} tokens`;
       if (stopped(rr)) return handBack(rr, summary);

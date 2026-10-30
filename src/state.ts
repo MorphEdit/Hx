@@ -207,6 +207,15 @@ export function externalRefs(issues: Issue[], repo: string): Ref[] {
 export const PROMISE_RE = (promise: string) =>
   new RegExp(`<promise>\\s*${promise.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*</promise>`);
 
+/** Critic findings go into the reviser prompt between BEGIN/END markers: drop any marker line from the
+ *  text so it cannot close the block early and pose as prompt text. */
+export function fenceFindings(findings: string): string {
+  return findings
+    .split(/\r?\n/)
+    .filter((l) => !/(BEGIN|END)\s+CRITIC\s+FINDINGS/i.test(l))
+    .join('\n');
+}
+
 /** Substitute {{NAME}} placeholders; an unknown placeholder is left visible rather than silently blanked. */
 export function render(template: string, vars: Record<string, string | number>): string {
   return template.replace(/\{\{(\w+)\}\}/g, (all, k) => (k in vars ? String(vars[k]) : all));
