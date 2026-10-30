@@ -6,6 +6,7 @@ import { runOk } from './exec.ts';
 import { log, printPlan, readPlan, runPool } from './pool.ts';
 import { killAllSessions } from './agent.ts';
 import { clearPause, otherRunner, pidAlive, readLive, readPause, setPause } from './runstate.ts';
+import { readGate } from './gate.ts';
 import { fmt, readUsage, summarize, totalTokens, type UsageRow } from './usage.ts';
 
 const HELP = `usage: hx <command> [options]
@@ -73,6 +74,7 @@ async function init(): Promise<number> {
   await gh.ensureLabel(config.repo, L.blocked, 'd93f0b', 'hx: needs a human');
   await gh.ensureLabel(config.repo, L.prd, '5319e7', 'hx: a PRD, decomposed into child issues');
   await gh.ensureLabel(config.repo, L.reviewed, '1d76db', 'hx: PRD reviewed and signed off');
+  await gh.ensureLabel(config.repo, L.gateFix, 'b60205', 'hx: fixes a red default branch (the only work claimed while it is red)');
 
   console.log(`${existing ? 'updated' : 'created'} ${path.join(root, STATE_DIR, 'config.json')}
   repo        ${config.repo} (base ${config.defaultBranch})
@@ -161,6 +163,8 @@ async function status(): Promise<number> {
   } else {
     console.log('runner   not running');
   }
+  const gate = readGate(p.stateDir).last;
+  if (c.gate && gate) console.log(`gate     ${gate.ok ? 'green' : 'RED'} at ${gate.sha.slice(0, 7)} (${gate.command})${gate.ok ? '' : ' — only its fix issue is claimed'}`);
   if (paused) console.log(`paused   ${paused} — hx resume to clear`);
   console.log(`model    ${c.model}${c.effort ? ` (${c.effort} effort)` : ''}\n`);
 

@@ -71,6 +71,14 @@ function finish(st, checkpoint, prompt) {
       '--test', 'node -e "process.exit(0)"', '--no-merge'], { encoding: 'utf8', env: { ...process.env, ...GIT_ID } });
     return reply(r.status === 0 ? `${r.stdout.trim()}\n${done()}` : `ship failed ${r.status}: ${r.stderr}`);
   }
+  // the fix for a red default branch: really repair main (remove BROKEN) and push it
+  if (st.role === 'implement' && !checkpoint && /^Default branch is red/.test(loadBoard().issues.find((i) => i.number === st.n)?.title ?? '')) {
+    const g = (...a) => spawnSync('git', a, { encoding: 'utf8', env: { ...process.env, ...GIT_ID } });
+    g('fetch', '-q', 'origin', 'main'); g('reset', '-q', '--hard', 'origin/main'); g('rm', '-q', 'BROKEN');
+    g('commit', '-q', '-m', `fix: main is green again (closes #${st.n})`); g('push', '-q', 'origin', 'HEAD:main');
+    locked(boardFile, () => { const b = loadBoard(); b.issues.find((i) => i.number === st.n).state = 'CLOSED'; saveBoard(b); });
+    return reply(`fixed main. ${done()}`);
+  }
   // auditor: body AUDITFAIL fails the first round, AUDITNEVER fails every round, anything else passes
   if (st.role === 'audit') {
     const body = loadBoard().issues.find((i) => i.number === st.n).body;

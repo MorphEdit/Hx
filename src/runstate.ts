@@ -26,6 +26,7 @@ export interface LiveState {
   pauseReason?: string;
   draining?: boolean;
   rateLimit?: RateLimit & { at: string };
+  gate?: { ok: boolean; sha: string; at: string; fixIssue?: number };
 }
 
 export type PauseMode = 'drain' | 'now';

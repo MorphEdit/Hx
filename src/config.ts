@@ -7,6 +7,7 @@ export interface Labels {
   blocked: string;
   prd: string;
   reviewed: string;
+  gateFix: string;
 }
 
 export interface Config {
@@ -19,6 +20,8 @@ export interface Config {
   reviewRounds: number; // PRD reviews (each may file gap issues) before a human has to look
   audit: boolean; // an independent auditor session checks every implementation PR before hx merges it
   auditRounds: number; // implement → audit attempts before the issue goes to a human
+  gate: boolean; // test the default branch after every merge; while red, claim only the fix
+  gateCommand: string; // the gate's test command ('' = learned from the first audited merge)
   usagePauseAt: number; // 0..1: claim nothing new once a usage window is this full, until it resets
   checkpointMinutes: number; // time a stopped session gets to commit, push and write its handoff
   turnTimeoutMinutes: number;
@@ -41,6 +44,8 @@ export const DEFAULTS: Omit<Config, 'repo' | 'defaultBranch' | 'worktreeRoot'> =
   reviewRounds: 3,
   audit: true,
   auditRounds: 3,
+  gate: true,
+  gateCommand: '',
   usagePauseAt: 0.9,
   checkpointMinutes: 10,
   turnTimeoutMinutes: 45,
@@ -49,7 +54,7 @@ export const DEFAULTS: Omit<Config, 'repo' | 'defaultBranch' | 'worktreeRoot'> =
   claudeArgs: [],
   leanWorkers: true,
   workerTools: ['Bash', 'Read', 'Edit', 'Write', 'Glob', 'Grep'],
-  labels: { ready: 'ready-for-agent', working: 'agent-working', blocked: 'agent-blocked', prd: 'prd', reviewed: 'prd-reviewed' },
+  labels: { ready: 'ready-for-agent', working: 'agent-working', blocked: 'agent-blocked', prd: 'prd', reviewed: 'prd-reviewed', gateFix: 'hx-gate-fix' },
 };
 
 export interface Project {
