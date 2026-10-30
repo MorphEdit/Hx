@@ -15,7 +15,7 @@ const ghLabels = (i) => i.labels.map((name) => ({ name }));
 
 const s = load();
 // the account gh is logged in as: state.login (default 'me'); state.loginFails makes `gh api user` fail.
-// An issue or comment without an `author` was opened by it.
+// An issue or comment without an `author` was opened by it; author '' = a deleted account (gh gives no login).
 const LOGIN = s.login ?? 'me';
 const author = (x) => ({ login: x.author ?? LOGIN });
 if (a[0] === 'issue' && a[1] === 'list') {
@@ -59,7 +59,7 @@ if (a[0] === 'issue' && a[1] === 'list') {
   if (fields.includes('body')) out.body = i.body;
   if (fields.includes('comments')) {
     out.comments = s.comments.filter((c) => c.issue === i.number)
-      .map((c) => ({ author: ghAuthor(c.author), body: c.body, createdAt: c.createdAt ?? '' }));
+      .map((c) => ({ author: ghAuthor(c.author ?? LOGIN), body: c.body, createdAt: c.createdAt ?? '' }));
   }
   process.stdout.write(JSON.stringify(out));
 } else if (a[0] === 'api' && a[1] === 'user') {
