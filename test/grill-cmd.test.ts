@@ -49,6 +49,7 @@ test('hx grill "idea" --yes: one prd issue titled from the "# " line, exit 0', E
   assert.ok(!seen.args.includes('-p'));
   assert.equal(path.resolve(seen.cwd), path.resolve(root));
   for (const s of ['me/app', '`dev`', 'add dark mode']) assert.ok(seen.full.includes(s), s);
+  assert.equal(seen.trusted, 'me', 'the grill session gets HX_TRUSTED (the gh login + trustedAuthors)');
 });
 
 test('without --yes: "n" files nothing and prints the path; "y" / "YES" file one issue', E2E, () => {

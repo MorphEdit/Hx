@@ -9,7 +9,7 @@ Be economical: terse prose, batch independent commands into one shell call, read
 Child issues of the PRD (all closed):
 {{CHILDREN}}
 
-1. `git fetch origin && git reset --hard origin/{{BASE}}`; `gh issue view {{PRD}} -R {{REPO}} --comments`
+1. `git fetch origin && git reset --hard origin/{{BASE}}`; `node "{{ISSUE_SCRIPT}}" --repo {{REPO}} --issue {{PRD}}`
    (earlier security rounds are in the comments).
 2. Find what the PRD merged: per child `git log origin/{{BASE}} --grep "closes #<n>"` (or the PR that closed
    it) and read those diffs. Check only what the PRD changed, in this order:

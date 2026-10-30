@@ -2,6 +2,7 @@
 // Fake `gh` for the critic and security evals: the board is <HX_EVAL_GH>/board.json, nothing reaches GitHub.
 // Every call is appended to calls.jsonl; `issue create` / `edit` / `comment` change only the local board,
 // so the eval can read the would-be issues, labels and comments. Any other command exits 1.
+// Issues and comments are by `eval` (unless an issue names its `author`): the evals set HX_TRUSTED=eval.
 //
 //   import { useFakeGh } from './eval-gh.mjs'   then every child process (claude, its Bash tool) gets the fake
 import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -31,7 +32,8 @@ export function installFakeGh(stateDir, issues, base = process.env) {
   writeFileSync(path.join(bin, 'gh.cmd'), `@"${process.execPath}" "${self}" %*\r\n`);
   board.save(stateDir, { issues, next: Math.max(0, ...issues.map((i) => i.number)) + 1 });
   writeFileSync(path.join(stateDir, 'calls.jsonl'), '');
-  const env = { ...base, HX_EVAL_GH: stateDir, GH_CONFIG_DIR: path.join(stateDir, 'gh-config'), GH_PROMPT_DISABLED: '1' };
+  // HX_GH_BIN: scripts/issue.mjs spawns gh without a shell, which would not find gh.cmd on Windows
+  const env = { ...base, HX_EVAL_GH: stateDir, HX_GH_BIN: self, GH_CONFIG_DIR: path.join(stateDir, 'gh-config'), GH_PROMPT_DISABLED: '1' };
   for (const k of ['GH_TOKEN', 'GITHUB_TOKEN', 'GH_ENTERPRISE_TOKEN', 'GITHUB_ENTERPRISE_TOKEN']) delete env[k];
   const key = Object.keys(env).find((k) => k.toUpperCase() === 'PATH') ?? 'PATH';
   env[key] = bin + path.delimiter + (env[key] ?? '');
@@ -53,7 +55,7 @@ function viewText(i, comments) {
 }
 
 function jsonOf(i, fields) {
-  const all = { ...i, labels: i.labels.map((name) => ({ name })), comments: i.comments.map((body) => ({ body, author: { login: 'eval' } })) };
+  const all = { ...i, author: { login: i.author ?? 'eval' }, labels: i.labels.map((name) => ({ name })), comments: i.comments.map((body) => ({ body, author: { login: 'eval' } })) };
   return Object.fromEntries(fields.split(',').map((f) => [f, all[f] ?? null]));
 }
 

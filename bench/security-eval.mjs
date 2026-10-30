@@ -20,7 +20,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runGoal } from '../src/agent.ts';
 import { DEFAULTS, workerArgs } from '../src/config.ts';
-import { SECURITY_MARKER } from '../src/pool.ts';
+import { ISSUE_SCRIPT, SECURITY_MARKER } from '../src/pool.ts';
 import { render } from '../src/state.ts';
 import { board, useFakeGh } from './eval-gh.mjs';
 
@@ -70,7 +70,7 @@ for (const name of Object.keys(cases).sort(() => Math.random() - 0.5)) {
     { number: 2, title: c.child, body: `Implements part of #1.\n\n## Parent\n#1\n`, state: 'CLOSED', labels: [L.ready], comments: [] },
   ]);
   const promise = 'SECURITY 1 DONE';
-  const vars = { REPO: repo, BASE: 'main', TITLE: c.prd.title, PRD: 1, ISSUE: 1, ROUND: 1, ROUNDS: config.securityRounds,
+  const vars = { REPO: repo, ISSUE_SCRIPT, BASE: 'main', TITLE: c.prd.title, PRD: 1, ISSUE: 1, ROUND: 1, ROUNDS: config.securityRounds,
     CHILDREN: `- #2 [closed] ${c.child}`, LABEL_READY: L.ready, LABEL_REVIEWED: L.reviewed, LABEL_SECURED: L.secured, LABEL_SECURITY: L.security,
     SUBJECT: 'security pass 1 of PRD #1', PROMISE: promise };
   const t0 = Date.now();
@@ -78,7 +78,7 @@ for (const name of Object.keys(cases).sort(() => Math.random() - 0.5)) {
   const r = await runGoal({
     bin: config.claudeBin, cwd: checkout, model: config.model, effort: config.effort, extraArgs: workerArgs(config),
     timeoutMs: config.turnTimeoutMinutes * 60_000, prompt: render(template, vars), continuePrompt: render(cont, vars),
-    promise, maxIterations: 3,
+    promise, maxIterations: 3, env: { HX_TRUSTED: 'eval' }, // the fake gh's issues and comments are by `eval`
     onEvent: (ev) => appendFileSync(path.join(logDir, `${name}.jsonl`), JSON.stringify(ev) + '\n'),
     onTurn: (_n, _s, t) => { tokens += t.usage.input + t.usage.cacheWrite + t.usage.cacheRead + t.usage.output; },
   });

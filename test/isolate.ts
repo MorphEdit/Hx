@@ -2,7 +2,7 @@
 // environment, inherited by the worker that runs these tests) or from the user's git setup reaches them.
 // A hung test fails at E2E.timeout instead of blocking `node --test`.
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -28,4 +28,9 @@ export const deadPid = (): number => spawnSync(process.execPath, ['-e', ''], { s
 /** Whether a process is still running. */
 export function alive(pid: number): boolean {
   try { process.kill(pid, 0); return true; } catch (e: any) { return e?.code === 'EPERM'; }
+}
+
+/** What the fake claude recorded of every session turn in fakeDir: its role, whether it was a checkpoint, its HX_TRUSTED. */
+export function sessionEnvs(fakeDir: string): { role: string; checkpoint: boolean; trusted: string | null }[] {
+  return readdirSync(fakeDir).filter((f) => /\.env-\d+\.json$/.test(f)).map((f) => JSON.parse(readFileSync(path.join(fakeDir, f), 'utf8')));
 }

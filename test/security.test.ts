@@ -1,6 +1,6 @@
 // The security pass end to end: real git (a local bare origin), fake gh and claude.
 //   review sign-off → security files a `security` issue → prd-reviewed removed → fixed → review → security PASS → closed.
-import { E2E } from './isolate.ts';
+import { E2E, sessionEnvs } from './isolate.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
@@ -87,6 +87,9 @@ test('security files an issue → prd-reviewed removed → fixed → review agai
   assert.match(prompt, /- #2 \[closed\] part A of feature 1/);
   assert.match(prompt, /--label ready-for-agent --label security /);
   assert.match(prompt, /--add-label security-reviewed/);
+  const envs = sessionEnvs(fakeDir);
+  assert.ok(envs.some((e) => e.role === 'security'));
+  for (const e of envs) assert.equal(e.trusted, 'me', JSON.stringify(e));
 });
 
 test('security never passes: after securityRounds the PRD is agent-blocked with a comment for a human, not closed', E2E, async () => {
