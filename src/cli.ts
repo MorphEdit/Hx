@@ -42,7 +42,8 @@ work and may file security issues (security-reviewed when clean); then the PRD i
 
 An issue is picked up when it is open, labelled
 ready-for-agent, not agent-working / agent-blocked, and every issue under its "## Blocked by"
-heading is closed (a child also waits for its PRD's own "## Blocked by").`;
+heading is closed (a child also waits for its PRD's own "## Blocked by"). Only issues and PRDs opened
+by a trusted account (the gh login plus trustedAuthors) are worked on; the rest show as untrusted.`;
 
 function flag(args: string[], name: string): string | undefined {
   const i = args.indexOf(name);

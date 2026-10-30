@@ -122,7 +122,8 @@ hx init                 # writes .hx/config.json and creates the GitHub labels
 hx prd feature.md       # file a PRD issue (title from the file's first "# " line)
 hx grill "dark mode"    # an interactive claude session interviews you into a PRD (idea: text or a .md file),
                         # shows it and files it on confirm (--yes: no question); kept in .hx/prds/
-hx status               # the runner, live sessions, usage window, and the board
+hx status               # the runner, live sessions, usage window, and the board (issues opened by an
+                        # untrusted account show as `untrusted` and are never claimed)
 hx run --dry-run        # the board and what would run next, without changing anything
 hx run                  # work the board until nothing is left, then exit
 hx run --watch          # keep running and pick up new or unblocked work
@@ -268,6 +269,23 @@ Remove `agent-blocked` from an issue to let Hx try it again.
 
 Workers run with `--permission-mode bypassPermissions`: the agent runs any command in its worktree
 without asking, and pushes and merges to your default branch on its own. **Try it on a throwaway repo first.**
+
+### Security: only trusted authors reach a worker
+
+Anyone can open an issue or comment on a public repo, and an agent with bypassPermissions acts on what
+it reads. So Hx only works on text from **trusted accounts**: your `gh` login plus `trustedAuthors`
+(case-insensitive).
+
+- Only issues and PRDs opened by a trusted account are claimed. Anything else is skipped (logged once
+  per run) and shown as `untrusted` in `hx status` / `hx run --dry-run`; a child of an untrusted PRD is
+  untrusted too.
+- Agents read issues through `scripts/issue.mjs`, which prints the issue with comments from untrusted
+  accounts removed — never `gh issue view --comments`. Every session gets the trusted set as `HX_TRUSTED`.
+- Hx's own marker and handoff comments (`<!-- hx-handoff -->`, `<!-- hx-gauntlet -->`,
+  `<!-- hx-security -->`, …) only count when a trusted account wrote them, so nobody else can fake a
+  round, a handoff or a security verdict.
+- `hx run` (and `hx status`) refuse to start if `gh api user` fails: without the login there is no
+  trusted set.
 
 ## Files
 

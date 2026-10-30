@@ -82,7 +82,7 @@ Agreed order (2026-10-30), highest quality gain first. Build them in this order.
 | 6 | **Bug lane** | `bug` issues: a triage session, then a fix session; priority over normal issues | reuses auditor + CI gate |
 | 7 | **Inject into a running fleet** | `hx prd/issue` while `hx run --watch` runs (grill → file) | mostly done: `--watch` already picks new issues up |
 | 8 | **Web dashboard / stats** | read-only local page over `live.json`, `usage.jsonl`, the board; stats per PRD/role/model | |
-| 9 | **Author filter** | only issues (and PRDs) opened by allowed authors (default: the `gh` login) are claimed | a safety item rather than a quality one: until it lands, only label issues `ready-for-agent` / `prd` yourself, and remember workers run with bypassPermissions |
+| 9 | ~~**Author filter**~~ done | only issues (and PRDs) opened by trusted authors (the `gh` login plus `trustedAuthors`) are claimed; agents read issues via `scripts/issue.mjs` without untrusted comments; hx's marker comments only count from trusted accounts | moved ahead of #5 (#26): with workers on bypassPermissions, text from any GitHub account reaching a prompt was a prompt-injection hole, which outranks any quality feature |
 | 10 | **Multi-repo / multi-CLI** | one fleet over several repos; other agent CLIs | only when there is a real need |
 
 ### When Hx may build itself (self-hosting)

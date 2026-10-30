@@ -21,6 +21,18 @@ test('README: lifecycle, round comments, original body, config keys with their d
   for (const l of [DEFAULTS.labels.hardened, DEFAULTS.labels.secured, DEFAULTS.labels.security]) assert.ok(labels.includes(`\`${l}\``), l);
 });
 
+test('author filter: README security section + trustedAuthors row, design #9 done, CLAUDE.md, help', () => {
+  const r = read('README.md');
+  assert.match(r, /\| `trustedAuthors` \| `\[\]` \|/);
+  for (const w of ['scripts/issue.mjs', 'gh api user', '`untrusted`', 'trusted account']) assert.ok(r.includes(w), w);
+  assert.match(read('docs/design.md'), /\| 9 \| ~~\*\*Author filter\*\*~~ done \|[^\n]*#26/);
+  const c = read('CLAUDE.md');
+  assert.ok(c.split('\n').some((l) => l.startsWith('- `scripts/issue.mjs`')), 'issue.mjs under Where things are');
+  assert.match(c, /only through `scripts\/issue\.mjs` \(never `gh issue view --comments`\)/);
+  const h = spawnSync(process.execPath, [path.join(root, 'bin', 'hx.mjs'), 'help'], { encoding: 'utf8' });
+  for (const w of ['untrusted', 'trustedAuthors']) assert.ok(h.stdout.includes(w), w);
+});
+
 test('design.md marks roadmap #3 (gauntlet) done', () => {
   assert.match(read('docs/design.md'), /\| 3 \| ~~\*\*Gauntlet[^|]*~~ done \|/);
 });
