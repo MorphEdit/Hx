@@ -41,6 +41,10 @@ export interface Config {
   leanWorkers: boolean;
   workerTools: string[];
   trustedAuthors: string[]; // accounts besides the gh login whose issues and PRDs hx works on
+  // role (impl, audit, decompose, review, critic, revise, security) → skills appended to its prompt; {} = none
+  roleSkills: Record<string, string[]>;
+  skillMaxChars: number; // a skill whose stripped SKILL.md body is longer is skipped
+  rtddBin: string; // HX_RTDD_BIN overrides it (see effectiveRtddBin)
   labels: Labels;
 }
 
@@ -67,6 +71,9 @@ export const DEFAULTS: Omit<Config, 'repo' | 'defaultBranch' | 'worktreeRoot'> =
   leanWorkers: true,
   workerTools: ['Bash', 'Read', 'Edit', 'Write', 'Glob', 'Grep'],
   trustedAuthors: [],
+  roleSkills: { impl: ['rtdd'], audit: ['rtdd'] },
+  skillMaxChars: 12000,
+  rtddBin: 'rtdd',
   labels: { ready: 'ready-for-agent', working: 'agent-working', blocked: 'agent-blocked', prd: 'prd', reviewed: 'prd-reviewed', hardened: 'prd-hardened', secured: 'security-reviewed', security: 'security', gateFix: 'hx-gate-fix' },
 };
 
@@ -102,6 +109,11 @@ export function loadProject(from: string = process.cwd()): Project {
 export function saveConfig(stateDir: string, config: Config): void {
   mkdirSync(stateDir, { recursive: true });
   writeFileSync(path.join(stateDir, 'config.json'), JSON.stringify(config, null, 2) + '\n');
+}
+
+/** The rtdd command hx runs: HX_RTDD_BIN when set and non-empty (like HX_GH_BIN for gh), else config.rtddBin. */
+export function effectiveRtddBin(c: Pick<Config, 'rtddBin'>): string {
+  return process.env.HX_RTDD_BIN || c.rtddBin;
 }
 
 /** Every flag a worker session gets on top of hx's own: the lean-worker set, then config.claudeArgs. */
