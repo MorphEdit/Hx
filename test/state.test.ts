@@ -52,7 +52,7 @@ test('plan: PRD lifecycle and sequencing', () => {
     i(1, [L.prd, L.hardened]),                            // no children, hardened → decompose
     i(2, [L.prd]), kid(10, 2), kid(11, 2, 'CLOSED'),        // building; #10 claimable
     i(3, [L.prd]), kid(12, 3, 'CLOSED'),                    // all closed, not reviewed → review
-    i(4, [L.prd, L.reviewed]), kid(13, 4, 'CLOSED'),        // reviewed → engine closes
+    i(4, [L.prd, L.reviewed, L.secured]), kid(13, 4, 'CLOSED'), // reviewed, secured → engine closes
     i(5, [L.prd], '## Blocked by\n#2'), kid(14, 5),          // PRD waits on #2 → child #14 waits too
     i(6, [L.prd]), kid(15, 6, 'OPEN', []),                  // unlabelled child → engine labels it
     i(7, [L.prd, L.ready]), kid(16, 7),                     // a PRD is never implemented itself; its
@@ -117,4 +117,59 @@ test('plan: the gauntlet runs before decompose, only on a PRD without children',
   // on is the default
   assert.deepEqual(plan(all, R, L, states, new Set(), { gauntlet: true }).actions[0], { kind: 'gauntlet', prd: 1, title: 't1' });
   assert.equal(plan(all, R, L, states).prds.find((p) => p.number === 5)?.status, 'gauntlet');
+});
+
+test('plan: the security pass runs after review sign-off and before the PRD closes', () => {
+  const L = DEFAULTS.labels;
+  const i = (number: number, labels: string[], body = '', state: 'OPEN' | 'CLOSED' = 'OPEN') => ({ number, title: `t${number}`, body, state, labels });
+  const kid = (n: number, state: 'OPEN' | 'CLOSED', labels = [L.ready]) => i(n, labels, '## Parent\n#1', state);
+  const at = (prd: string[], kids: ReturnType<typeof kid>[], opts?: { gauntlet?: boolean; security?: boolean }) => {
+    const all = [i(1, prd), ...kids];
+    const states = new Map(all.map((x) => [refKey({ repo: R, number: x.number }), x.state]));
+    const pl = plan(all, R, L, states, new Set(), opts);
+    return { status: pl.prds[0].status, actions: pl.actions.map((a) => `${a.kind}:${'issue' in a ? a.issue : a.prd}`), pl };
+  };
+  // the full lifecycle, one step at a time
+  const steps = [
+    at([L.prd], []),
+    at([L.prd, L.hardened], []),
+    at([L.prd, L.hardened], [kid(10, 'OPEN')]),
+    at([L.prd, L.hardened], [kid(10, 'CLOSED')]),
+    at([L.prd, L.hardened, L.reviewed], [kid(10, 'CLOSED')]),
+    at([L.prd, L.hardened, L.reviewed, L.secured], [kid(10, 'CLOSED')]),
+  ];
+  assert.deepEqual(steps.map((s) => s.status), ['gauntlet', 'decompose', 'building', 'review', 'security', 'done']);
+  assert.deepEqual(steps.map((s) => s.actions[0]), ['gauntlet:1', 'decompose:1', 'impl:10', 'review:1', 'security:1', 'close-prd:1']);
+  const kidsClosed = [kid(10, 'CLOSED')];
+  assert.deepEqual(steps[4].pl.actions[0], { kind: 'security', prd: 1, title: 't1', children: kidsClosed });
+  assert.deepEqual(steps[5].pl.actions[0], { kind: 'close-prd', prd: 1, secured: true });
+
+  // not before prd-reviewed: security-reviewed alone does not skip the review
+  assert.equal(at([L.prd, L.secured], kidsClosed).status, 'review');
+  // an open security issue filed by the pass (prd-reviewed removed by hx) → building, then review again
+  const sec = kid(11, 'OPEN', [L.ready, L.security]);
+  assert.equal(at([L.prd, L.hardened], [kid(10, 'CLOSED'), sec]).status, 'building');
+  // an open child holds even a reviewed PRD in building: no security, no close
+  const held = at([L.prd, L.reviewed], [kid(10, 'CLOSED'), sec]);
+  assert.equal(held.status, 'building');
+  assert.deepEqual(held.actions, ['impl:11']);
+  // close-prd only after security-reviewed
+  assert.ok(!at([L.prd, L.reviewed], kidsClosed).actions.includes('close-prd:1'));
+  // a running security session: working, nothing else for that PRD
+  const all = [i(1, [L.prd, L.reviewed]), ...kidsClosed];
+  const busy = plan(all, R, L, new Map(all.map((x) => [refKey({ repo: R, number: x.number }), x.state])), new Set([prdKey(1)]));
+  assert.equal(busy.prds[0].status, 'working');
+  assert.deepEqual(busy.actions, []);
+  // security off: reviewed goes straight to done (closed without the security message)
+  const off = at([L.prd, L.reviewed], kidsClosed, { security: false });
+  assert.equal(off.status, 'done');
+  assert.deepEqual(off.pl.actions, [{ kind: 'close-prd', prd: 1, secured: false }]);
+  // both off: today's flow — decompose directly, review, close
+  const both = { gauntlet: false, security: false };
+  assert.deepEqual([at([L.prd], [], both), at([L.prd], kidsClosed, both), at([L.prd, L.reviewed], kidsClosed, both)].map((s) => s.status),
+    ['decompose', 'review', 'done']);
+  // a PRD session action: ordered with the other PRD sessions, before engine steps and implementation
+  const mixed = [i(1, [L.prd, L.reviewed]), kid(10, 'CLOSED'), i(2, [L.prd]), i(3, [L.prd, L.hardened]), i(4, [L.ready])];
+  const pm = plan(mixed, R, L, new Map(mixed.map((x) => [refKey({ repo: R, number: x.number }), x.state])));
+  assert.deepEqual(pm.actions.map((a) => `${a.kind}:${'issue' in a ? a.issue : a.prd}`), ['security:1', 'gauntlet:2', 'decompose:3', 'impl:4']);
 });

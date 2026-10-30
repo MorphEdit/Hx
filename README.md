@@ -139,7 +139,11 @@ PRD #20 [prd] ──gauntlet──▶ [prd-hardened] ──decompose──▶ ch
      ├─ all children closed ──review──▶ gaps found → gap issues filed → implemented → review again
      │                                  no gaps    → label prd-reviewed
      │
-     └─ reviewed + all children closed ──▶ Hx closes the PRD
+     ├─ reviewed + all children closed ──security──▶ findings → security issues filed, prd-reviewed removed
+     │                                                  → implemented → review again → security again
+     │                                               none     → label security-reviewed
+     │
+     └─ security-reviewed + all children closed ──▶ Hx closes the PRD
 ```
 
 - The gauntlet runs before decompose, one round per session: an independent critic reads the PRD and
@@ -150,7 +154,12 @@ PRD #20 [prd] ──gauntlet──▶ [prd-hardened] ──decompose──▶ ch
   PRDs without blockers run in parallel.
 - Every review posts a `<!-- hx-review -->` comment on the PRD. After `reviewRounds` reviews
   without a sign-off, Hx labels the PRD `agent-blocked` for a human.
-- Decompose and review sessions only file issues, labels and comments; they never push code.
+- The security pass checks only what the PRD merged (injection of GitHub text into a shell or prompt,
+  path traversal, leaked secrets, unsafe deletion, new endpoints or downloads, unguarded prompts,
+  new dependencies) and files one `security` issue per real finding. Every pass posts a
+  `<!-- hx-security -->` comment; a pass that neither signs off nor files fails the PRD (`agent-blocked`).
+  After `securityRounds` passes that each filed issues, Hx labels the PRD `agent-blocked` for a human.
+- Decompose, review and security sessions only file issues, labels and comments; they never push code.
 
 ## Single issues
 
@@ -213,6 +222,8 @@ Remove `agent-blocked` from an issue to let Hx try it again.
 | `gauntlet` | `true` | critique and revise a PRD in rounds before it is decomposed |
 | `gauntletRounds` | 2 | critic → reviser rounds before the PRD is decomposed anyway |
 | `reviewRounds` | 3 | PRD reviews before a human has to look |
+| `security` | `true` | a security pass checks a reviewed PRD's merged work before the PRD closes |
+| `securityRounds` | 2 | security passes that file issues before a human has to look |
 | `audit` | `true` | an independent auditor checks every implementation PR before hx merges it |
 | `auditRounds` | 3 | implement → audit attempts before the issue goes to a human |
 | `gate` | `true` | test the default branch after every merge; while red, claim only its fix |
@@ -225,7 +236,7 @@ Remove `agent-blocked` from an issue to let Hx try it again.
 | `claudeArgs` | `[]` | extra flags for every `claude` call |
 | `leanWorkers` | `true` | workers start without MCP servers, skills, slash commands or user-level settings and plugins (~8K instead of ~44K tokens of base context per call) |
 | `workerTools` | `Bash Read Edit Write Glob Grep` | the only built-in tools a lean worker gets; add e.g. `Agent` or `WebFetch` if your issues need them |
-| `labels` | `ready-for-agent`, `agent-working`, `agent-blocked`, `prd`, `prd-hardened`, `prd-reviewed` | |
+| `labels` | `ready-for-agent`, `agent-working`, `agent-blocked`, `prd`, `prd-hardened`, `prd-reviewed`, `security-reviewed`, `security` | |
 
 ## ⚠️ Safety
 

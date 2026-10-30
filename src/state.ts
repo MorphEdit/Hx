@@ -98,14 +98,15 @@ export type Action =
   | { kind: 'gauntlet'; prd: number; title: string }
   | { kind: 'decompose'; prd: number; title: string; children: Issue[] }
   | { kind: 'review'; prd: number; title: string; children: Issue[] }
-  | { kind: 'close-prd'; prd: number }
+  | { kind: 'security'; prd: number; title: string; children: Issue[] }
+  | { kind: 'close-prd'; prd: number; secured?: boolean } // secured: the security pass signed it off
   | { kind: 'label-ready'; issue: number; prd: number }
   | { kind: 'impl'; issue: number; title: string };
 
 export interface PrdRow {
   number: number;
   title: string;
-  status: 'gauntlet' | 'decompose' | 'building' | 'review' | 'done' | 'working' | 'waiting' | 'blocked-label';
+  status: 'gauntlet' | 'decompose' | 'building' | 'review' | 'security' | 'done' | 'working' | 'waiting' | 'blocked-label';
   open: number; // open children
   closed: number;
   waitingOn: Ref[];
@@ -128,12 +129,16 @@ export const issueKey = (n: number) => `issue:${n}`;
  *  - a PRD with no children → decompose
  *  - children still open → they are built through the normal ready-issue flow
  *  - every child closed, not yet `reviewed` → review (may file gap issues: back to building)
- *  - reviewed and every child closed → the engine closes it
+ *  - reviewed, every child closed, not yet `security-reviewed` → security pass (may file security issues:
+ *    hx then removes `prd-reviewed`, so after the fixes the PRD is reviewed and checked again),
+ *    unless `opts.security` is false
+ *  - reviewed (and security-reviewed) and every child closed → the engine closes it
  * A PRD's own `## Blocked by` sequences PRDs: until it clears, nothing of that PRD runs.
  */
 export function plan(all: Issue[], repo: string, labels: Labels, states: Map<string, 'OPEN' | 'CLOSED'>,
-  busy: Set<string> = new Set(), opts: { gauntlet?: boolean } = {}): Plan {
+  busy: Set<string> = new Set(), opts: { gauntlet?: boolean; security?: boolean } = {}): Plan {
   const gauntlet = opts.gauntlet ?? true;
+  const security = opts.security ?? true;
   const prdIssues = all.filter((i) => i.labels.includes(labels.prd)).sort((a, b) => a.number - b.number);
   const prdNums = new Set(prdIssues.map((p) => p.number));
   const children = new Map<number, Issue[]>(prdIssues.map((p) => [p.number, []]));
@@ -168,13 +173,15 @@ export function plan(all: Issue[], repo: string, labels: Labels, states: Map<str
     else if (busy.has(prdKey(p.number))) status = 'working';
     else if (!kids.length) status = gauntlet && !p.labels.includes(labels.hardened) ? 'gauntlet' : 'decompose';
     else if (open.length) status = 'building';
-    else status = p.labels.includes(labels.reviewed) ? 'done' : 'review';
+    else if (!p.labels.includes(labels.reviewed)) status = 'review';
+    else status = security && !p.labels.includes(labels.secured) ? 'security' : 'done';
     prds.push({ number: p.number, title: p.title, status, open: open.length, closed: kids.length - open.length, waitingOn });
 
     if (status === 'gauntlet') actions.push({ kind: 'gauntlet', prd: p.number, title: p.title });
     else if (status === 'decompose') actions.push({ kind: 'decompose', prd: p.number, title: p.title, children: kids });
     else if (status === 'review') actions.push({ kind: 'review', prd: p.number, title: p.title, children: kids });
-    else if (status === 'done') engine.push({ kind: 'close-prd', prd: p.number });
+    else if (status === 'security') actions.push({ kind: 'security', prd: p.number, title: p.title, children: kids });
+    else if (status === 'done') engine.push({ kind: 'close-prd', prd: p.number, secured: p.labels.includes(labels.secured) });
     // an open child filed without any lane label would hold its PRD forever: make it claimable
     if (status === 'building')
       for (const k of open)

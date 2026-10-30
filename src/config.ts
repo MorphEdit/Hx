@@ -8,6 +8,8 @@ export interface Labels {
   prd: string;
   reviewed: string;
   hardened: string; // the gauntlet is done with a PRD: it may be decomposed
+  secured: string; // the security pass found nothing in a reviewed PRD's merged work: it may close
+  security: string; // an issue the security pass filed
   gateFix: string;
 }
 
@@ -21,6 +23,8 @@ export interface Config {
   gauntlet: boolean; // critique and revise a PRD in rounds before it is decomposed
   gauntletRounds: number; // critic → reviser rounds before the PRD is decomposed anyway
   reviewRounds: number; // PRD reviews (each may file gap issues) before a human has to look
+  security: boolean; // a security pass checks a reviewed PRD's merged work before the PRD closes
+  securityRounds: number; // security passes (each may file security issues) before a human has to look
   audit: boolean; // an independent auditor session checks every implementation PR before hx merges it
   auditRounds: number; // implement → audit attempts before the issue goes to a human
   gate: boolean; // test the default branch after every merge; while red, claim only the fix
@@ -47,6 +51,8 @@ export const DEFAULTS: Omit<Config, 'repo' | 'defaultBranch' | 'worktreeRoot'> =
   gauntlet: true,
   gauntletRounds: 2,
   reviewRounds: 3,
+  security: true,
+  securityRounds: 2,
   audit: true,
   auditRounds: 3,
   gate: true,
@@ -59,7 +65,7 @@ export const DEFAULTS: Omit<Config, 'repo' | 'defaultBranch' | 'worktreeRoot'> =
   claudeArgs: [],
   leanWorkers: true,
   workerTools: ['Bash', 'Read', 'Edit', 'Write', 'Glob', 'Grep'],
-  labels: { ready: 'ready-for-agent', working: 'agent-working', blocked: 'agent-blocked', prd: 'prd', reviewed: 'prd-reviewed', hardened: 'prd-hardened', gateFix: 'hx-gate-fix' },
+  labels: { ready: 'ready-for-agent', working: 'agent-working', blocked: 'agent-blocked', prd: 'prd', reviewed: 'prd-reviewed', hardened: 'prd-hardened', secured: 'security-reviewed', security: 'security', gateFix: 'hx-gate-fix' },
 };
 
 export interface Project {
