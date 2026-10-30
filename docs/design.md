@@ -66,7 +66,7 @@ role prompts, promise-based completion.
 | 3 | Robustness: pause / pause --now with checkpoint + handoff, crash recovery, one runner per repo, proactive usage-window holds, live `hx status` | done |
 | 4 | Token optimisation: lean workers, one-call `ship` script, shorter prompts — **−84% tokens** on the benchmark | done |
 | 5 | Auditor per issue (#1) + CI gate (#4): audit eval 6/6 planted defects caught; benchmark 6/6 with the auditor on | done |
-| 6 | Gauntlet (#3): a critic → reviser loop hardens a PRD before decompose; a security pass checks its merged work before it closes | done |
+| 6 | Gauntlet (#3): a critic → reviser loop hardens a PRD before decompose; a security pass checks its merged work before it closes — critic eval 3/3 defects, security eval 3/3 vulnerabilities, no false alarms | done |
 
 ### Next: the rest of Harness's features, ordered by how much they improve the quality of what Hx ships
 

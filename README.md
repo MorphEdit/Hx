@@ -62,6 +62,29 @@ The one correct PR sent back (#1) was sent back for a real reason: the issue say
 about six examples and the PR tested three. The auditor said the code itself was correct and named the
 missing tests; in a real run that costs one more implement round.
 
+### Do the gauntlet critic and the security pass catch real problems?
+
+Same method, on smaller sets: each case gets one independent session, run in random order and not
+told which cases are planted. Everything runs locally against a fake `gh`.
+
+[`bench/critic-eval.mjs`](bench/critic-eval.mjs) gives the critic PRDs for the benchmark project. Three have a
+planted defect: an undefined "short word", rules that say round down while the example rounds up, and an
+error case with no exit code. One PRD is clean. [Results](bench/results/critic-eval.json).
+
+[`bench/security-eval.mjs`](bench/security-eval.mjs) gives the security pass a merged PRD with one planted
+vulnerability: an issue title in an `execSync` shell command, an issue title used as a path that is later
+`rmSync`'d, or `GH_TOKEN` written to a debug log. A clean PRD is in the set too.
+[Results](bench/results/security-eval.json).
+
+| | Critic | Security pass |
+|---|---|---|
+| Planted problems caught | **3 / 3**, each finding naming the exact gap | **3 / 3**, one issue each, with file:line and an exploit scenario |
+| Clean cases passed | 1 / 1 | 1 / 1 |
+| Cost | ~29K tokens and ~17 s per critic | ~66K tokens and ~40 s per pass |
+
+In the real run that built the gauntlet, the security pass also found a prompt injection in the
+gauntlet's own critic and reviser prompts (MorphEdit/Hx#26). Hx fixed it before the PRD closed.
+
 Before the auditor (same issues, same model): Hx · 3 workers 3.6 min / 0.40M tokens
 ([`bench/results/phase4/`](bench/results/phase4)); before phase 4: 3.6 min / 2.45M
 ([`bench/results/phase3/`](bench/results/phase3)).
@@ -73,6 +96,8 @@ node bench/run.mjs chat
 node bench/run.mjs hx1
 node bench/run.mjs hx3
 node bench/audit-eval.mjs
+node bench/critic-eval.mjs
+node bench/security-eval.mjs
 node bench/figures.mjs
 ```
 

