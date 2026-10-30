@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { board, externalRefs, parseBlockedBy, parseParent, plan, prdKey, PROMISE_RE, refKey, render } from '../src/state.ts';
+import { board, externalRefs, issueKey, parseBlockedBy, parseParent, plan, prdKey, PROMISE_RE, refKey, render } from '../src/state.ts';
 import { DEFAULTS } from '../src/config.ts';
 
 const R = 'me/app';
@@ -66,6 +66,10 @@ test('plan: PRD lifecycle and sequencing', () => {
   assert.deepEqual(pl.board.find((r) => r.number === 14)?.waitingOn, [{ repo: R, number: 5 }]);
   assert.ok(!pl.board.some((r) => r.number === 7));
   assert.equal(pl.board.find((r) => r.number === 16)?.status, 'waiting');
+  // #12 is closed but its session is still running → PRD #3 is not reviewed yet
+  const pl2 = plan(all, R, L, states, new Set([issueKey(12)]));
+  assert.equal(pl2.prds.find((p) => p.number === 3)?.status, 'building');
+  assert.ok(!pl2.actions.some((a) => a.kind === 'review'));
 });
 
 test('promise matching and render', () => {

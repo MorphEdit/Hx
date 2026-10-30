@@ -150,7 +150,9 @@ export function plan(all: Issue[], repo: string, labels: Labels, states: Map<str
   for (const p of prdIssues) {
     if (p.state !== 'OPEN') continue;
     const kids = children.get(p.number)!;
-    const open = kids.filter((k) => k.state === 'OPEN');
+    // a child whose session is still running counts as open: the agent closes the issue when it
+    // merges, before the session ends, and a review must not start on a half-finished child
+    const open = kids.filter((k) => k.state === 'OPEN' || busy.has(issueKey(k.number)));
     const waitingOn = openBlockers(p, repo, states);
     // children wait while their PRD is sequenced behind another, or while decompose is still filing
     // them (a child filed first may get its `Blocked by` from a sibling that does not exist yet)
