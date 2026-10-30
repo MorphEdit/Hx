@@ -1,0 +1,117 @@
+import { appendFileSync, existsSync, readFileSync } from 'node:fs';
+import path from 'node:path';
+import { DEFAULTS, defaultWorktreeRoot, findProjectRoot, loadProject, saveConfig, STATE_DIR, type Config } from './config.ts';
+import * as gh from './github.ts';
+import { runOk } from './exec.ts';
+import { log, readBoard, runPool } from './pool.ts';
+import { fmt, readUsage, summarize, totalTokens, type UsageRow } from './usage.ts';
+
+const HELP = `usage: hx <command> [options]
+
+  init                     set up hx in the current repo (.hx/config.json + GitHub labels)
+  run [options]            work through every claimable issue, then exit
+      --watch              keep running and pick up new / unblocked issues
+      --workers N          parallel sessions (default: config.workers)
+      --issue N[,N...]     only these issues
+      --dry-run            show what would be claimed, change nothing
+  status                   the board: claimable / working / waiting / blocked issues
+  usage [--by issue|model|day]   token usage recorded by hx
+  help
+
+An issue is picked up when it is open, labelled ready-for-agent (configurable), not labelled
+agent-working / agent-blocked, and every issue under its "## Blocked by" heading is closed.`;
+
+function flag(args: string[], name: string): string | undefined {
+  const i = args.indexOf(name);
+  if (i < 0) return undefined;
+  const v = args[i + 1];
+  if (v === undefined || v.startsWith('--')) throw new Error(`${name} needs a value`);
+  return v;
+}
+
+export async function main(argv: string[]): Promise<number> {
+  const [cmd, ...args] = argv;
+  switch (cmd) {
+    case 'init': return init();
+    case 'run': return runCmd(args);
+    case 'status': return status();
+    case 'usage': return usage(args);
+    case undefined: case 'help': case '-h': case '--help': console.log(HELP); return 0;
+    default: console.error(`unknown command: ${cmd}\n\n${HELP}`); return 2;
+  }
+}
+
+async function init(): Promise<number> {
+  const root = (await runOk('git', ['rev-parse', '--show-toplevel'])).trim().replace(/\//g, path.sep);
+  const existing = findProjectRoot(root) === root;
+  const repo = await gh.repoSlug(root);
+  const config: Config = existing ? loadProject(root).config
+    : { ...DEFAULTS, repo, defaultBranch: await gh.defaultBranch(repo), worktreeRoot: defaultWorktreeRoot(root, repo) };
+  saveConfig(path.join(root, STATE_DIR), config);
+
+  // keep .hx/ out of git without touching the project's own .gitignore
+  const exclude = path.join((await runOk('git', ['-C', root, 'rev-parse', '--git-common-dir'])).trim(), 'info', 'exclude');
+  const abs = path.isAbsolute(exclude) ? exclude : path.join(root, exclude);
+  if (!existsSync(abs) || !readFileSync(abs, 'utf8').split(/\r?\n/).includes(`/${STATE_DIR}/`)) appendFileSync(abs, `\n/${STATE_DIR}/\n`);
+
+  const L = config.labels;
+  await gh.ensureLabel(config.repo, L.ready, '0e8a16', 'hx: an agent may pick this up');
+  await gh.ensureLabel(config.repo, L.working, 'fbca04', 'hx: an agent is working on this');
+  await gh.ensureLabel(config.repo, L.blocked, 'd93f0b', 'hx: needs a human');
+
+  console.log(`${existing ? 'updated' : 'created'} ${path.join(root, STATE_DIR, 'config.json')}
+  repo        ${config.repo} (base ${config.defaultBranch})
+  workers     ${config.workers}   model ${config.model}   max ${config.maxIterations} turns/issue
+  worktrees   ${config.worktreeRoot}
+  labels      ${L.ready}, ${L.working}, ${L.blocked}
+
+Next: label an issue '${L.ready}', then run  hx status  and  hx run`);
+  return 0;
+}
+
+async function runCmd(args: string[]): Promise<number> {
+  const p = loadProject();
+  const workers = Number(flag(args, '--workers') ?? p.config.workers);
+  if (!Number.isInteger(workers) || workers < 1) throw new Error('--workers must be a positive integer');
+  const only = flag(args, '--issue')?.split(',').map((s) => Number(s.replace('#', '')));
+
+  const ac = new AbortController();
+  let presses = 0;
+  process.on('SIGINT', () => {
+    if (++presses === 1) { log('Ctrl+C — stopping sessions and releasing their issues (Ctrl+C again to force quit)'); ac.abort(); }
+    else process.exit(130);
+  });
+  return runPool(p, { workers, only, watch: args.includes('--watch'), dryRun: args.includes('--dry-run'), signal: ac.signal });
+}
+
+async function status(): Promise<number> {
+  const p = loadProject();
+  const rows = await readBoard(p);
+  const recs = readUsage(p.stateDir);
+  const byIssue = new Map(summarize(recs, (r) => String(r.issue)).map((r) => [Number(r.key), r]));
+  console.log(`${p.config.repo} — ${rows.length} open '${p.config.labels.ready}' issue(s)\n`);
+  for (const r of rows) {
+    const u = byIssue.get(r.number);
+    const wait = r.waitingOn.length ? `  waits on ${r.waitingOn.map((w) => (w.repo === p.config.repo ? '' : w.repo) + '#' + w.number).join(', ')}` : '';
+    console.log(`  #${String(r.number).padEnd(5)} ${r.status.padEnd(13)} ${r.title.slice(0, 60)}${wait}${u ? `  [${fmt(totalTokens(u.usage))} tok]` : ''}`);
+  }
+  return 0;
+}
+
+function usage(args: string[]): number {
+  const p = loadProject();
+  const by = flag(args, '--by') ?? 'issue';
+  const recs = readUsage(p.stateDir);
+  if (!recs.length) { console.log('no usage recorded yet'); return 0; }
+  const keyOf = by === 'model' ? (r: any) => r.model : by === 'day' ? (r: any) => r.ts.slice(0, 10) : (r: any) => `#${r.issue}`;
+  const rows = summarize(recs, keyOf);
+  const all = summarize(recs, () => 'TOTAL')[0];
+  const W = [12, 8, 6, 9, 10, 10, 8, 10];
+  const cols = (cells: string[]) => cells.map((c, i) => (i ? c.padStart(W[i]) : c.padEnd(W[i]))).join(' ');
+  const line = (r: UsageRow) => cols([r.key, String(r.sessions), String(r.turns), fmt(totalTokens(r.usage)),
+    fmt(r.usage.cacheRead), fmt(r.usage.cacheWrite), fmt(r.usage.output), fmt(Math.round(totalTokens(r.usage) / r.turns))]);
+  console.log(cols([`by ${by}`, 'sessions', 'turns', 'total', 'cache rd', 'cache wr', 'output', 'per turn']));
+  for (const r of rows) console.log(line(r));
+  console.log(line(all));
+  return 0;
+}

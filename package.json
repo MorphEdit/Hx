@@ -1,0 +1,12 @@
+{
+  "name": "hx",
+  "version": "0.1.0",
+  "description": "Windows-native autonomous Claude Code worker pool for a GitHub-issues board",
+  "type": "module",
+  "bin": { "hx": "bin/hx.mjs" },
+  "engines": { "node": ">=23.6" },
+  "scripts": {
+    "test": "node --test --disable-warning=ExperimentalWarning \"test/**/*.test.ts\""
+  },
+  "license": "MIT"
+}
