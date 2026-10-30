@@ -6,11 +6,13 @@ import * as gh from './github.ts';
 import type { Issue } from './github.ts';
 import { externalRefs, issueKey, parseParent, plan, prdKey, refKey, render, type Action, type Plan } from './state.ts';
 import { addWorktree, implWorktree, prdWorktree, removeWorktree } from './worktree.ts';
-import { runGoal, type GoalResult } from './agent.ts';
+import { rateLimitOf, runGoal, runTurn, type GoalResult, type RateLimit } from './agent.ts';
+import { clearLive, otherRunner, readLive, readPause, writeLive, type LiveSession, type LiveState } from './runstate.ts';
 import { fmt, recordUsage, totalTokens } from './usage.ts';
 
 const PROMPTS = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'prompts');
 export const REVIEW_MARKER = '<!-- hx-review -->';
+export const HANDOFF_MARKER = '<!-- hx-handoff -->';
 
 type SessionAction = Extract<Action, { kind: 'impl' | 'decompose' | 'review' }>;
 
@@ -25,6 +27,14 @@ export interface PoolOptions {
 export function log(msg: string, issue?: number): void {
   const t = new Date().toTimeString().slice(0, 8);
   console.log(`${t} ${issue ? `[#${issue}] ` : ''}${msg}`);
+}
+
+/** How a session reports back to the pool while it runs. */
+interface WorkContext {
+  signal: AbortSignal; // aborted = stop now (Ctrl+C, pause --now): checkpoint and hand back
+  started: (s: LiveSession) => void;
+  progress: (key: string, turn: number, tokens: number) => void;
+  rateLimit: (rl: RateLimit) => void;
 }
 
 const sleep = (ms: number, signal?: AbortSignal) => new Promise<void>((r) => {
@@ -59,71 +69,128 @@ export function printPlan(pl: Plan, repo: string): void {
 
 export async function runPool(p: Project, o: PoolOptions): Promise<number> {
   const c = p.config;
+  if (o.dryRun) {
+    const pl = await readPlan(p);
+    printPlan(pl, c.repo);
+    console.log(pl.actions.length ? `\nnext: ${pl.actions.slice(0, o.workers + 5).map((a) => `${a.kind} #${target(a)}`).join(', ')}` : '\nnothing to do');
+    return 0;
+  }
+  const other = otherRunner(p.stateDir);
+  if (other) { log(`hx is already running for this repo (pid ${other.pid}, since ${other.startedAt}). Use hx status / hx pause.`); return 3; }
+  const pausedMode = readPause(p.stateDir);
+  if (pausedMode) { log(`paused (${pausedMode}) — run  hx resume  first.`); return 3; }
+
+  // Ctrl+C (o.signal) and `hx pause --now` both stop running sessions with a checkpoint
+  const stop = new AbortController();
+  o.signal.addEventListener('abort', () => stop.abort(), { once: true });
+  const live: LiveState = { pid: process.pid, startedAt: new Date().toISOString(), repo: c.repo, workers: o.workers, sessions: [] };
+  const save = () => { try { writeLive(p.stateDir, live); } catch {} };
+  await recoverStaleClaims(p);
+  save();
+
   const inFlight = new Map<string, Promise<void>>();
-  let limitedUntil = 0;
   let idleLogged = false;
   let failures = 0;
   let engineRetries = 0;
   let fatal: string | undefined; // a setup error: stop claiming, let running sessions finish
+  let finished = 0; // sessions ended so far: a plan read while one was ending is already stale
+  let wake = () => {};
+  const holdUntil = (until: number, why: string) => {
+    if (until <= (live.pausedUntil ?? 0)) return;
+    live.pausedUntil = until; live.pauseReason = why; save();
+    log(`${why} — no new claims until ${new Date(until).toLocaleTimeString()}`);
+  };
+  const ctx: WorkContext = {
+    signal: stop.signal,
+    started: (s) => { live.sessions.push(s); save(); },
+    progress: (key, turn, tokens) => { const s = live.sessions.find((x) => x.key === key); if (s) { s.turn = turn; s.tokens = tokens; save(); } },
+    rateLimit: (rl) => {
+      live.rateLimit = { ...rl, at: new Date().toISOString() }; save();
+      const high = rl.utilization !== undefined ? rl.utilization >= c.usagePauseAt : rl.status === 'allowed_warning';
+      if (high && rl.status !== 'rejected')
+        holdUntil(rl.resetsAt ? rl.resetsAt * 1000 : Date.now() + 30 * 60_000,
+          `usage ${rl.utilization !== undefined ? Math.round(rl.utilization * 100) + '%' : 'warning'} on the ${rl.type ?? 'current'} window`);
+    },
+  };
+  const watcher = setInterval(() => {
+    const m = readPause(p.stateDir);
+    if (m && !live.draining) { live.draining = true; save(); log(m === 'now' ? 'pause --now: checkpointing running sessions…' : 'pause: finishing running sessions, claiming nothing new'); wake(); }
+    if (m === 'now' && !stop.signal.aborted) stop.abort();
+  }, 1000);
 
   log(`hx pool up — ${c.repo} · ${o.workers} worker(s) · model ${c.model}${c.effort ? ` (${c.effort} effort)` : ''} · max ${c.maxIterations} iterations/session`);
-  let finished = 0; // sessions ended so far: a plan read while one was ending is already stale
-  while (!o.signal.aborted && !fatal) {
-    let actions: Action[] = [];
-    const finishedBefore = finished;
-    if (Date.now() >= limitedUntil) {
-      try {
-        const pl = await readPlan(p, new Set(inFlight.keys()));
-        if (o.dryRun) {
-          printPlan(pl, c.repo);
-          console.log(pl.actions.length ? `\nnext: ${pl.actions.slice(0, o.workers + 5).map((a) => `${a.kind} #${target(a)}`).join(', ')}` : '\nnothing to do');
-          return 0;
+  try {
+    while (!stop.signal.aborted && !fatal) {
+      let actions: Action[] = [];
+      const finishedBefore = finished;
+      const held = Date.now() < (live.pausedUntil ?? 0);
+      if (!held && !live.draining) {
+        try {
+          const pl = await readPlan(p, new Set(inFlight.keys()));
+          actions = pl.actions.filter((a) => !o.only || o.only.includes(target(a)));
+        } catch (e: any) {
+          log(`board read failed, retrying next poll: ${e.message}`);
         }
-        actions = pl.actions.filter((a) => !o.only || o.only.includes(target(a)));
-      } catch (e: any) {
-        log(`board read failed, retrying next poll: ${e.message}`);
       }
-    }
 
-    for (const a of actions) {
-      if (o.signal.aborted) break;
-      if (a.kind === 'close-prd' || a.kind === 'label-ready') { await engineStep(p, a).catch((e) => log(`${a.kind} failed: ${e.message}`, target(a))); continue; }
-      if (inFlight.size >= o.workers) continue; // engine steps further down still run
-      idleLogged = false;
-      const key = keyOf(a);
-      const task = work(p, a, o.signal).then((r) => {
-        if (r?.stopReason === 'limited') {
-          const reset = r.last?.limited?.resetsAt ? r.last.limited.resetsAt * 1000 : Date.now() + 30 * 60_000;
-          limitedUntil = Math.max(limitedUntil, reset);
-          log(`usage limit reached — no new claims until ${new Date(limitedUntil).toLocaleTimeString()}`);
-        } else if (r?.stopReason === 'fatal') {
-          fatal = r.last?.error ?? 'unknown setup error';
-        } else if (r && !r.done && r.stopReason !== 'aborted') failures++;
-      }).catch((e) => { failures++; log(`crashed: ${e.message}`, target(a)); })
-        .finally(() => { inFlight.delete(key); finished++; });
-      inFlight.set(key, task);
-    }
+      for (const a of actions) {
+        if (stop.signal.aborted || live.draining || Date.now() < (live.pausedUntil ?? 0)) break;
+        if (a.kind === 'close-prd' || a.kind === 'label-ready') { await engineStep(p, a).catch((e) => log(`${a.kind} failed: ${e.message}`, target(a))); continue; }
+        if (inFlight.size >= o.workers) continue; // engine steps further down still run
+        idleLogged = false;
+        const key = keyOf(a);
+        const task = work(p, a, ctx).then((r) => {
+          if (r?.stopReason === 'limited') {
+            holdUntil(r.last?.limited?.resetsAt ? r.last.limited.resetsAt * 1000 : Date.now() + 30 * 60_000, 'usage limit reached');
+          } else if (r?.stopReason === 'fatal') {
+            fatal = r.last?.error ?? 'unknown setup error';
+          } else if (r && !r.done && r.stopReason !== 'aborted') failures++;
+        }).catch((e) => { failures++; log(`crashed: ${e.message}`, target(a)); })
+          .finally(() => { inFlight.delete(key); live.sessions = live.sessions.filter((s) => s.key !== key); save(); finished++; });
+        inFlight.set(key, task);
+      }
 
-    if (!inFlight.size) {
-      if (finished !== finishedBefore) continue; // the plan predates a session ending: read it again
-      const limited = Date.now() < limitedUntil;
-      // an engine step (PRD closed, child labelled) may have unlocked work: re-read before giving up
-      const engineOnly = actions.length > 0 && actions.every((a) => a.kind === 'close-prd' || a.kind === 'label-ready');
-      engineRetries = engineOnly ? engineRetries + 1 : 0;
-      if (!o.watch && !limited && (!engineOnly || engineRetries > 3)) { log('nothing left to do — done'); break; }
-      if (engineOnly) { await sleep(2000, o.signal); continue; }
-      if (!idleLogged) { log(limited ? 'waiting for the usage limit to reset…' : 'board empty — watching for new issues'); idleLogged = true; }
+      if (!inFlight.size) {
+        if (live.draining) { log('paused — every session has finished'); break; }
+        if (finished !== finishedBefore) continue; // the plan predates a session ending: read it again
+        const limited = Date.now() < (live.pausedUntil ?? 0);
+        // an engine step (PRD closed, child labelled) may have unlocked work: re-read before giving up
+        const engineOnly = actions.length > 0 && actions.every((a) => a.kind === 'close-prd' || a.kind === 'label-ready');
+        engineRetries = engineOnly ? engineRetries + 1 : 0;
+        if (!o.watch && !limited && (!engineOnly || engineRetries > 3)) { log('nothing left to do — done'); break; }
+        if (engineOnly) { await sleep(2000, stop.signal); continue; }
+        if (!idleLogged) { log(limited ? 'waiting for the usage limit to reset…' : 'board empty — watching for new issues'); idleLogged = true; }
+      }
+      // wake on the first finished task, a pause, or after a poll interval (new / unblocked issues, a limit reset)
+      const holdLeft = (live.pausedUntil ?? 0) - Date.now();
+      const waitMs = holdLeft > 0 ? Math.max(1000, Math.min(c.pollSeconds * 1000, holdLeft)) : c.pollSeconds * 1000;
+      await Promise.race([sleep(waitMs, stop.signal), new Promise<void>((r) => { wake = r; }), ...inFlight.values()]);
     }
-    // wake on the first finished task, or after a poll interval to pick up new / unblocked issues
-    await Promise.race([sleep(c.pollSeconds * 1000, o.signal), ...inFlight.values()]);
+    if (inFlight.size) { log(`stopping — waiting for ${inFlight.size} session(s) to hand back their issues…`); await Promise.allSettled(inFlight.values()); }
+  } finally {
+    clearInterval(watcher);
+    clearLive(p.stateDir);
   }
-  if (inFlight.size) { log(`stopping — waiting for ${inFlight.size} session(s) to release their issues…`); await Promise.allSettled(inFlight.values()); }
   if (fatal) {
     log(`STOPPED: Claude rejected the setup — ${fatal.slice(0, 300)}`);
     log(`check config.model ('${c.model}'), claude --version, and that claude is logged in; no issue was labelled.`);
     return 2;
   }
   return failures ? 1 : 0;
+}
+
+/**
+ * A run that died (crash, closed terminal, killed process) leaves its claims behind: the
+ * agent-working label on GitHub and its sessions in live.json. Hand them back so the board moves
+ * again; implementation worktrees stay, so the next session continues the work.
+ */
+async function recoverStaleClaims(p: Project): Promise<void> {
+  const prev = readLive(p.stateDir);
+  if (!prev?.sessions?.length) return;
+  for (const s of prev.sessions) {
+    await gh.editLabels(p.config.repo, s.number, [], [p.config.labels.working]).catch(() => {});
+    log(`recovered from a run that stopped unexpectedly (pid ${prev.pid}): released ${s.kind}`, s.number);
+  }
 }
 
 /** Steps the engine does itself, no session: idempotent, retried every poll until GitHub agrees. */
@@ -141,7 +208,7 @@ async function engineStep(p: Project, a: Extract<Action, { kind: 'close-prd' | '
 const childList = (kids: Issue[]) =>
   kids.length ? kids.map((k) => `- #${k.number} [${k.state.toLowerCase()}] ${k.title}`).join('\n') : '(none)';
 
-async function work(p: Project, a: SessionAction, signal: AbortSignal): Promise<GoalResult | undefined> {
+async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<GoalResult | undefined> {
   const c = p.config;
   const n = target(a);
   const title = a.title;
@@ -166,6 +233,16 @@ async function work(p: Project, a: SessionAction, signal: AbortSignal): Promise<
     await gh.editLabels(c.repo, n, [], [c.labels.working]).catch(() => {});
     throw e;
   }
+  const key = keyOf(a);
+  ctx.started({ key, number: n, kind: a.kind, title, since: new Date().toISOString(), turn: 0, tokens: 0 });
+
+  // an earlier session that was stopped left a handoff comment: give it to this one
+  let resumeNote = '';
+  if (a.kind === 'impl' && wt.resumed) {
+    const handoff = (await gh.commentBodies(c.repo, n).catch(() => [] as string[])).filter((b) => b.trimStart().startsWith(HANDOFF_MARKER)).pop();
+    resumeNote = `NOTE: this branch already has work from an earlier session — run \`git log origin/${c.defaultBranch}..HEAD\` and \`git status\` first and continue from there.`
+      + (handoff ? `\nThat session's handoff note:\n\n${handoff.replace(HANDOFF_MARKER, '').trim()}\n` : '');
+  }
 
   const promise = `${a.kind === 'impl' ? 'ISSUE' : a.kind.toUpperCase()} ${n} DONE`;
   const L = c.labels;
@@ -174,7 +251,7 @@ async function work(p: Project, a: SessionAction, signal: AbortSignal): Promise<
     LABEL_READY: L.ready, LABEL_REVIEWED: L.reviewed, ROUND: round, ROUNDS: c.reviewRounds,
     ISSUE: n, PRD: n, BRANCH: `issue/${n}`,
     EXISTING: a.kind === 'decompose' ? childList(a.children) : '', CHILDREN: a.kind === 'review' ? childList(a.children) : '',
-    RESUMED: wt.resumed ? `NOTE: this branch already has work from an earlier session — run \`git log origin/${c.defaultBranch}..HEAD\` and \`git status\` first and continue from there.` : '',
+    RESUMED: resumeNote,
     SUBJECT: a.kind === 'impl' ? `issue #${n} (branch issue/${n}): look at \`git status\`, its PR (\`gh pr list -R ${c.repo} --head issue/${n}\`) and the issue`
       : a.kind === 'decompose' ? `PRD #${n}: list the issues you have filed for it so far` : `the review of PRD #${n}`,
   };
@@ -185,11 +262,18 @@ async function work(p: Project, a: SessionAction, signal: AbortSignal): Promise<
   const eventLog = path.join(logDir, `${a.kind === 'impl' ? 'issue' : a.kind}-${n}.jsonl`);
   log(`working in ${wt.dir}${wt.resumed ? ' (resuming earlier work)' : ''}`, n);
 
+  let sessionTokens = 0;
   const r = await runGoal({
     bin: c.claudeBin, cwd: wt.dir, model: c.model, effort: c.effort, extraArgs: c.claudeArgs, timeoutMs: c.turnTimeoutMinutes * 60_000,
-    prompt, continuePrompt: cont, promise, maxIterations: c.maxIterations, signal,
-    onEvent: (ev) => appendFileSync(eventLog, JSON.stringify(ev) + '\n'),
+    prompt, continuePrompt: cont, promise, maxIterations: c.maxIterations, signal: ctx.signal,
+    onEvent: (ev) => {
+      appendFileSync(eventLog, JSON.stringify(ev) + '\n');
+      const rl = rateLimitOf(ev);
+      if (rl) ctx.rateLimit(rl);
+    },
     onTurn: (i, sessionId, t) => {
+      sessionTokens += totalTokens(t.usage);
+      ctx.progress(key, i, sessionTokens);
       recordUsage(p.stateDir, { ts: new Date().toISOString(), issue: n, role: a.kind, sessionId, iteration: i, model: c.model,
         ok: t.ok, usage: t.usage, costUsd: t.costUsd, durationMs: t.durationMs, numTurns: t.numTurns });
       log(`turn ${i}: ${t.ok ? 'ok' : 'error'} · ${fmt(totalTokens(t.usage))} tokens (${fmt(t.usage.output)} out) · ${Math.round(t.durationMs / 1000)}s${t.error ? ` · ${t.error.slice(0, 160)}` : ''}`, n);
@@ -198,6 +282,7 @@ async function work(p: Project, a: SessionAction, signal: AbortSignal): Promise<
 
   const keepOnStop = a.kind === 'impl'; // only an implementation worktree can hold unpushed work
   const summary = `${r.iterations} turn(s), ${fmt(totalTokens(r.usage))} tokens`;
+  if (r.stopReason === 'aborted' && a.kind === 'impl' && r.iterations > 0) await checkpoint(p, n, r.sessionId, wt.dir, vars, eventLog);
   if (r.stopReason === 'aborted' || r.stopReason === 'limited' || r.stopReason === 'fatal') {
     // not a failure of the issue: hand it back untouched
     await gh.editLabels(c.repo, n, [], [L.working]).catch(() => {});
@@ -220,6 +305,22 @@ async function work(p: Project, a: SessionAction, signal: AbortSignal): Promise<
   if (!keepOnStop) await removeWorktree(p.root, wt.dir);
   log(`${a.kind} FAILED ✗ — ${reason} (${summary}); labelled ${L.blocked}${keepOnStop ? ', worktree kept' : ''}`, n);
   return { ...r, done: false };
+}
+
+/**
+ * The run is stopping mid-session: resume the session once more and have it commit and push its
+ * WIP and leave a handoff comment, so the next session picks up where this one stopped.
+ */
+async function checkpoint(p: Project, n: number, sessionId: string, cwd: string, vars: Record<string, string | number>, eventLog: string): Promise<void> {
+  const c = p.config;
+  log('checkpointing: committing WIP and writing a handoff note…', n);
+  const t = await runTurn({ bin: c.claudeBin, cwd, model: c.model, effort: c.effort, extraArgs: c.claudeArgs,
+    timeoutMs: c.checkpointMinutes * 60_000, sessionId, resume: true,
+    prompt: render(readFileSync(path.join(PROMPTS, 'checkpoint.md'), 'utf8'), vars),
+    onEvent: (ev) => appendFileSync(eventLog, JSON.stringify(ev) + '\n') });
+  recordUsage(p.stateDir, { ts: new Date().toISOString(), issue: n, role: 'checkpoint', sessionId, iteration: 0, model: c.model,
+    ok: t.ok, usage: t.usage, costUsd: t.costUsd, durationMs: t.durationMs, numTurns: t.numTurns });
+  log(t.ok ? `checkpoint saved (${fmt(totalTokens(t.usage))} tokens)` : `checkpoint failed: ${t.error?.slice(0, 160)} — the worktree still has the work`, n);
 }
 
 /** Did the session leave GitHub in the state its role promises? null = yes, else why not. */

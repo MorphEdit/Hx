@@ -41,14 +41,27 @@ process.stdin.on('data', (d) => (prompt += d)).on('end', () => {
         round: Number(/review round (\d+)/.exec(prompt)?.[1] ?? 0) };
   st.turns++;
   writeFileSync(counter, JSON.stringify(st));
+  writeFileSync(path.join(process.env.HX_FAKE_DIR, `${sid}.prompt-${st.turns}.txt`), prompt);
   if (a.includes('--resume') !== st.turns > 1) { process.stderr.write('resume flag mismatch'); process.exit(4); }
+  const checkpoint = /HX CHECKPOINT/.test(prompt);
+  // FAKE_CLAUDE_RATE=<0..1>: report that much of the five-hour window used, resetting in 2s
+  if (process.env.FAKE_CLAUDE_RATE)
+    out({ type: 'rate_limit_event', rate_limit_info: { status: 'allowed_warning', utilization: Number(process.env.FAKE_CLAUDE_RATE),
+      resetsAt: Math.ceil(Date.now() / 1000) + 2, rateLimitType: 'five_hour' } });
+  // FAKE_CLAUDE_DELAY_MS: a slow turn, so a test can pause or stop the run mid-session
+  setTimeout(() => finish(st, checkpoint), checkpoint ? 0 : Number(process.env.FAKE_CLAUDE_DELAY_MS ?? 0));
+});
 
+function finish(st, checkpoint) {
   const done = () => `<promise>${st.role === 'implement' ? 'ISSUE' : st.role.toUpperCase()} ${st.n} DONE</promise>`;
   const text = locked(boardFile, () => {
     const b = loadBoard();
     const me = b.issues.find((i) => i.number === st.n);
     let t = `working on #${st.n} (turn ${st.turns}) in ${path.basename(process.cwd())}`;
-    if (st.role === 'implement' && st.turns >= 2 && !/FAIL/.test(me.body)) {
+    if (checkpoint) {
+      b.comments.push({ issue: st.n, body: `<!-- hx-handoff -->\nhalf done; next: finish part ${st.n}` });
+      t = `<promise>CHECKPOINT ${st.n} DONE</promise>`;
+    } else if (st.role === 'implement' && st.turns >= 2 && !/FAIL/.test(me.body)) {
       me.state = 'CLOSED';
       t = `merged. ${done()}`;
     } else if (st.role === 'decompose') {
@@ -67,4 +80,4 @@ process.stdin.on('data', (d) => (prompt += d)).on('end', () => {
   out({ type: 'system', subtype: 'init' });
   out({ type: 'assistant', message: { content: [{ type: 'text', text }] } });
   out({ type: 'result', subtype: 'success', is_error: false, result: text, num_turns: 3, usage, total_cost_usd: 0.01 });
-});
+}

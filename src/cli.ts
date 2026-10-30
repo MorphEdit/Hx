@@ -4,6 +4,8 @@ import { DEFAULTS, defaultWorktreeRoot, findProjectRoot, loadProject, saveConfig
 import * as gh from './github.ts';
 import { runOk } from './exec.ts';
 import { log, printPlan, readPlan, runPool } from './pool.ts';
+import { killAllSessions } from './agent.ts';
+import { clearPause, otherRunner, pidAlive, readLive, readPause, setPause } from './runstate.ts';
 import { fmt, readUsage, summarize, totalTokens, type UsageRow } from './usage.ts';
 
 const HELP = `usage: hx <command> [options]
@@ -15,9 +17,14 @@ const HELP = `usage: hx <command> [options]
       --workers N          parallel sessions (default: config.workers)
       --issue N[,N...]     only these issues / PRDs
       --dry-run            show the board and what would run next, change nothing
-  status                   PRDs and issues: claimable / working / waiting / blocked
+  status                   the runner, its live sessions, usage limits, and the board
+  pause [--now]            stop claiming new work; running sessions finish (--now: they commit,
+                           push and leave a handoff note, then stop). Works on a running hx run.
+  resume                   clear a pause; then hx run continues where it stopped
   usage [--by issue|role|model|day]   token usage recorded by hx
   help
+
+Ctrl+C in hx run = pause --now for that run; Ctrl+C again force-quits (sessions are killed).
 
 A PRD (label prd) is decomposed into child issues, each child is implemented, then the PRD is
 reviewed (which may file gap issues) and closed. An issue is picked up when it is open, labelled
@@ -39,6 +46,8 @@ export async function main(argv: string[]): Promise<number> {
     case 'prd': return prd(args);
     case 'run': return runCmd(args);
     case 'status': return status();
+    case 'pause': return pause(args);
+    case 'resume': return resume();
     case 'usage': return usage(args);
     case undefined: case 'help': case '-h': case '--help': console.log(HELP); return 0;
     default: console.error(`unknown command: ${cmd}\n\n${HELP}`); return 2;
@@ -84,8 +93,8 @@ async function runCmd(args: string[]): Promise<number> {
   const ac = new AbortController();
   let presses = 0;
   process.on('SIGINT', () => {
-    if (++presses === 1) { log('Ctrl+C — stopping sessions and releasing their issues (Ctrl+C again to force quit)'); ac.abort(); }
-    else process.exit(130);
+    if (++presses === 1) { log('Ctrl+C — checkpointing running sessions and handing their issues back (Ctrl+C again to force quit)'); ac.abort(); }
+    else { log('force quit — killing sessions; their worktrees keep the work'); killAllSessions(); process.exit(130); }
   });
   return runPool(p, { workers, only, watch: args.includes('--watch'), dryRun: args.includes('--dry-run'), signal: ac.signal });
 }
@@ -96,26 +105,73 @@ async function prd(args: string[]): Promise<number> {
   if (!file) throw new Error('usage: hx prd <file.md> [--title "..."]');
   let body = readFileSync(file, 'utf8');
   let title = flag(args, '--title');
-  const h1 = /^#[ 	]+(.+?)[ 	]*$/m.exec(body);
+  const h1 = /^#[ \t]+(.+?)[ \t]*$/m.exec(body);
   if (!title && h1) { title = h1[1]; body = body.replace(h1[0], '').trimStart(); }
   if (!title) throw new Error('no title: pass --title or start the file with a "# Title" line');
   const url = await gh.createIssue(p.config.repo, title, body, [p.config.labels.prd]);
-  console.log(`filed ${url}
-hx run will decompose it into issues.`);
+  console.log(`filed ${url}\nhx run will decompose it into issues.`);
   return 0;
 }
 
+function pause(args: string[]): number {
+  const p = loadProject();
+  const mode = args.includes('--now') ? 'now' : 'drain';
+  setPause(p.stateDir, mode);
+  const runner = otherRunner(p.stateDir);
+  console.log(runner
+    ? mode === 'now'
+      ? `pausing run ${runner.pid}: its sessions commit, push and leave a handoff note, then stop.`
+      : `pausing run ${runner.pid}: it claims nothing new and stops once its ${runner.sessions.length} session(s) finish.`
+    : 'paused: no hx run is active; hx run will refuse to start until  hx resume.');
+  return 0;
+}
+
+function resume(): number {
+  const p = loadProject();
+  const was = readPause(p.stateDir);
+  clearPause(p.stateDir);
+  console.log(was ? `resumed (was paused: ${was}). Run  hx run  to continue where it stopped.` : 'not paused.');
+  return 0;
+}
+
+const ago = (iso: string) => {
+  const s = Math.round((Date.now() - Date.parse(iso)) / 1000);
+  return s < 60 ? `${s}s` : s < 3600 ? `${Math.floor(s / 60)}m${String(s % 60).padStart(2, '0')}s` : `${Math.floor(s / 3600)}h${String(Math.floor(s / 60) % 60).padStart(2, '0')}m`;
+};
+
 async function status(): Promise<number> {
   const p = loadProject();
+  const c = p.config;
+
+  // the runner
+  const live = readLive(p.stateDir);
+  const paused = readPause(p.stateDir);
+  if (live && pidAlive(live.pid)) {
+    console.log(`runner   running · pid ${live.pid} · up ${ago(live.startedAt)} · ${live.sessions.length}/${live.workers} worker(s) busy${live.draining ? ' · PAUSING' : ''}`);
+    for (const s of live.sessions)
+      console.log(`         #${String(s.number).padEnd(5)} ${s.kind.padEnd(9)} ${ago(s.since).padStart(7)}  turn ${s.turn}  ${fmt(s.tokens)} tok  ${s.title.slice(0, 50)}`);
+    if (live.pausedUntil && live.pausedUntil > Date.now())
+      console.log(`         no new claims until ${new Date(live.pausedUntil).toLocaleTimeString()} (${live.pauseReason})`);
+    if (live.rateLimit) {
+      const rl = live.rateLimit;
+      console.log(`usage    ${rl.type ?? 'window'}: ${rl.utilization !== undefined ? Math.round(rl.utilization * 100) + '% used, ' : ''}${rl.status}${rl.resetsAt ? `, resets ${new Date(rl.resetsAt * 1000).toLocaleString()}` : ''}`);
+    }
+  } else if (live?.sessions.length) {
+    console.log(`runner   not running — the last run (pid ${live.pid}) stopped unexpectedly with ${live.sessions.length} session(s); hx run hands them back`);
+  } else {
+    console.log('runner   not running');
+  }
+  if (paused) console.log(`paused   ${paused} — hx resume to clear`);
+  console.log(`model    ${c.model}${c.effort ? ` (${c.effort} effort)` : ''}\n`);
+
+  // the board
   const pl = await readPlan(p);
-  console.log(`${p.config.repo} — ${pl.prds.length} open PRD(s), ${pl.board.length} open '${p.config.labels.ready}' issue(s)
-`);
-  printPlan(pl, p.config.repo);
+  console.log(`${c.repo} — ${pl.prds.length} open PRD(s), ${pl.board.length} open '${c.labels.ready}' issue(s)\n`);
+  printPlan(pl, c.repo);
   const recs = readUsage(p.stateDir);
   if (recs.length) {
     const all = summarize(recs, () => '')[0];
-    console.log(`
-tokens so far: ${fmt(totalTokens(all.usage))} over ${all.sessions} session(s) — hx usage for details`);
+    console.log(`\ntokens so far: ${fmt(totalTokens(all.usage))} over ${all.sessions} session(s) — hx usage for details`);
   }
   return 0;
 }

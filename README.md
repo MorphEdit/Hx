@@ -26,13 +26,33 @@ npm link
 cd <your repo>
 hx init                 # writes .hx/config.json and creates the GitHub labels
 hx prd feature.md       # file a PRD issue (title from the file's first "# " line)
-hx status               # PRDs and issues: claimable / working / waiting / blocked
+hx status               # the runner, live sessions, usage window, and the board
 hx run --dry-run        # the board and what would run next, without changing anything
 hx run                  # work the board until nothing is left, then exit
 hx run --watch          # keep running and pick up new or unblocked work
 hx run --issue 12,15    # only these issues / PRDs
+hx pause [--now]        # from another terminal: stop a running hx run (see below)
+hx resume               # clear a pause
 hx usage --by role      # recorded token usage (by issue | role | model | day)
 ```
+
+## Stopping and resuming
+
+| You do | Hx does |
+|---|---|
+| `hx pause` | claims nothing new; running sessions finish their issue, then `hx run` exits |
+| `hx pause --now`, or Ctrl+C in `hx run` | stops every running session, then resumes each one for a **checkpoint**: commit and push its WIP, and post a `<!-- hx-handoff -->` comment (done / left / next step). The issue is handed back. |
+| `hx resume`, then `hx run` | picks the issues up again: the worktree and branch still hold the work, and the new session's prompt includes the handoff note |
+| Ctrl+C twice | force-quits and kills every session; the worktrees keep whatever was written |
+
+While paused, `hx run` refuses to start until `hx resume`. Only one `hx run` per repo can run at a time.
+
+**A crashed run** (terminal closed, machine rebooted, process killed) leaves `agent-working` on its
+issues. The next `hx run` sees that the previous runner is gone and hands those issues back first.
+
+**Usage limits:** Hx reads Claude's usage-window events. Once a window is `usagePauseAt` full (90% by
+default), it claims nothing new until the window resets; running sessions carry on. If a session hits
+the limit anyway, its issue is handed back and picked up again after the reset.
 
 ## PRD flow
 
@@ -70,9 +90,6 @@ other-owner/other-repo#3
 
 Write `None` under the heading (or leave it out) for an issue with no dependencies.
 
-Ctrl+C once stops every session, hands its issue back, and keeps the worktree so the next run
-continues where it left off. Ctrl+C twice force-quits.
-
 ## What happens to an issue
 
 | Outcome | Hx does |
@@ -80,6 +97,7 @@ continues where it left off. Ctrl+C twice force-quits.
 | agent prints `<promise>ISSUE n DONE</promise>` and the issue is closed | removes `agent-working` and the worktree |
 | no promise after `maxIterations` turns, or the agent errors | comments the reason and last reply on the issue, labels it `agent-blocked`, keeps the worktree |
 | usage limit hit | releases the issue, stops claiming until the limit resets |
+| Claude rejects the setup (API 400/401/403/404: unknown model, outdated CLI, auth) | hands the issue back untouched and stops the whole run with the reason |
 
 Remove `agent-blocked` from an issue to let Hx try it again.
 
@@ -92,6 +110,8 @@ Remove `agent-blocked` from an issue to let Hx try it again.
 | `effort` | `medium` | `claude --effort`: `low`, `medium`, `high`, `xhigh`, `max`, or `""` for the CLI default |
 | `maxIterations` | 8 | turns per session before giving up |
 | `reviewRounds` | 3 | PRD reviews before a human has to look |
+| `usagePauseAt` | 0.9 | claim nothing new once a usage window is this full (0..1) |
+| `checkpointMinutes` | 10 | time a stopped session gets to commit, push and write its handoff |
 | `turnTimeoutMinutes` | 45 | wall-clock limit for one turn |
 | `pollSeconds` | 60 | how often the board is re-read |
 | `worktreeRoot` | `<drive>:\hx-wt\<repo>` | keep it short: Windows path-length limits |
@@ -106,7 +126,9 @@ without asking, and pushes and merges to your default branch on its own. **Try i
 ## Files
 
 - `.hx/usage.jsonl` — tokens for every turn (input / cache read / cache write / output)
-- `.hx/logs/issue-N.jsonl` — the raw Claude event stream per issue, for debugging
+- `.hx/logs/<role>-N.jsonl` — the raw Claude event stream per issue / PRD, for debugging
+- `.hx/live.json` — the running `hx run`: its pid and live sessions (read by `hx status`)
+- `.hx/pause` — present while paused (`drain` or `now`)
 
 `.hx/` is added to `.git/info/exclude` by `hx init`, so it never shows up in `git status`.
 

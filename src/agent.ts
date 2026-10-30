@@ -1,7 +1,7 @@
 // Drives Claude Code headless (`claude -p --output-format stream-json`) — no tmux, no screen scraping.
 // The Ralph loop lives here: re-prompt the same session with --resume until the reply carries the
 // completion promise or the iteration budget runs out.
-import { spawn, execFile } from 'node:child_process';
+import { spawn, execFile, execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { createInterface } from 'node:readline';
 import { PROMISE_RE } from './state.ts';
@@ -50,11 +50,38 @@ export function emptyUsage(): Usage {
   return { input: 0, cacheWrite: 0, cacheRead: 0, output: 0 };
 }
 
-function killTree(pid: number | undefined): void {
+function killTree(pid: number | undefined, sync = false): void {
   if (!pid) return;
   // claude spawns shells and tools; kill the whole tree, not just claude.exe
-  if (process.platform === 'win32') execFile('taskkill', ['/pid', String(pid), '/T', '/F'], () => {});
-  else try { process.kill(-pid, 'SIGKILL'); } catch { try { process.kill(pid, 'SIGKILL'); } catch {} }
+  if (process.platform === 'win32') {
+    if (sync) try { execFileSync('taskkill', ['/pid', String(pid), '/T', '/F'], { stdio: 'ignore' }); } catch {}
+    else execFile('taskkill', ['/pid', String(pid), '/T', '/F'], () => {});
+  } else try { process.kill(-pid, 'SIGKILL'); } catch { try { process.kill(pid, 'SIGKILL'); } catch {} }
+}
+
+// Every claude process still running, so a force-quit can take them down instead of orphaning them.
+const live = new Set<number>();
+
+/** Kill every running claude session now (force quit). Synchronous: safe right before process.exit. */
+export function killAllSessions(): void {
+  for (const pid of live) killTree(pid, true);
+  live.clear();
+}
+
+export interface RateLimit {
+  status: string; // allowed | allowed_warning | rejected
+  utilization?: number; // 0..1 when the CLI reports it
+  resetsAt?: number; // unix seconds
+  type?: string; // five_hour, seven_day, ...
+}
+
+/** The rate-limit info of a stream-json event, or null. Utilization is normalised to 0..1. */
+export function rateLimitOf(ev: any): RateLimit | null {
+  const i = ev?.type === 'rate_limit_event' ? ev.rate_limit_info : null;
+  if (!i) return null;
+  let u = typeof i.utilization === 'number' ? i.utilization : undefined;
+  if (u !== undefined && u > 1) u /= 100;
+  return { status: String(i.status ?? ''), utilization: u, resetsAt: i.resetsAt, type: i.rateLimitType };
 }
 
 export function runTurn(o: TurnOptions): Promise<TurnResult> {
@@ -65,6 +92,7 @@ export function runTurn(o: TurnOptions): Promise<TurnResult> {
     const [cmd, argv] = resolveCmd(o.bin, args);
     const child = spawn(cmd, argv, { cwd: o.cwd, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'],
       detached: process.platform !== 'win32' });
+    if (child.pid) live.add(child.pid);
     const res: TurnResult = { ok: false, text: '', usage: emptyUsage(), costUsd: 0, durationMs: 0, numTurns: 0 };
     const texts: string[] = [];
     let stderr = '';
@@ -81,8 +109,8 @@ export function runTurn(o: TurnOptions): Promise<TurnResult> {
       o.onEvent?.(ev);
       if (ev.type === 'assistant') {
         for (const c of ev.message?.content ?? []) if (c.type === 'text' && c.text) texts.push(c.text);
-      } else if (ev.type === 'rate_limit_event' && ev.rate_limit_info?.status === 'rejected') {
-        rejectedLimit = { resetsAt: ev.rate_limit_info.resetsAt };
+      } else if (rateLimitOf(ev)?.status === 'rejected') {
+        rejectedLimit = { resetsAt: rateLimitOf(ev)!.resetsAt };
       } else if (ev.type === 'result') {
         gotResult = true;
         const u = ev.usage ?? {};
@@ -101,6 +129,7 @@ export function runTurn(o: TurnOptions): Promise<TurnResult> {
     child.stderr!.on('data', (d) => { stderr += d; if (stderr.length > 20000) stderr = stderr.slice(-20000); });
     child.on('error', (e) => { stderr += String(e); });
     child.on('close', (code) => {
+      if (child.pid) live.delete(child.pid);
       clearTimeout(timer);
       o.signal?.removeEventListener('abort', onAbort);
       res.durationMs = Date.now() - started;

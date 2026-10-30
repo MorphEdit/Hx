@@ -17,6 +17,8 @@ export interface Config {
   effort: string; // claude --effort: low | medium | high | xhigh | max ('' = the CLI's default)
   maxIterations: number; // Ralph-loop turns per issue before giving up
   reviewRounds: number; // PRD reviews (each may file gap issues) before a human has to look
+  usagePauseAt: number; // 0..1: claim nothing new once a usage window is this full, until it resets
+  checkpointMinutes: number; // time a stopped session gets to commit, push and write its handoff
   turnTimeoutMinutes: number;
   pollSeconds: number;
   worktreeRoot: string; // keep it short: Windows MAX_PATH
@@ -31,6 +33,8 @@ export const DEFAULTS: Omit<Config, 'repo' | 'defaultBranch' | 'worktreeRoot'> =
   effort: 'medium',
   maxIterations: 8,
   reviewRounds: 3,
+  usagePauseAt: 0.9,
+  checkpointMinutes: 10,
   turnTimeoutMinutes: 45,
   pollSeconds: 60,
   claudeBin: 'claude',
