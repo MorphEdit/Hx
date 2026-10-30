@@ -7,6 +7,7 @@ import { log, printPlan, readPlan, runPool } from './pool.ts';
 import { killAllSessions } from './agent.ts';
 import { clearPause, otherRunner, pidAlive, readLive, readPause, setPause } from './runstate.ts';
 import { readGate } from './gate.ts';
+import { filePrd } from './prd.ts';
 import { fmt, readUsage, summarize, totalTokens, type UsageRow } from './usage.ts';
 
 const HELP = `usage: hx <command> [options]
@@ -105,12 +106,7 @@ async function prd(args: string[]): Promise<number> {
   const p = loadProject();
   const file = args.find((a, i) => !a.startsWith('--') && args[i - 1] !== '--title');
   if (!file) throw new Error('usage: hx prd <file.md> [--title "..."]');
-  let body = readFileSync(file, 'utf8');
-  let title = flag(args, '--title');
-  const h1 = /^#[ \t]+(.+?)[ \t]*$/m.exec(body);
-  if (!title && h1) { title = h1[1]; body = body.replace(h1[0], '').trimStart(); }
-  if (!title) throw new Error('no title: pass --title or start the file with a "# Title" line');
-  const url = await gh.createIssue(p.config.repo, title, body, [p.config.labels.prd]);
+  const url = await filePrd(p.config, file, flag(args, '--title'));
   console.log(`filed ${url}\nhx run will decompose it into issues.`);
   return 0;
 }
