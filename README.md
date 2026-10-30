@@ -7,6 +7,52 @@ Every issue gets its own git worktree and a **fresh Claude session**, re-prompte
 finishes (tests → PR → merge → issue closed). No tmux, no screen scraping: Hx drives
 `claude -p --output-format stream-json` directly, so it runs on plain Windows (and anywhere else Node runs).
 
+## Benchmark
+
+The same six issues (a small text-utilities library and its CLI, with a `Blocked by` graph:
+`#2` and `#4` need `#1`, `#5` needs `#2 #3 #4`, `#6` is independent), each on a fresh GitHub repo,
+three ways. Every run is graded by **hidden tests the agents never saw**. Real runs, not a mock-up:
+the figures are drawn from [`bench/results/`](bench/results).
+
+![Timeline: the same 6 issues, three ways](docs/figures/bench-timeline.svg)
+
+![Benchmark summary](docs/figures/bench-summary.svg)
+
+| | Single session | Hx · 1 worker | Hx · 3 workers |
+|---|---|---|---|
+| How | one Claude session does all 6 in a row | a fresh session per issue, one at a time | fresh sessions, in parallel where `Blocked by` allows |
+| Wall time | **3.2 min** | 7.3 min | 3.6 min |
+| Tokens | **0.67M** | 2.57M | 2.45M |
+| Claude API calls | 12 | 48 | 48 |
+| Issues closed · PRs merged | 6 · 6 | 6 · 6 | 6 · 6 |
+| Hidden tests | 6/6 | 6/6 | 6/6 |
+
+`claude-opus-5-5`, medium effort, 2026-10-30. No human input after the start in any run.
+
+**What this shows, honestly:**
+
+- **On six small issues, one session is cheaper and about as fast.** It wrote a `ship.sh` helper for the
+  branch → PR → merge routine and finished everything in 12 API calls. Every Hx session starts cold
+  and spends ~8 calls on one issue, and each call carries a ~45K-token base context (system prompt,
+  tools, and the plugins and MCP servers installed on the machine). That fixed cost per session is
+  what Hx's tokens are made of here — and what [phase 4](docs/design.md#roadmap) goes after.
+- **Parallelism works:** 3 workers finish in half the time of 1 worker for the same tokens, by
+  running `#1 #3 #6` together, then `#2 #4`, then `#5`.
+- **Where Hx is meant to win is not measured here:** long projects. A single session carries its whole
+  history into every call, so its cost per call grows with the project (hundreds of K tokens per
+  message after a few hours), and it can be lost to a crash or a usage limit. Hx's cost per issue stays
+  flat, issues survive a stop (checkpoint + handoff), and PRDs are decomposed and reviewed on their own.
+  A larger benchmark is on the roadmap.
+
+Reproduce (creates private repos on your GitHub account and spends real usage):
+
+```bash
+node bench/run.mjs chat
+node bench/run.mjs hx1
+node bench/run.mjs hx3
+node bench/figures.mjs
+```
+
 ## Requirements
 
 - Node ≥ 23.6 (runs the TypeScript directly: no dependencies, no build step)

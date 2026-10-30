@@ -1,0 +1,26 @@
+[
+  {
+    "title": "Add tokenize(text)",
+    "body": "Add `src/tokenize.js` with a named export `tokenize(text)` that returns the words of `text` as an array of lowercase strings, in order.\n\nRules:\n- A word is a maximal run of Unicode letters, digits and apostrophes (`'`).\n- Apostrophes at the start or end of a word are stripped; a word that is then empty is dropped.\n- Everything else (spaces, punctuation, symbols) separates words.\n\nExamples:\n- `tokenize(\"Don't stop, believing!\")` → `[\"don't\", \"stop\", \"believing\"]`\n- `tokenize(\"Hello, HELLO hello\")` → `[\"hello\", \"hello\", \"hello\"]`\n- `tokenize(\"'quoted' words\")` → `[\"quoted\", \"words\"]`\n- `tokenize(\"café 42\")` → `[\"café\", \"42\"]`\n- `tokenize(\"\")` and `tokenize(\"  ,,, \")` → `[]`\n\nAdd tests for these in `test/`.\n\n## Blocked by\nNone"
+  },
+  {
+    "title": "Add wordFreq(text, options)",
+    "body": "Add `src/freq.js` with a named export `wordFreq(text, { top } = {})`. It uses `tokenize` from `src/tokenize.js` and returns `[word, count]` pairs.\n\nRules:\n- Sorted by count, highest first; equal counts sorted by word, alphabetically (`a` before `b`).\n- `top` (optional positive integer) keeps only the first `top` pairs.\n- No words → `[]`.\n\nExamples:\n- `wordFreq(\"b a b c a b\")` → `[[\"b\", 3], [\"a\", 2], [\"c\", 1]]`\n- `wordFreq(\"z y x\")` → `[[\"x\", 1], [\"y\", 1], [\"z\", 1]]`\n- `wordFreq(\"b a b c a b\", { top: 2 })` → `[[\"b\", 3], [\"a\", 2]]`\n\nAdd tests in `test/`.\n\n## Blocked by\n#1"
+  },
+  {
+    "title": "Add slugify(text)",
+    "body": "Add `src/slugify.js` with a named export `slugify(text)` that turns text into a URL slug.\n\nRules:\n- Lowercase.\n- Remove diacritics (`é` → `e`, `ö` → `o`): normalize to NFKD and drop combining marks.\n- Every run of characters that are not `a-z` or `0-9` becomes a single `-`.\n- No `-` at the start or end. Nothing left → `\"\"`.\n\nExamples:\n- `slugify(\"Héllo, Wörld!\")` → `\"hello-world\"`\n- `slugify(\"  Hello   World  \")` → `\"hello-world\"`\n- `slugify(\"C++ & Rust\")` → `\"c-rust\"`\n- `slugify(\"\")` → `\"\"`\n\nAdd tests in `test/`.\n\n## Blocked by\nNone"
+  },
+  {
+    "title": "Add readingTime(text, wpm)",
+    "body": "Add `src/reading.js` with a named export `readingTime(text, wpm = 200)` that returns the reading time in whole minutes. It counts words with `tokenize` from `src/tokenize.js`.\n\nRules:\n- `minutes = Math.ceil(words / wpm)`; so 0 words → `0`, 1 word → `1`.\n- `wpm` that is not a number greater than 0 → throw a `RangeError`.\n\nExamples:\n- 200 words → `1`, 201 words → `2` (default wpm)\n- 250 words with `wpm = 100` → `3`\n- `readingTime(\"hi\", 0)` → throws `RangeError`\n\nAdd tests in `test/`.\n\n## Blocked by\n#1"
+  },
+  {
+    "title": "Add the textstat CLI",
+    "body": "Add `bin/textstat.js`, run as `node bin/textstat.js <command> ...`, using the library functions.\n\nCommands:\n- `freq [--top N] <file>` — word frequencies of the file's text (`wordFreq`): one `word count` line per pair, e.g. `b 3`.\n- `slug <text...>` — prints `slugify` of the arguments joined by one space, e.g. `slug Héllo Wörld` prints `hello-world`.\n- `time [--wpm N] <file>` — prints the reading time of the file's text as `<minutes> min`, e.g. `3 min` (default wpm 200).\n\nEach result ends with a newline. Exit codes:\n- `0` success\n- `1` no command, an unknown command, or bad arguments: print a usage message listing the three commands to stderr\n- `2` the file cannot be read: print the error to stderr\n\nAdd tests in `test/` that run the CLI (e.g. with `child_process.execFileSync` / `spawnSync`).\n\n## Blocked by\n#2\n#3\n#4"
+  },
+  {
+    "title": "Add truncate(text, max, suffix)",
+    "body": "Add `src/truncate.js` with a named export `truncate(text, max, suffix = \"…\")` that shortens text to at most `max` characters (UTF-16 `.length`), including the suffix.\n\nRules:\n- `text.length <= max` → return `text` unchanged.\n- Otherwise return the longest prefix that ends right before a whitespace character, with trailing whitespace trimmed, plus `suffix`, whose total length is `<= max`.\n- If no such prefix exists (no whitespace early enough, or it would be empty), cut hard: the first `max - suffix.length` characters plus `suffix`.\n- `max < suffix.length` → throw a `RangeError`.\n\nExamples:\n- `truncate(\"hello world\", 20)` → `\"hello world\"`\n- `truncate(\"hello\", 5)` → `\"hello\"`\n- `truncate(\"the quick brown fox\", 12)` → `\"the quick…\"`\n- `truncate(\"hello world\", 8, \"...\")` → `\"hello...\"`\n- `truncate(\"abcdefghij\", 5)` → `\"abcd…\"`\n- `truncate(\"hi there\", 2, \"...\")` → throws `RangeError`\n\nAdd tests in `test/`.\n\n## Blocked by\nNone"
+  }
+]

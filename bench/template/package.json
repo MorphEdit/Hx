@@ -1,0 +1,10 @@
+{
+  "name": "textstat",
+  "version": "0.0.1",
+  "description": "Small text utilities and a CLI",
+  "type": "module",
+  "scripts": {
+    "test": "node --test"
+  },
+  "license": "MIT"
+}

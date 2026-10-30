@@ -68,15 +68,26 @@ role prompts, promise-based completion.
 
 ## Token optimisation notes (phase 4)
 
-Already in place: a fresh session per issue (the biggest saving), a terse-prose instruction in the prompt.
+Already in place: a fresh session per issue, a terse-prose instruction in the prompt.
 
-Measured so far:
-- A one-word reply already costs ~22K tokens of context (system prompt, tools, plugins).
-- A `--resume` turn re-wrote the whole cache (24.7K cache write, 0 cache read) instead of reading it.
+Measured (see the [benchmark](../README.md#benchmark), `bench/results/`):
+- Six small issues: a single session used **0.67M tokens in 12 API calls**; Hx used **~2.5M in 48 calls**
+  (≈400K per issue, 8 calls each). Cache reads are ~95% of every run.
+- Each Hx call carries a ~45–50K base context: system prompt + tools + the machine's plugins, skills
+  and MCP servers. 8 calls × ~50K ≈ the whole per-issue cost — the work itself is a small fraction.
+- The single session amortised the routine: it wrote a `ship.sh` for branch → PR → merge once and
+  reused it. Each Hx session rediscovers the repo and the routine from scratch.
+- A one-word reply in a worker already costs ~22K tokens; a `--resume` turn re-wrote the cache
+  (24.7K cache write, 0 cache read) instead of reading it.
 
-Ideas:
-- Model per role: Haiku/Sonnet for decompose and review, Opus only where needed.
-- A token budget per issue: over it, write a handoff note and start a fresh session.
-- Shrink the base context: `--bare`, or disable plugins / MCP servers in worker worktrees.
-- Keep prompts short; they are re-sent with every session.
-- Find out why `--resume` misses the cache.
+Levers, biggest first:
+1. **Shrink the base context** of worker sessions: `--bare`, `--strict-mcp-config` with no servers,
+   no plugins or user skills in worker worktrees. Workers need git, gh, a shell and file tools only.
+2. **Fewer calls per issue**: ship the branch → test → PR → rebase → merge routine as one hx-provided
+   script the agent calls once, instead of 5–6 separate tool calls.
+3. **Shorter prompts**, re-sent with every session.
+4. Model per role: a smaller model for decompose and review where it holds up.
+5. A token budget per issue: over it, checkpoint + handoff and start a fresh session.
+6. Find out why `--resume` misses the cache.
+
+Each lever is checked by re-running the benchmark (`node bench/run.mjs hx3`).
