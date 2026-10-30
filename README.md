@@ -1,38 +1,40 @@
 # hx
 
-Worker pool ของ Claude Code ที่รันบน Windows ได้โดยตรง ทำ GitHub issue ให้อัตโนมัติ
-(เขียนใหม่โดยได้แนวคิดจาก [VocanicZ/Harness](https://github.com/VocanicZ/Harness))
+A Windows-native pool of autonomous Claude Code workers for a GitHub-issues board.
+Inspired by [VocanicZ/Harness](https://github.com/VocanicZ/Harness).
 
-ทุก issue ได้ git worktree แยกของตัวเอง และได้ **Claude session ใหม่** ระบบจะรันวนจน AI ทำงานจบ
-(test → PR → merge → ปิด issue) โดยไม่ใช้ tmux และไม่อ่านหน้าจอ ใช้ `claude -p --output-format stream-json` แทน
+Every issue gets its own git worktree and a **fresh Claude session**, re-prompted until the agent
+finishes (tests → PR → merge → issue closed). No tmux, no screen scraping: hx drives
+`claude -p --output-format stream-json` directly, so it runs on plain Windows (and anywhere else Node runs).
 
-## ต้องมี
+## Requirements
 
-- Node ≥ 23.6 (ไม่ต้องติดตั้ง dependency ใดๆ และไม่ต้อง build)
-- `git`, `gh` (login แล้ว), `claude`
+- Node ≥ 23.6 (runs the TypeScript directly: no dependencies, no build step)
+- `git`, `gh` (authenticated), `claude`
 
-## ติดตั้ง
+## Install
 
 ```bash
+git clone https://github.com/MorphEdit/hx
 cd hx
 npm link
 ```
 
-## ใช้งาน
+## Usage
 
 ```bash
-cd <repo ของคุณ>
-hx init                 # สร้าง .hx/config.json และ label บน GitHub
-hx status               # ดูว่ามี issue ไหนพร้อมทำ / รออยู่ / ติดอยู่
-hx run --dry-run        # ดูว่าจะหยิบ issue ไหนบ้าง โดยยังไม่ทำอะไรจริง
-hx run                  # ทำทุก issue ที่ทำได้ เสร็จแล้วจบ
-hx run --watch          # รันค้างไว้ และหยิบ issue ใหม่เมื่อมีเพิ่ม
-hx run --issue 12,15    # ทำเฉพาะ issue ที่ระบุ
-hx usage --by issue     # ดู token ที่ใช้ (แยกตาม issue / model / day)
+cd <your repo>
+hx init                 # writes .hx/config.json and creates the GitHub labels
+hx status               # the board: claimable / working / waiting / blocked
+hx run --dry-run        # what would be claimed, without changing anything
+hx run                  # work through every claimable issue, then exit
+hx run --watch          # keep running and pick up new or unblocked issues
+hx run --issue 12,15    # only these issues
+hx usage --by issue     # recorded token usage (by issue | model | day)
 ```
 
-**issue ที่จะถูกหยิบ** ต้องเปิดอยู่ ติด label `ready-for-agent` ไม่มี label `agent-working` หรือ `agent-blocked`
-และทุก issue ที่อยู่ใต้หัวข้อนี้ต้องปิดแล้ว:
+**An issue is picked up** when it is open, labelled `ready-for-agent`, not labelled `agent-working`
+or `agent-blocked`, and every issue listed under its `Blocked by` heading is closed:
 
 ```markdown
 ## Blocked by
@@ -40,31 +42,63 @@ hx usage --by issue     # ดู token ที่ใช้ (แยกตาม is
 other-owner/other-repo#3
 ```
 
-กด Ctrl+C หนึ่งครั้ง: หยุด session ทั้งหมด คืน issue กลับไป และเก็บ worktree ไว้ให้รันต่อครั้งหน้า
+Write `None` under the heading (or leave it out) for an issue with no dependencies.
+
+Ctrl+C once stops every session, hands its issue back, and keeps the worktree so the next run
+continues where it left off. Ctrl+C twice force-quits.
+
+## What happens to an issue
+
+| Outcome | hx does |
+|---|---|
+| agent prints `<promise>ISSUE n DONE</promise>` and the issue is closed | removes `agent-working` and the worktree |
+| no promise after `maxIterations` turns, or the agent errors | comments the reason and last reply on the issue, labels it `agent-blocked`, keeps the worktree |
+| usage limit hit | releases the issue, stops claiming until the limit resets |
+
+Remove `agent-blocked` from an issue to let hx try it again.
 
 ## Config (`.hx/config.json`)
 
 | key | default | |
 |---|---|---|
-| `workers` | 2 | จำนวน session ที่รันพร้อมกัน |
-| `model` | `sonnet` | model ที่ใช้ |
-| `maxIterations` | 8 | จำนวนรอบสูงสุดต่อ issue ถ้าเกินจะติด label `agent-blocked` และคอมเมนต์เหตุผลไว้ |
-| `turnTimeoutMinutes` | 45 | เวลาสูงสุดต่อรอบ |
-| `worktreeRoot` | `<drive>:\hx-wt\<repo>` | ควรเป็น path สั้น เพราะ Windows จำกัดความยาว path |
-| `claudeArgs` | `[]` | flag ที่จะส่งให้ `claude` เพิ่ม |
+| `workers` | 2 | sessions running in parallel |
+| `model` | `sonnet` | model for every session |
+| `maxIterations` | 8 | turns per issue before giving up |
+| `turnTimeoutMinutes` | 45 | wall-clock limit for one turn |
+| `pollSeconds` | 60 | how often the board is re-read |
+| `worktreeRoot` | `<drive>:\hx-wt\<repo>` | keep it short: Windows path-length limits |
+| `claudeArgs` | `[]` | extra flags for every `claude` call |
+| `labels` | `ready-for-agent`, `agent-working`, `agent-blocked` | |
 
-## ⚠️ ความปลอดภัย
+## ⚠️ Safety
 
-Worker รันด้วย `--permission-mode bypassPermissions` แปลว่า AI จะรันคำสั่งใดๆ ใน worktree ได้เองโดยไม่ถามคุณ
-และจะ push / merge เข้า branch หลักเอง **ควรลองกับ repo ทดสอบก่อน**
+Workers run with `--permission-mode bypassPermissions`: the agent runs any command in its worktree
+without asking, and pushes and merges to your default branch on its own. **Try it on a throwaway repo first.**
 
-## เครดิต
+## Files
 
-แนวคิดหลักได้มาจาก [VocanicZ/Harness](https://github.com/VocanicZ/Harness) (MIT) ได้แก่ การเก็บ state ไว้บน GitHub issue,
-รูปแบบ `## Blocked by`, worktree แยกต่อ issue, Ralph loop ที่จบด้วย `<promise>` และ prompt แยกตามบทบาท
-ส่วนโค้ดของ hx เขียนขึ้นใหม่ทั้งหมด
+- `.hx/usage.jsonl` — tokens for every turn (input / cache read / cache write / output)
+- `.hx/logs/issue-N.jsonl` — the raw Claude event stream per issue, for debugging
 
-## ไฟล์ที่สร้าง
+`.hx/` is added to `.git/info/exclude` by `hx init`, so it never shows up in `git status`.
 
-- `.hx/usage.jsonl` เก็บ token ของทุกรอบ (input / cache read / cache write / output)
-- `.hx/logs/issue-N.jsonl` เก็บ event ดิบจาก Claude ไว้ใช้ debug
+## Development
+
+```bash
+npm test
+```
+
+The end-to-end test uses real git (a local bare repo as origin) with fake `gh` and `claude`
+(`test/fakes/`).
+
+See [docs/design.md](docs/design.md) for how hx relates to Harness and the roadmap.
+
+## Credits
+
+The core ideas come from [VocanicZ/Harness](https://github.com/VocanicZ/Harness) (MIT): GitHub issues
+as the only state, the `## Blocked by` grammar, one worktree per issue, a Ralph loop ending on a
+`<promise>`, and role-specific prompts. hx's code is written from scratch.
+
+## License
+
+MIT
