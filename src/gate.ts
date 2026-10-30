@@ -2,10 +2,9 @@
 // nothing except the issue that fixes it — which hx files itself — so no worker builds on a broken base.
 // Hx repos usually have no hosted CI, so the gate is local: the project's test command on a fresh
 // checkout of origin/<base>.
-import { exec } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { run } from './exec.ts';
+import { run, runShell } from './exec.ts';
 import { addWorktree, removeWorktree } from './worktree.ts';
 
 export interface GateResult {
@@ -13,6 +12,7 @@ export interface GateResult {
   ok: boolean;
   command: string;
   output: string; // tail of the test output
+  timedOut?: boolean; // the command ran past the timeout: its process tree was killed
   at: string;
 }
 
@@ -43,11 +43,10 @@ export async function runGate(checkout: string, root: string, base: string, comm
   const wt = await addWorktree(checkout, root, { name: 'gate', branch: 'hx/gate', base, fresh: true });
   try {
     const sha = (await run(process.env.HX_GIT_BIN || 'git', ['-C', wt.dir, 'rev-parse', 'HEAD'])).stdout.trim();
-    const res = await new Promise<{ code: number; out: string }>((resolve) => {
-      exec(command, { cwd: wt.dir, timeout: timeoutMs, maxBuffer: 32 * 1024 * 1024, windowsHide: true }, (err, stdout, stderr) =>
-        resolve({ code: err ? (typeof (err as any).code === 'number' ? (err as any).code : 1) : 0, out: `${stdout}\n${stderr}` }));
-    });
-    return { sha, ok: res.code === 0, command, output: res.out.trim().split('\n').slice(-60).join('\n'), at: new Date().toISOString() };
+    const res = await runShell(command, { cwd: wt.dir, timeoutMs });
+    const note = res.timedOut ? `\ngate: timed out after ${+(timeoutMs / 60_000).toFixed(2)} min — process tree killed` : '';
+    return { sha, ok: res.code === 0 && !res.timedOut, command, output: (res.output.trim() + note).trim().split('\n').slice(-60).join('\n'),
+      ...(res.timedOut ? { timedOut: true } : {}), at: new Date().toISOString() };
   } finally {
     await removeWorktree(checkout, wt.dir);
   }

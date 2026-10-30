@@ -1,4 +1,5 @@
 // End to end: real git (a local bare repo as origin), fake gh and fake claude.
+import { E2E } from './isolate.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
@@ -51,7 +52,7 @@ function setup() {
   return { ...setupProject(), config: baseConfig() };
 }
 
-test('pool drives the board to completion, respecting Blocked by', async () => {
+test('pool drives the board to completion, respecting Blocked by', E2E, async () => {
   const p = setup();
   const lines: string[] = [];
   const orig = console.log;
@@ -87,7 +88,7 @@ test('pool drives the board to completion, respecting Blocked by', async () => {
   assert.ok(first2 > last1);
 });
 
-test('PRD flow: decompose → build → review (gap, then sign-off) → close, PRDs sequenced', async () => {
+test('PRD flow: decompose → build → review (gap, then sign-off) → close, PRDs sequenced', E2E, async () => {
   const b = JSON.parse(readFileSync(stateFile, 'utf8'));
   const prd = (number: number, title: string, body = '') => ({ number, title, body, state: 'OPEN', labels: ['prd'] });
   b.issues.push(prd(20, 'Auth'), prd(21, 'Billing', '## Blocked by\n#20\n'));
@@ -120,7 +121,7 @@ test('PRD flow: decompose → build → review (gap, then sign-off) → close, P
   assert.deepEqual([...roles].sort(), ['decompose', 'impl', 'review']);
 });
 
-test('a setup error (API 400) stops the pool and leaves the issues untouched', async () => {
+test('a setup error (API 400) stops the pool and leaves the issues untouched', E2E, async () => {
   const b = JSON.parse(readFileSync(stateFile, 'utf8'));
   b.issues.push({ number: 90, title: 'x', body: '', state: 'OPEN', labels: [L.ready] },
     { number: 91, title: 'y', body: '', state: 'OPEN', labels: [L.ready] });
@@ -138,7 +139,7 @@ test('a setup error (API 400) stops the pool and leaves the issues untouched', a
   assert.equal(readUsage(setupProject().stateDir).filter((r) => r.issue === 91).length, 0, 'no second issue attempted');
 });
 
-test('runGoal: usage limit and crash stop the loop with the right reason', async () => {
+test('runGoal: usage limit and crash stop the loop with the right reason', E2E, async () => {
   const base = { bin: fakeClaude, cwd: tmp, model: 'x', extraArgs: [], timeoutMs: 30_000, prompt: 'Issue: #1',
     continuePrompt: 'c #1', promise: 'ISSUE 1 DONE', maxIterations: 5 };
   process.env.FAKE_CLAUDE_MODE = 'limit';

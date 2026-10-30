@@ -1,11 +1,11 @@
 // Drives Claude Code headless (`claude -p --output-format stream-json`) — no tmux, no screen scraping.
 // The Ralph loop lives here: re-prompt the same session with --resume until the reply carries the
 // completion promise or the iteration budget runs out.
-import { spawn, execFile, execFileSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { createInterface } from 'node:readline';
 import { PROMISE_RE } from './state.ts';
-import { resolveCmd } from './exec.ts';
+import { killTree, resolveCmd } from './exec.ts';
 
 export interface Usage {
   input: number;
@@ -48,15 +48,6 @@ const LIMIT_TEXT = /usage limit|hit your [a-z]+ limit|limit reached|out of (usag
 
 export function emptyUsage(): Usage {
   return { input: 0, cacheWrite: 0, cacheRead: 0, output: 0 };
-}
-
-function killTree(pid: number | undefined, sync = false): void {
-  if (!pid) return;
-  // claude spawns shells and tools; kill the whole tree, not just claude.exe
-  if (process.platform === 'win32') {
-    if (sync) try { execFileSync('taskkill', ['/pid', String(pid), '/T', '/F'], { stdio: 'ignore' }); } catch {}
-    else execFile('taskkill', ['/pid', String(pid), '/T', '/F'], () => {});
-  } else try { process.kill(-pid, 'SIGKILL'); } catch { try { process.kill(pid, 'SIGKILL'); } catch {} }
 }
 
 // Every claude process still running, so a force-quit can take them down instead of orphaning them.

@@ -1,6 +1,7 @@
 // The auditor loop end to end: real git (a local bare origin), the real ship.mjs, fake gh and claude.
 //   implementer ships with --no-merge → an independent audit session → hx merges on PASS, or the
 //   findings go back to the implementer; too many FAILs and the issue goes to a human.
+import { E2E } from './isolate.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
@@ -50,7 +51,7 @@ async function run(only: number[]) {
   } finally { console.log = orig; }
 }
 
-test('auditVerdict reads PASS / FAIL and the findings', () => {
+test('auditVerdict reads PASS / FAIL and the findings', E2E, () => {
   assert.deepEqual(auditVerdict('x\nVERDICT: PASS\nFINDINGS:\n- none\n\n<promise>AUDIT 1 DONE</promise>'), { pass: true, findings: '- none' });
   const v = auditVerdict('**VERDICT: FAIL**\nFINDINGS:\n- a — b — c\n- d\n<promise>AUDIT 2 DONE</promise>');
   assert.equal(v?.pass, false);
@@ -58,7 +59,7 @@ test('auditVerdict reads PASS / FAIL and the findings', () => {
   assert.equal(auditVerdict('looks fine to me'), null);
 });
 
-test('audit PASS: hx merges the PR the implementer left open', async () => {
+test('audit PASS: hx merges the PR the implementer left open', E2E, async () => {
   board([issue(1)]);
   const { rc, lines } = await run([1]);
   assert.equal(rc, 0, lines.join('\n'));
@@ -73,7 +74,7 @@ test('audit PASS: hx merges the PR the implementer left open', async () => {
   assert.ok(!existsSync(path.join(tmp, 'wt', 'a1')), 'audit worktree removed');
 });
 
-test('audit FAIL: the findings go back to a fresh implementer, then PASS and merge', async () => {
+test('audit FAIL: the findings go back to a fresh implementer, then PASS and merge', E2E, async () => {
   board([issue(2, 'AUDITFAIL')]);
   const before = new Set(readdirSync(fakeDir));
   const { rc, lines } = await run([2]);
@@ -96,7 +97,7 @@ test('audit FAIL: the findings go back to a fresh implementer, then PASS and mer
   assert.ok(auditPrompts.every((p) => !/READY #2/.test(p)));
 });
 
-test('audit keeps failing: after auditRounds the issue goes to a human, nothing is merged', async () => {
+test('audit keeps failing: after auditRounds the issue goes to a human, nothing is merged', E2E, async () => {
   board([issue(3, 'AUDITNEVER')]);
   const { rc } = await run([3]);
   assert.equal(rc, 1);
@@ -108,7 +109,7 @@ test('audit keeps failing: after auditRounds the issue goes to a human, nothing 
   assert.ok(s.comments.some((c: any) => c.issue === 3 && /still not passing after 2 audit round/.test(c.body)));
 });
 
-test('a repo that only takes auto-merge: hx waits for it to land instead of failing the issue', async () => {
+test('a repo that only takes auto-merge: hx waits for it to land instead of failing the issue', E2E, async () => {
   board([issue(4)]);
   process.env.HX_FAKE_AUTOMERGE = '1';
   process.env.HX_SHIP_RETRY_MS = '10';
