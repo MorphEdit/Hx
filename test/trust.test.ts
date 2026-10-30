@@ -13,6 +13,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const tmp = mkdtempSync(path.join(os.tmpdir(), 'hx-t-'));
 const stateFile = path.join(tmp, 'board.json');
 process.env.HX_GH_BIN = path.join(here, 'fakes', 'gh.mjs');
+process.env.HX_RTDD_BIN = path.join(here, 'fakes', 'rtdd.mjs');
 process.env.HX_FAKE_STATE = stateFile;
 process.env.HX_FAKE_DIR = path.join(tmp, 'sessions');
 mkdirSync(process.env.HX_FAKE_DIR);
