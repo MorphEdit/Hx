@@ -11,6 +11,7 @@ import { fileURLToPath } from 'node:url';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const SHIP = path.join(here, '..', 'scripts', 'ship.mjs');
 const FAKE_GH = path.join(here, 'fakes', 'gh.mjs');
+process.env.HX_RTDD_BIN = path.join(here, 'fakes', 'rtdd.mjs');
 
 const git = (cwd: string, ...a: string[]) => execFileSync('git', a, { cwd, encoding: 'utf8', stdio: 'pipe' }).trim();
 const gitId = ['-c', 'user.email=t@t', '-c', 'user.name=t'];

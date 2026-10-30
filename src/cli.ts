@@ -2,9 +2,9 @@ import { spawn } from 'node:child_process';
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { createInterface } from 'node:readline';
-import { DEFAULTS, defaultWorktreeRoot, findProjectRoot, loadProject, saveConfig, STATE_DIR, type Config } from './config.ts';
+import { DEFAULTS, defaultWorktreeRoot, effectiveRtddBin, findProjectRoot, loadProject, saveConfig, STATE_DIR, type Config } from './config.ts';
 import * as gh from './github.ts';
-import { resolveCmd, runOk } from './exec.ts';
+import { resolveCmd, run, runOk } from './exec.ts';
 import { log, lookupTrusted, printPlan, readPlan, runPool, trustedEnv } from './pool.ts';
 import { killAllSessions } from './agent.ts';
 import { clearPause, otherRunner, pidAlive, readLive, readPause, setPause } from './runstate.ts';
@@ -17,7 +17,8 @@ import { fmt, readUsage, summarize, totalTokens, type UsageRow } from './usage.t
 
 const HELP = `usage: hx <command> [options]
 
-  init                     set up hx in the current repo (.hx/config.json + GitHub labels)
+  init [--rtdd]            set up hx in the current repo (.hx/config.json + GitHub labels); --rtdd also
+                           runs rtdd init in the repo root (commit .rtdd/ yourself)
   prd <file.md> [--title T] file a PRD issue from a markdown file (title: --title or its first '# ' line)
   grill [<idea.md> | "idea"] [--yes]
                            an interactive claude session interviews you into a PRD; on confirm
@@ -61,7 +62,7 @@ function flag(args: string[], name: string): string | undefined {
 export async function main(argv: string[]): Promise<number> {
   const [cmd, ...args] = argv;
   switch (cmd) {
-    case 'init': return init();
+    case 'init': return init(args);
     case 'prd': return prd(args);
     case 'grill': return grill(args);
     case 'run': return runCmd(args);
@@ -75,7 +76,7 @@ export async function main(argv: string[]): Promise<number> {
   }
 }
 
-async function init(): Promise<number> {
+async function init(args: string[]): Promise<number> {
   const root = (await runOk('git', ['rev-parse', '--show-toplevel'])).trim().replace(/\//g, path.sep);
   const existing = findProjectRoot(root) === root;
   const repo = await gh.repoSlug(root);
@@ -108,6 +109,22 @@ async function init(): Promise<number> {
   labels      ${L.ready}, ${L.working}, ${L.blocked}, ${L.prd}, ${L.hardened}, ${L.reviewed}, ${L.secured}, ${L.security}
 
 Next: file a PRD with  hx prd <file.md>  or label an issue '${L.ready}', then run  hx status  and  hx run`);
+  return initRtdd(root, effectiveRtddBin(config), args.includes('--rtdd'));
+}
+
+/** hx init --rtdd runs `rtdd init` in the repo root (not committed); without it, a hint when rtdd is
+ *  installed and the working tree has no .rtdd/config.yaml. */
+async function initRtdd(root: string, bin: string, setup: boolean): Promise<number> {
+  if (setup) {
+    const r = await run(bin, ['init'], { cwd: root });
+    if (r.code === 0) { console.log(`rtdd        ${bin} init done in ${root} — commit .rtdd/`); return 0; }
+    console.error(`rtdd init failed (${r.code}): ${(r.stderr || r.stdout).trim()}`);
+    return 1;
+  }
+  if (existsSync(path.join(root, '.rtdd', 'config.yaml'))) return 0;
+  if ((await run(bin, ['--version'], { cwd: root })).code !== 0) return 0;
+  console.log(`
+rtdd is installed but this repo has no .rtdd/config.yaml: run  hx init --rtdd  (or  rtdd init), then commit .rtdd/`);
   return 0;
 }
 

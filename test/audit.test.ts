@@ -15,6 +15,7 @@ const tmp = mkdtempSync(path.join(os.tmpdir(), 'hx-a-'));
 const stateFile = path.join(tmp, 'board.json');
 const fakeDir = path.join(tmp, 'sessions');
 process.env.HX_GH_BIN = path.join(here, 'fakes', 'gh.mjs');
+process.env.HX_RTDD_BIN = path.join(here, 'fakes', 'rtdd.mjs');
 process.env.HX_FAKE_STATE = stateFile;
 process.env.HX_FAKE_DIR = fakeDir;
 mkdirSync(fakeDir);
