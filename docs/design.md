@@ -68,12 +68,10 @@ role prompts, promise-based completion.
 
 ### Next: the rest of Harness's features, ordered by how much they improve the quality of what Hx ships
 
-Agreed order (2026-10-30). The author filter goes first anyway: it is small, and it is a safety fix —
-the repo is public and workers run with bypassPermissions, so an outsider's issue must never become a prompt.
+Agreed order (2026-10-30), highest quality gain first. Build them in this order.
 
 | # | Feature | What it adds | Notes |
 |---|---|---|---|
-| 0 | **Author filter** | only issues (and PRDs) opened by allowed authors (default: the repo owner / `gh` login) are claimed | Harness: `HARNESS_AUTHOR_ALLOWLIST`, filtered before PRD selection and claiming |
 | 1 | **Auditor per issue** | a fresh session checks the implementer's work against the issue before merge; a failed audit goes back to the implementer | biggest quality gain; measure with the benchmark (hidden tests, tokens) |
 | 2 | **Grill session** | `hx grill` interviews the user until the PRD is unambiguous, then files it | interactive `claude`, not headless |
 | 3 | **Gauntlet / security audit** | PRD review in rounds with a critic, plus a security pass; gaps become issues | builds on the auditor |
@@ -82,7 +80,8 @@ the repo is public and workers run with bypassPermissions, so an outsider's issu
 | 6 | **Bug lane** | `bug` issues: a triage session, then a fix session; priority over normal issues | reuses auditor + CI gate |
 | 7 | **Inject into a running fleet** | `hx prd/issue` while `hx run --watch` runs (grill → file) | mostly done: `--watch` already picks new issues up |
 | 8 | **Web dashboard / stats** | read-only local page over `live.json`, `usage.jsonl`, the board; stats per PRD/role/model | |
-| 9 | **Multi-repo / multi-CLI** | one fleet over several repos; other agent CLIs | only when there is a real need |
+| 9 | **Author filter** | only issues (and PRDs) opened by allowed authors (default: the `gh` login) are claimed | a safety item rather than a quality one: until it lands, only label issues `ready-for-agent` / `prd` yourself, and remember workers run with bypassPermissions |
+| 10 | **Multi-repo / multi-CLI** | one fleet over several repos; other agent CLIs | only when there is a real need |
 
 Every phase ships with tests; anything that can change quality or tokens is re-measured with
 `node bench/run.mjs hx3` (and `hx1`/`chat` when comparing).

@@ -28,5 +28,5 @@ roadmap and the agreed order of the next features) before changing anything.
   question first.
 
 ## Next up
-The roadmap in `docs/design.md` lists the remaining features in the agreed order, starting with the
-author filter (#0), then the auditor per issue (#1).
+The roadmap in `docs/design.md` lists the remaining features in the order the user chose (highest
+quality gain first): the auditor per issue (#1) is next, then the grill session (#2).
