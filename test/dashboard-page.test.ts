@@ -131,6 +131,14 @@ test('the page script renders hostile strings as text, links issues by integer, 
   assert.ok(text(log).includes(`#7 impl: ${XSS}`));
   assert.match(text(p.ids.get('status')!), /last updated \d\d:\d\d:\d\d/);
   assert.match(text(st), /0 PASS/);
+  assert.equal(state.usage.byPrd, null, '/api/state came before any /api/board');
+  assert.ok(text(st).includes('waiting for the board'));
+  const pb = page({ ...state, usage: { ...state.usage, byPrd: [{ key: '8', tokens: 1234, turns: 2, sessions: 1, durationMs: 0 }] } }, board);
+  await pb.flush();
+  const stb = pb.ids.get('stats-body')!;
+  assert.ok(!text(stb).includes('waiting for the board'));
+  assert.ok(text(stb).includes('1,234') || text(stb).includes('1234'), text(stb));
+  assert.ok(links(stb).includes('https://github.com/me/app/issues/8'));
 
   // running, a session, a red gate, outcomes, a board error, a non-integer issue number, a hostile repo
   const since = new Date(Date.now() - 192_000).toISOString();
@@ -138,7 +146,7 @@ test('the page script renders hostile strings as text, links issues by integer, 
       rateLimit: { status: 'allowed_warning', utilization: 0.81, type: 'five_hour' } },
     sessions: [{ number: '9"><x', kind: 'impl', title: XSS, turn: 4, tokens: 5000, since, elapsedMs: 192_000 }],
     gate: { sha: 'abcdef1234567', ok: false, at: since, fixIssue: 14.7 },
-    usage: { ...state.usage, byPrdSource: 'issues', byDay: [{ key: '2026-10-01', tokens: 300 }, { key: '2026-10-02', tokens: 57 }] },
+    usage: { ...state.usage, byPrd: null, byDay: [{ key: '2026-10-01', tokens: 300 }, { key: '2026-10-02', tokens: 57 }] },
     outcomes: { audit: { pass: 3, fail: 1, mergedIssues: 2, avgRounds: 1.5 }, gauntlet: { rounds: 4, pass: 3, fail: 1 },
       security: { passes: 2, filed: [21, 22] }, gate: { red: 2, recovered: 1, openRed: true, redMs: [600_000], avgRedMs: 600_000 },
       issues: { done: 2, medianMs: 3_900_000 } } };
@@ -151,7 +159,7 @@ test('the page script renders hostile strings as text, links issues by integer, 
   assert.ok(links(now2).every((h) => /^https:\/\/github\.com\/me\/app\/issues\/\d+$/.test(h!)), String(links(now2)));
   assert.equal(text(bd2), `board unavailable: HTTP 502 ${XSS}`);
   for (const w of ['3 PASS', '1 FAIL', 'avg rounds 1.5', '4 rounds', '2 passes', '#21', '2 RED', 'avg RED → green 10m 00s', 'RED now',
-    'median wall time 1h 05m', 'PRD grouping is unavailable']) assert.ok(text(st2).includes(w), w);
+    'median wall time 1h 05m', 'waiting for the board']) assert.ok(text(st2).includes(w), w);
   assert.ok(links(st2).includes('https://github.com/me/app/issues/22'));
   const svg = st2.all().find((e) => e.tag === 'svg')!;
   assert.equal(svg.ns, 'http://www.w3.org/2000/svg');

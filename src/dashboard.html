@@ -215,8 +215,7 @@ function renderStats(s) {
       ['issues', (is.done ?? 0) + ' done · median wall time ' + dur(is.medianMs)],
     ]),
     el('h3', {}, 'By PRD'),
-    u.byPrdSource === 'issues' ? el('p', { class: 'note' }, 'PRD grouping is unavailable (the board could not be read): grouped by issue instead') : null,
-    usageTable(u.byPrdSource === 'issues' ? 'issue' : 'PRD / issue', u.byPrd, true),
+    u.byPrd ? usageTable('PRD / issue', u.byPrd, true) : el('p', { class: 'mute' }, 'waiting for the board'),
     el('h3', {}, 'By role'), usageTable('role', u.byRole),
     el('h3', {}, 'By model'), usageTable('model', u.byModel));
 }

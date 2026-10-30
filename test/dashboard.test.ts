@@ -76,7 +76,9 @@ function get(port: number, urlPath: string, o: { host?: string; method?: string 
     req.on('error', reject).end();
   });
 }
-const listCalls = () => { try { return readFileSync(ghLog, 'utf8').split('\n').filter((l) => l.startsWith('issue list')).length; } catch { return 0; } };
+const ghLines = () => { try { return readFileSync(ghLog, 'utf8').split('\n').filter((l) => l.trim()); } catch { return []; } };
+const listCalls = () => ghLines().filter((l) => l.startsWith('issue list')).length;
+const ghCalls = () => ghLines().length;
 
 const servers: { close(): Promise<void> }[] = [];
 const start = async (o = {}) => { const d = await serveDashboard(project as any, { port: 0, ...o }); servers.push(d); return d; };
@@ -92,6 +94,7 @@ test('/api/state: runner, sessions, gate, usage by role and by PRD, log, outcome
   board();
   live(process.pid);
   const d = await start();
+  await get(d.port, '/api/board');
   const r = await get(d.port, '/api/state');
   assert.equal(r.status, 200);
   assert.match(String(r.headers['content-type']), /^application\/json/);
@@ -114,7 +117,6 @@ test('/api/state: runner, sessions, gate, usage by role and by PRD, log, outcome
   assert.equal(row(s.usage.byRole, 'impl').tokens, 307);
   assert.equal(row(s.usage.byRole, 'impl').durationMs, 3070);
   assert.equal(row(s.usage.byRole, 'audit').tokens, 50);
-  assert.equal(s.usage.byPrdSource, 'board');
   assert.equal(s.usage.boardError, undefined);
   assert.equal(row(s.usage.byPrd, '10').tokens, 350, 'children #11 and #12 are summed under their closed PRD #10');
   assert.equal(row(s.usage.byPrd, '10').durationMs, 3500);
@@ -177,7 +179,24 @@ test('a foreign Host gets 403, a POST 405 with Allow: GET, an unknown path 404; 
   }
 });
 
-test('/api/board: one gh issue list per 30 s, shared by concurrent requests and by /api/state', E2E, async () => {
+test('/api/state never calls gh; before any board fetch usage.byPrd is null and the other summaries are there', E2E, async () => {
+  board();
+  const d = await start();
+  const before = ghCalls();
+  const ss = [];
+  for (let i = 0; i < 3; i++) ss.push(JSON.parse((await get(d.port, '/api/state')).body));
+  assert.equal(ghCalls() - before, 0, 'no gh call of any kind');
+  for (const s of ss) {
+    assert.equal(s.usage.byPrd, null);
+    assert.equal(s.usage.boardError, undefined);
+    assert.equal(s.usage.total.tokens, 357);
+    assert.equal(s.usage.byRole.length, 2);
+    assert.equal(s.usage.byModel.length, 1);
+    assert.equal(s.usage.byDay.length, 2);
+  }
+});
+
+test('/api/board: one gh issue list per 30 s, shared by concurrent requests; /api/state adds none', E2E, async () => {
   board();
   const d = await start();
   const before = listCalls();
@@ -195,7 +214,7 @@ test('/api/board: one gh issue list per 30 s, shared by concurrent requests and 
   assert.ok(Array.isArray(j.prds));
 });
 
-test('gh failing: /api/board returns { error } (cached too), /api/state still 200 with usage by issue', E2E, async () => {
+test('gh failing: /api/board returns { error } (cached too), /api/state still 200 with byPrd null', E2E, async () => {
   board({ listFails: true });
   try {
     const d = await start();
@@ -208,11 +227,31 @@ test('gh failing: /api/board returns { error } (cached too), /api/state still 20
     const st = await get(d.port, '/api/state');
     assert.equal(st.status, 200);
     const s = JSON.parse(st.body);
-    assert.equal(s.usage.byPrdSource, 'issues');
+    assert.equal(s.usage.byPrd, null);
     assert.match(s.usage.boardError, /Bad Gateway/);
-    assert.deepEqual(s.usage.byPrd.map((x: any) => x.key).sort(), ['11', '12', '13']);
+    assert.equal(s.usage.total.tokens, 357);
     assert.equal(listCalls() - before, 1, 'the error is cached for the TTL as well');
   } finally { board(); }
+});
+
+test('a failed board fetch after a good one: /api/board has the error, /api/state keeps the last good PRD grouping', E2E, async () => {
+  board();
+  const d = await start();
+  assert.equal(JSON.parse((await get(d.port, '/api/board')).body).error, undefined);
+  board({ listFails: true });
+  const realNow = Date.now;
+  Date.now = () => realNow() + 31_000; // past the board TTL
+  try {
+    const j = JSON.parse((await get(d.port, '/api/board')).body);
+    assert.match(j.error, /Bad Gateway/);
+    assert.deepEqual(j.board, []);
+  } finally { Date.now = realNow; board(); }
+  const s = JSON.parse((await get(d.port, '/api/state')).body);
+  const row = (k: string) => s.usage.byPrd.find((x: any) => x.key === k);
+  assert.equal(row('10').tokens, 350, 'still grouped by PRD #10 from the last good board');
+  assert.equal(row('13').tokens, 7);
+  assert.equal(s.usage.byPrd.length, 2);
+  assert.match(s.usage.boardError, /Bad Gateway/);
 });
 
 const freePort = () => new Promise<number>((resolve) => {
