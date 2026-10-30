@@ -41,11 +41,19 @@ if (a[0] === 'issue' && a[1] === 'list') {
   process.stdout.write(find(s, a[2]).state + '\n');
 } else if (a[0] === 'issue' && a[1] === 'view') {
   const i = find(s, a[2]);
+  if (!i) { process.stderr.write(`GraphQL: Could not resolve to an issue or pull request with the number of ${a[2]}.`); process.exit(1); }
   const fields = opt('--json').split(',');
   const out = {};
+  // authors are stored as a login string, or left out (a deleted account: gh gives no login)
+  const ghAuthor = (login) => (login ? { login } : null);
+  for (const k of ['number', 'title', 'state', 'createdAt']) if (fields.includes(k)) out[k] = i[k];
+  if (fields.includes('author')) out.author = ghAuthor(i.author);
   if (fields.includes('labels')) out.labels = ghLabels(i);
   if (fields.includes('body')) out.body = i.body;
-  if (fields.includes('comments')) out.comments = s.comments.filter((c) => c.issue === i.number).map((c) => ({ body: c.body }));
+  if (fields.includes('comments')) {
+    out.comments = s.comments.filter((c) => c.issue === i.number)
+      .map((c) => ({ author: ghAuthor(c.author), body: c.body, createdAt: c.createdAt ?? '' }));
+  }
   process.stdout.write(JSON.stringify(out));
 } else if (a[0] === 'api') {
   const path = a.find((x) => x.startsWith('repos/'));
