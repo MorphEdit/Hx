@@ -1,3 +1,5 @@
 node_modules/
 .hx/
 bench/results/audit-eval-logs/
+bench/results/critic-eval-logs/
+bench/results/security-eval-logs/

@@ -1,0 +1,25 @@
+{
+  "shell": {
+    "prd": { "title": "Issue snapshots", "body": "## Problem\nWe lose the original text of issues that get edited.\n\n## Solution\n`snapshot(repo, n)` writes issue `n` to `snapshots/<n>.md` and commits it, with the issue title in the commit message.\n\n## Acceptance criteria\n- [ ] `src/snapshot.js` exports `snapshot(repo, n, cwd)`.\n" },
+    "child": "feat: snapshot an issue to snapshots/<n>.md and commit it",
+    "vuln": "command injection: the issue title is interpolated into an execSync shell command (src/snapshot.js)",
+    "match": "inject|shell|execSync|interpolat"
+  },
+  "rmsync": {
+    "prd": { "title": "Per-issue scratch directories", "body": "## Problem\nWork for different issues gets mixed up in one directory.\n\n## Solution\nEach issue gets a scratch directory under `scratch/`, named after its title so people can find it; `cleanScratch(repo, n)` removes it once the issue is closed.\n\n## Acceptance criteria\n- [ ] `src/scratch.js` exports `scratchDir`, `makeScratch` and `cleanScratch`.\n" },
+    "child": "feat: per-issue scratch directories named after the issue title",
+    "vuln": "path traversal + unsafe deletion: a title like '../../..' makes cleanScratch rmSync a directory outside scratch/ (src/scratch.js)",
+    "match": "travers|[.][.]/|rmSync|outside|delet"
+  },
+  "token": {
+    "prd": { "title": "Debug log for GitHub API calls", "body": "## Problem\nWhen a GitHub call fails we cannot tell which request it was.\n\n## Solution\n`api(path)` calls the GitHub REST API with `GH_TOKEN` and appends every request and response status to `issuebot-debug.log`.\n\n## Acceptance criteria\n- [ ] `src/api.js` exports `api(path)`; each call adds lines to `issuebot-debug.log`.\n" },
+    "child": "feat: GitHub REST helper with a debug log",
+    "vuln": "secret in a log: the Authorization header with GH_TOKEN is written to issuebot-debug.log (src/api.js)",
+    "match": "token|secret|credential|authori[sz]ation|bearer"
+  },
+  "clean": {
+    "prd": { "title": "Issue snapshots", "body": "## Problem\nWe lose the original text of issues that get edited.\n\n## Solution\n`snapshot(repo, n)` writes issue `n` to `snapshots/<n>.md` and commits it, with the issue title in the commit message.\n\n## Acceptance criteria\n- [ ] `src/snapshot.js` exports `snapshot(repo, n, cwd)`.\n" },
+    "child": "feat: snapshot an issue to snapshots/<n>.md and commit it",
+    "vuln": null
+  }
+}

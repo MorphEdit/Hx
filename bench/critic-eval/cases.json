@@ -1,0 +1,21 @@
+{
+  "clean": {
+    "title": "textstat words — count the words in a file",
+    "defect": null
+  },
+  "ambiguity": {
+    "title": "freq --min — hide short words",
+    "defect": "ambiguity: \"short\" is never defined — is a word of length N kept or dropped? (the only example has no word of exactly length N)",
+    "match": "short|length|inclusive|exclusive|boundary|<=|≥|>=|at least|fewer than|define"
+  },
+  "contradiction": {
+    "title": "textstat time --seconds — reading time in seconds",
+    "defect": "contradiction: the rules say round down, the 7-word example (2.1 → 3) rounds up",
+    "match": "round|ceil|floor|contradict|2[.]1|3 s"
+  },
+  "missing-criterion": {
+    "title": "textstat freq --json — machine-readable output",
+    "defect": "missing acceptance criterion: the unreadable-file rule ({\"error\": …} on stdout, and its exit code) has no example, no acceptance criterion and no exit code",
+    "match": "error|unreadable|exit|cannot be read|missing file"
+  }
+}
