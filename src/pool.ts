@@ -45,6 +45,7 @@ interface WorkContext {
   progress: (key: string, turn: number, tokens: number) => void;
   rateLimit: (rl: RateLimit) => void;
   merged?: (testCommand?: string) => void; // a PR reached the default branch: the CI gate re-tests it
+  trusted: Set<string>; // this run's trusted set: only their comments count in hx's own logic
 }
 
 const sleep = (ms: number, signal?: AbortSignal) => new Promise<void>((r) => {
@@ -183,6 +184,7 @@ export async function runPool(p: Project, o: PoolOptions): Promise<number> {
   };
   const ctx: WorkContext = {
     signal: stop.signal,
+    trusted,
     started: (s) => { live.sessions.push(s); save(); },
     merged: (testCommand) => {
       if (testCommand && !gs.command) { gs.command = testCommand; writeGate(p.stateDir, gs); }
@@ -310,7 +312,7 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
 
   let round = 0;
   if (a.kind === 'review') {
-    round = (await gh.commentBodies(c.repo, n)).filter((b) => b.trimStart().startsWith(REVIEW_MARKER)).length + 1;
+    round = (await gh.commentBodies(c.repo, n, ctx.trusted)).filter((b) => b.trimStart().startsWith(REVIEW_MARKER)).length + 1;
     if (round > c.reviewRounds) {
       await gh.comment(c.repo, n, `**hx:** ${c.reviewRounds} review rounds have run and the PRD is still not signed off. A human needs to look; add the \`${c.labels.reviewed}\` label to sign it off, or remove \`${c.labels.blocked}\` to allow more rounds after raising \`reviewRounds\`.`);
       await gh.editLabels(c.repo, n, [c.labels.blocked]);
@@ -318,9 +320,9 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
       return undefined;
     }
   } else if (a.kind === 'gauntlet') {
-    round = (await gh.commentBodies(c.repo, n)).filter(firstLineIs(GAUNTLET_MARKER)).length + 1;
+    round = (await gh.commentBodies(c.repo, n, ctx.trusted)).filter(firstLineIs(GAUNTLET_MARKER)).length + 1;
   } else if (a.kind === 'security') {
-    round = (await gh.commentBodies(c.repo, n)).filter(firstLineIs(SECURITY_MARKER)).length + 1;
+    round = (await gh.commentBodies(c.repo, n, ctx.trusted)).filter(firstLineIs(SECURITY_MARKER)).length + 1;
     if (round > c.securityRounds) {
       await gh.comment(c.repo, n, `**hx:** ${c.securityRounds} security passes have run and each filed security issues. A human needs to look; add the \`${c.labels.secured}\` label to sign it off, or raise \`securityRounds\` and remove \`${c.labels.blocked}\` to allow more passes.`);
       await gh.editLabels(c.repo, n, [c.labels.blocked]);
@@ -329,7 +331,7 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
     }
   }
   // what verify() compares a security session against: the security issues and verdicts already there
-  const before = a.kind === 'security' ? await securitySnapshot(p, n) : undefined;
+  const before = a.kind === 'security' ? await securitySnapshot(p, n, ctx.trusted) : undefined;
 
   await gh.editLabels(c.repo, n, [c.labels.working]);
   log(`${a.kind}${round ? ` (round ${round})` : ''}: ${title}`, n);
@@ -346,7 +348,7 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
   // an earlier session that was stopped left a handoff comment: give it to this one
   let resumeNote = '';
   if (a.kind === 'impl' && wt.resumed) {
-    const handoff = (await gh.commentBodies(c.repo, n).catch(() => [] as string[])).filter((b) => b.trimStart().startsWith(HANDOFF_MARKER)).pop();
+    const handoff = (await gh.commentBodies(c.repo, n, ctx.trusted).catch(() => [] as string[])).filter((b) => b.trimStart().startsWith(HANDOFF_MARKER)).pop();
     resumeNote = `NOTE: this branch already has work from an earlier session — run \`git log origin/${c.defaultBranch}..HEAD\` and \`git status\` first and continue from there.`
       + (handoff ? `\nThat session's handoff note:\n\n${handoff.replace(HANDOFF_MARKER, '').trim()}\n` : '');
   }
@@ -438,7 +440,7 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
       log(`gauntlet round ${round}/${N}: FAIL ✗ — ${v.findings.split('\n')[0].slice(0, 140)}`, n);
       const before = await gh.issueBody(c.repo, n);
       // keep the body as it was before the first revision, once
-      if (!(await gh.commentBodies(c.repo, n)).some(firstLineIs(ORIGINAL_MARKER)))
+      if (!(await gh.commentBodies(c.repo, n, ctx.trusted)).some(firstLineIs(ORIGINAL_MARKER)))
         await gh.comment(c.repo, n, `${ORIGINAL_MARKER}\n${before}`);
       const rwt = await addWorktree(p.root, c.worktreeRoot, prdWorktree(n, c.defaultBranch));
       reviseDir = rwt.dir;
@@ -470,10 +472,10 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
     const summary = `${r.iterations} turn(s), ${fmt(totalTokens(r.usage))} tokens`;
     if (r.stopReason === 'aborted' && a.kind === 'impl' && r.iterations > 0) await checkpoint(p, n, r.sessionId, wt.dir, vars, eventLog);
     if (stopped(r)) return handBack(r, summary);
-    const why = await verify(p, a, n, before);
+    const why = await verify(p, a, n, ctx.trusted, before);
     if (!why) {
       // the pass filed security issues: once they are fixed the PRD is reviewed, then checked, again
-      const filed = a.kind === 'security' && [...(await securitySnapshot(p, n)).issues].some((k) => !before?.issues.has(k));
+      const filed = a.kind === 'security' && [...(await securitySnapshot(p, n, ctx.trusted)).issues].some((k) => !before?.issues.has(k));
       const drop = filed ? [L.reviewed, ...((await gh.issueLabels(c.repo, n)).includes(L.secured) ? [L.secured] : [])] : [];
       await gh.editLabels(c.repo, n, [], [L.working, ...drop]).catch(() => {});
       if (filed) log(`security pass filed issue(s) — removed ${L.reviewed}`, n);
@@ -591,9 +593,9 @@ async function checkpoint(p: Project, n: number, sessionId: string, cwd: string,
 type SecuritySnapshot = { issues: Set<number>; comments: number };
 
 /** PRD `n`'s open security issues and its security verdict comments, taken before a security session. */
-async function securitySnapshot(p: Project, n: number): Promise<SecuritySnapshot> {
+async function securitySnapshot(p: Project, n: number, trusted: Set<string>): Promise<SecuritySnapshot> {
   const c = p.config;
-  const [all, comments] = await Promise.all([gh.listIssues(c.repo), gh.commentBodies(c.repo, n)]);
+  const [all, comments] = await Promise.all([gh.listIssues(c.repo), gh.commentBodies(c.repo, n, trusted)]);
   return { issues: new Set(openSecurityIssues(p, all, n)), comments: comments.filter(firstLineIs(SECURITY_MARKER)).length };
 }
 
@@ -604,7 +606,7 @@ const openSecurityIssues = (p: Project, all: Issue[], n: number) => all.filter((
 }).map((i) => i.number);
 
 /** Did the session leave GitHub in the state its role promises? null = yes, else why not. */
-async function verify(p: Project, a: SessionAction, n: number, before?: SecuritySnapshot): Promise<string | null> {
+async function verify(p: Project, a: SessionAction, n: number, trusted: Set<string>, before?: SecuritySnapshot): Promise<string | null> {
   const c = p.config;
   if (a.kind === 'impl') return (await gh.issueState(c.repo, n)) === 'CLOSED' ? null : 'the agent reported done but the issue is still open';
   const all = await gh.listIssues(c.repo);
@@ -618,7 +620,7 @@ async function verify(p: Project, a: SessionAction, n: number, before?: Security
     const filed = openSecurityIssues(p, all, n).some((k) => !before?.issues.has(k));
     if (!secured && !filed) return `the security pass neither added \`${c.labels.secured}\` nor filed a \`${c.labels.security}\` issue with \`## Parent\` #${n}`;
     // the session owns the verdict comment: hx posts none of its own
-    const posted = (await gh.commentBodies(c.repo, n)).filter(firstLineIs(SECURITY_MARKER)).length > (before?.comments ?? 0);
+    const posted = (await gh.commentBodies(c.repo, n, trusted)).filter(firstLineIs(SECURITY_MARKER)).length > (before?.comments ?? 0);
     return posted ? null : `the security pass posted no \`${SECURITY_MARKER}\` comment`;
   }
   const signedOff = all.find((i) => i.number === n)?.labels.includes(c.labels.reviewed);

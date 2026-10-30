@@ -56,9 +56,15 @@ export async function issueBody(repo: string, n: number): Promise<string> {
   return JSON.parse(out).body ?? '';
 }
 
-export async function commentBodies(repo: string, n: number): Promise<string[]> {
+/** The bodies of issue `n`'s comments written by a trusted account (lowercased logins: the gh login +
+ *  config.trustedAuthors). A comment without an author (a deleted account) is untrusted. The set is required
+ *  and must not be empty: hx's own logic (handoff note, round markers, verdicts) never reads a stranger's comment. */
+export async function commentBodies(repo: string, n: number, trusted: Set<string>): Promise<string[]> {
+  if (!trusted?.size) throw new Error('no trusted authors: refusing to read comments without the author filter');
   const out = await runOk(GH, ['issue', 'view', String(n), '-R', repo, '--json', 'comments']);
-  return (JSON.parse(out).comments ?? []).map((c: any) => c.body ?? '');
+  return (JSON.parse(out).comments ?? [])
+    .filter((c: any) => typeof c.author?.login === 'string' && trusted.has(c.author.login.toLowerCase()))
+    .map((c: any) => c.body ?? '');
 }
 
 export async function createIssue(repo: string, title: string, body: string, labels: string[]): Promise<string> {
