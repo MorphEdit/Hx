@@ -274,7 +274,7 @@ Remove `agent-blocked` from an issue to let Hx try it again.
 | key | default | |
 |---|---|---|
 | `trustedAuthors` | `[]` | accounts besides the gh login whose issues and PRDs hx works on (case-insensitive); anything opened by anyone else is skipped and shown as `untrusted` |
-| `roleSkills` | `{"impl":["rtdd"],"audit":["rtdd"]}` | role → skills (`SKILL.md` from `<repo>/.claude/skills`, `~/.claude/skills`, `<repo>/.agents/skills`) appended to its prompt; `{}` = none (not wired into `hx run` yet) |
+| `roleSkills` | `{"impl":["rtdd"],"audit":["rtdd"]}` | role → skills (`SKILL.md` from `<repo>/.claude/skills`, `~/.claude/skills`, `<repo>/.agents/skills`) appended to its prompt, resolved once per `hx run` (logged, and in `live.json`); `{}` = none. rtdd is used only when `.rtdd/config.yaml` is on `origin/<defaultBranch>` and `rtddBin --version` works; its sessions get `prompts/skills/rtdd.md` too, and a path `rtddBin` its directory first on `PATH` |
 | `skillMaxChars` | `12000` | a skill whose `SKILL.md` body (front matter and HTML comments stripped) is longer is skipped |
 | `rtddBin` | `"rtdd"` | the `rtdd` command (`HX_RTDD_BIN` overrides it) |
 | `workers` | 2 | sessions running in parallel |
