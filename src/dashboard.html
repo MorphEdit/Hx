@@ -2,14 +2,262 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>hx dashboard</title>
-<style>body { font: 14px system-ui, sans-serif; margin: 2rem; } pre { white-space: pre-wrap; }</style>
+<style>
+:root { --bg: #fff; --fg: #1b1f24; --mute: #656d76; --line: #d0d7de; --card: #f6f8fa; --ok: #1a7f37; --bad: #cf222e; --warn: #9a6700; --link: #0969da; --bar: #0969da; }
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #0d1117; --fg: #e6edf3; --mute: #8d96a0; --line: #30363d; --card: #161b22; --ok: #3fb950; --bad: #f85149; --warn: #d29922; --link: #4493f8; --bar: #4493f8; }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+body { padding: 12px; max-width: 1100px; margin: 0 auto; overflow-x: hidden; }
+header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 16px; }
+h1 { font-size: 20px; margin: 0; }
+h2 { font-size: 16px; margin: 0 0 8px; }
+h3 { font-size: 14px; margin: 12px 0 6px; color: var(--mute); }
+section { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 12px; margin: 12px 0; min-width: 0; }
+a { color: var(--link); }
+.mute { color: var(--mute); }
+.note { font-size: 12px; color: var(--mute); }
+.note.offline { color: var(--bad); }
+.kv { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 0 0 8px; }
+.kv span b { font-weight: 600; }
+.badge { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 12px; font-weight: 600; color: #fff; }
+.badge.ok { background: var(--ok); } .badge.bad { background: var(--bad); } .badge.warn { background: var(--warn); } .badge.mute { background: var(--mute); }
+.scroll { overflow-x: auto; max-width: 100%; }
+table { border-collapse: collapse; width: 100%; font-size: 13px; }
+th, td { text-align: left; padding: 4px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+td.wrap { white-space: normal; min-width: 12em; }
+.err { color: var(--bad); white-space: pre-wrap; overflow-wrap: anywhere; }
+svg { display: block; max-width: 100%; height: auto; }
+svg text { fill: var(--mute); font-size: 10px; }
+svg rect { fill: var(--bar); }
+#log { margin: 0; max-height: 360px; overflow: auto; font: 12px/1.4 ui-monospace, Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 8px; }
+</style>
 </head>
 <body>
-<h1>hx dashboard</h1>
-<pre id="state">loading…</pre>
+<header>
+  <h1>hx dashboard</h1>
+  <span id="repo" class="mute"></span>
+  <span id="status" class="note">loading…</span>
+</header>
+<section id="now"><h2>Now</h2><div id="now-body" class="mute">loading…</div></section>
+<section id="board"><h2>Board</h2><div id="board-body" class="mute">loading…</div></section>
+<section id="stats"><h2>Stats</h2><div id="stats-body" class="mute">loading…</div></section>
+<section id="logbox"><h2>Log</h2><pre id="log"></pre></section>
 <script>
-fetch('/api/state').then((r) => r.json()).then((s) => { document.getElementById('state').textContent = JSON.stringify(s, null, 2); });
+'use strict';
+// Every string from GitHub or the log enters the DOM as a text node or a safe attribute: never as markup.
+const SVG = 'http://www.w3.org/2000/svg'; // a namespace name, not a resource
+const $ = (id) => document.getElementById(id);
+function el(tag, attrs, ...kids) {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) if (v !== null && v !== undefined) e.setAttribute(k, String(v));
+  for (const c of kids.flat()) if (c !== null && c !== undefined) e.appendChild(c instanceof Node ? c : document.createTextNode(String(c)));
+  return e;
+}
+const fill = (node, ...kids) => { node.replaceChildren(...kids.flat().filter((k) => k !== null && k !== undefined)
+  .map((k) => (k instanceof Node ? k : document.createTextNode(String(k))))); };
+
+let repo = '';
+const REPO_RE = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
+/** A link to issue n of the API's repo; n is coerced to an integer, a bad repo or n gives plain text. */
+function issueLink(n) {
+  const i = Math.trunc(Number(n));
+  if (!Number.isFinite(i) || i <= 0) return document.createTextNode('#' + String(n));
+  if (!REPO_RE.test(repo)) return document.createTextNode('#' + i);
+  return el('a', { href: 'https://github.com/' + repo + '/issues/' + i, rel: 'noreferrer', target: '_blank' }, '#' + i);
+}
+
+const pad = (n) => String(n).padStart(2, '0');
+/** 45s, 3m 12s, 1h 05m, 2d 03h */
+function dur(ms) {
+  if (ms === null || ms === undefined || !Number.isFinite(Number(ms))) return '–';
+  const s = Math.max(0, Math.round(Number(ms) / 1000));
+  if (s < 60) return s + 's';
+  const m = Math.floor(s / 60);
+  if (m < 60) return m + 'm ' + pad(s % 60) + 's';
+  const h = Math.floor(m / 60);
+  if (h < 24) return h + 'h ' + pad(m % 60) + 'm';
+  return Math.floor(h / 24) + 'd ' + pad(h % 24) + 'h';
+}
+const clock = (d) => pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
+const when = (iso) => { const d = new Date(iso); return Number.isNaN(d.getTime()) ? String(iso ?? '') : d.toLocaleString(); };
+const num = (n) => (Number.isFinite(Number(n)) ? Number(n).toLocaleString() : '–');
+const badge = (cls, text) => el('span', { class: 'badge ' + cls }, text);
+
+function table(head, rows, numCols) {
+  const nc = new Set(numCols || []);
+  return el('div', { class: 'scroll' }, el('table', {},
+    el('thead', {}, el('tr', {}, head.map((h, i) => el('th', { class: nc.has(i) ? 'num' : null }, h)))),
+    el('tbody', {}, rows.map((r) => el('tr', {}, r.map((c, i) => el('td', { class: nc.has(i) ? 'num' : (i === 1 && head[1] === 'title' ? 'wrap' : null) }, c)))))));
+}
+
+// ---- Now ----
+let sessions = [];
+function renderNow(s) {
+  const body = $('now-body');
+  body.className = '';
+  const r = s.runner || {};
+  const parts = [];
+  if (!r.running) parts.push(el('p', {}, badge('mute', 'not running'), ' ', el('span', { class: 'mute' }, 'no hx run is active')));
+  else {
+    const state = r.paused ? badge('warn', 'paused (' + r.paused + ')') : r.draining ? badge('warn', 'draining') : badge('ok', 'running');
+    const kv = [el('span', {}, state), el('span', {}, 'pid ', el('b', {}, String(r.pid))), el('span', {}, 'uptime ', el('b', { 'data-since': r.startedAt }, dur(r.uptimeMs))),
+      el('span', {}, 'workers ', el('b', {}, String(r.workers)))];
+    if (r.pausedUntil) kv.push(el('span', {}, 'paused until ', el('b', {}, when(r.pausedUntil)), r.pauseReason ? ' (' + r.pauseReason + ')' : ''));
+    const rl = r.rateLimit;
+    if (rl) {
+      const u = Number.isFinite(rl.utilization) ? ' ' + Math.round(rl.utilization * 100) + '%' : '';
+      const reset = Number.isFinite(rl.resetsAt) ? ', resets ' + new Date(rl.resetsAt * 1000).toLocaleString() : '';
+      kv.push(el('span', {}, 'rate limit ', el('b', {}, String(rl.type ?? 'window') + ': ' + String(rl.status ?? '') + u), reset));
+    }
+    parts.push(el('div', { class: 'kv' }, kv));
+  }
+  const g = s.gate;
+  parts.push(el('div', { class: 'kv' }, el('span', {}, 'gate ', !g ? badge('mute', 'no run yet') : g.ok ? badge('ok', 'green') : badge('bad', 'RED')),
+    g ? el('span', {}, 'at ', el('code', {}, String(g.sha ?? '').slice(0, 7)), ' · ', when(g.at)) : null,
+    g && g.fixIssue ? el('span', {}, 'fix issue ', issueLink(g.fixIssue)) : null));
+  sessions = s.sessions || [];
+  if (r.running) {
+    parts.push(sessions.length ? table(['issue', 'title', 'kind', 'turn', 'tokens', 'elapsed'], sessions.map((x) =>
+      [issueLink(x.number), String(x.title ?? ''), String(x.kind ?? ''), num(x.turn), num(x.tokens), el('span', { 'data-since': x.since }, dur(x.elapsedMs))]), [3, 4, 5])
+      : el('p', { class: 'mute' }, 'no sessions'));
+  }
+  fill(body, parts);
+}
+// elapsed times tick every second on the client from `since`
+setInterval(() => {
+  for (const e of document.querySelectorAll('[data-since]')) {
+    const t = Date.parse(e.getAttribute('data-since'));
+    if (!Number.isNaN(t)) e.textContent = dur(Date.now() - t);
+  }
+}, 1000);
+
+// ---- Board ----
+function renderBoard(b) {
+  const body = $('board-body');
+  body.className = '';
+  if (b.error !== undefined) { fill(body, el('p', { class: 'err' }, 'board unavailable: ' + String(b.error))); return; }
+  const prds = b.prds || [], rows = b.board || [];
+  fill(body,
+    el('h3', {}, 'PRDs'),
+    prds.length ? table(['PRD', 'title', 'status', 'progress'], prds.map((p) =>
+      [issueLink(p.number), String(p.title ?? ''), String(p.status ?? ''), num(p.closed) + '/' + num(Number(p.open) + Number(p.closed)) + ' done']), [3])
+      : el('p', { class: 'mute' }, 'no open PRDs'),
+    el('h3', {}, 'Issues'),
+    rows.length ? table(['issue', 'title', 'status'], rows.map((r) => [issueLink(r.number), String(r.title ?? ''),
+      r.status === 'waiting' && (r.waitingOn || []).length ? 'waiting on ' + r.waitingOn.map((w) => String(w.repo ?? '') + '#' + Math.trunc(Number(w.number))).join(', ') : String(r.status ?? '')]))
+      : el('p', { class: 'mute' }, 'no open issues'),
+    el('p', { class: 'note' }, 'board fetched ' + when(b.at)));
+}
+
+// ---- Stats ----
+function barChart(days) {
+  const W = 600, H = 160, pad = 24, n = Math.max(days.length, 1);
+  const max = Math.max(1, ...days.map((d) => Number(d.tokens) || 0));
+  const svg = document.createElementNS(SVG, 'svg');
+  svg.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
+  svg.setAttribute('role', 'img');
+  svg.setAttribute('aria-label', 'tokens per day');
+  const bw = (W - pad) / n;
+  days.forEach((d, i) => {
+    const h = ((Number(d.tokens) || 0) / max) * (H - 2 * pad);
+    const r = document.createElementNS(SVG, 'rect');
+    r.setAttribute('x', String(pad + i * bw + bw * 0.1));
+    r.setAttribute('y', String(H - pad - h));
+    r.setAttribute('width', String(bw * 0.8));
+    r.setAttribute('height', String(h));
+    const t = document.createElementNS(SVG, 'title');
+    t.appendChild(document.createTextNode(String(d.key) + ': ' + num(d.tokens) + ' tokens'));
+    r.appendChild(t);
+    svg.appendChild(r);
+    if (n <= 14 || i % Math.ceil(n / 14) === 0) {
+      const l = document.createElementNS(SVG, 'text');
+      l.setAttribute('x', String(pad + i * bw + bw / 2));
+      l.setAttribute('y', String(H - 8));
+      l.setAttribute('text-anchor', 'middle');
+      l.appendChild(document.createTextNode(String(d.key).slice(5)));
+      svg.appendChild(l);
+    }
+  });
+  const top = document.createElementNS(SVG, 'text');
+  top.setAttribute('x', '2');
+  top.setAttribute('y', '12');
+  top.appendChild(document.createTextNode('max ' + num(max)));
+  svg.appendChild(top);
+  return svg;
+}
+function usageTable(label, rows, link) {
+  return table([label, 'tokens', 'turns', 'sessions', 'time'], (rows || []).map((r) =>
+    [link ? issueLink(r.key) : String(r.key ?? ''), num(r.tokens), num(r.turns), num(r.sessions), dur(r.durationMs)]), [1, 2, 3, 4]);
+}
+function renderStats(s) {
+  const body = $('stats-body');
+  body.className = '';
+  const u = s.usage || {}, o = s.outcomes || {};
+  const a = o.audit || {}, ga = o.gauntlet || {}, se = o.security || {}, gt = o.gate || {}, is = o.issues || {};
+  const filed = (se.filed || []).map((n) => issueLink(n));
+  const filedList = filed.length ? filed.flatMap((x, i) => (i ? [', ', x] : [x])) : ['none'];
+  fill(body,
+    el('div', { class: 'kv' }, el('span', {}, 'total ', el('b', {}, num(u.total?.tokens ?? 0)), ' tokens'),
+      el('span', {}, el('b', {}, num(u.total?.sessions ?? 0)), ' sessions'), el('span', {}, el('b', {}, dur(u.total?.durationMs ?? 0)), ' session time')),
+    el('h3', {}, 'Tokens per day'),
+    (u.byDay || []).length ? barChart(u.byDay) : el('p', { class: 'mute' }, 'no usage recorded yet'),
+    el('h3', {}, 'Outcomes'),
+    table(['', ''], [
+      ['audit', (a.pass ?? 0) + ' PASS · ' + (a.fail ?? 0) + ' FAIL · avg rounds ' + (a.avgRounds === null || a.avgRounds === undefined ? '–' : Number(a.avgRounds).toFixed(1))],
+      ['gauntlet', (ga.rounds ?? 0) + ' rounds · ' + (ga.fail ?? 0) + ' FAIL'],
+      ['security', el('span', {}, (se.passes ?? 0) + ' passes · filed ', filedList)],
+      ['gate', (gt.red ?? 0) + ' RED · avg RED → green ' + dur(gt.avgRedMs) + (gt.openRed ? ' · RED now' : '')],
+      ['issues', (is.done ?? 0) + ' done · median wall time ' + dur(is.medianMs)],
+    ]),
+    el('h3', {}, 'By PRD'),
+    u.byPrdSource === 'issues' ? el('p', { class: 'note' }, 'PRD grouping is unavailable (the board could not be read): grouped by issue instead') : null,
+    usageTable(u.byPrdSource === 'issues' ? 'issue' : 'PRD / issue', u.byPrd, true),
+    el('h3', {}, 'By role'), usageTable('role', u.byRole),
+    el('h3', {}, 'By model'), usageTable('model', u.byModel));
+}
+
+// ---- Log ----
+function renderLog(lines) {
+  const box = $('log');
+  const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 24;
+  box.textContent = (lines || []).map(String).join('\n');
+  if (atBottom) box.scrollTop = box.scrollHeight;
+}
+
+// ---- polling ----
+let lastOk = null, failing = false;
+function status() {
+  const n = $('status');
+  n.className = 'note' + (failing ? ' offline' : '');
+  n.textContent = (failing ? 'offline · ' : '') + (lastOk ? 'last updated ' + clock(lastOk) : 'no data yet');
+}
+async function getJson(url) {
+  const r = await fetch(url, { cache: 'no-store' });
+  if (!r.ok) throw new Error(url + ': ' + r.status);
+  return r.json();
+}
+async function pollState() {
+  try {
+    const s = await getJson('/api/state');
+    repo = String(s.repo ?? '');
+    $('repo').textContent = repo;
+    renderNow(s); renderStats(s); renderLog(s.log);
+    lastOk = new Date(); failing = false;
+  } catch { failing = true; }
+  status();
+}
+async function pollBoard() {
+  try { const b = await getJson('/api/board'); if (!repo) repo = String(b.repo ?? ''); renderBoard(b); }
+  catch { failing = true; status(); }
+}
+pollState().then(pollBoard);
+setInterval(pollState, 5000);
+setInterval(pollBoard, 30000);
 </script>
 </body>
 </html>

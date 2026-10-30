@@ -50,3 +50,16 @@ test('hx help: the PRD-flow paragraph mentions the gauntlet and the security pas
   for (const w of ['gauntlet -> decompose -> building -> review -> security -> done', 'gauntletRounds', 'securityRounds',
     DEFAULTS.labels.hardened, DEFAULTS.labels.secured, 'security pass']) assert.ok(r.stdout.includes(w), w);
 });
+
+test('dashboard: README section, design #8 done, CLAUDE.md file map', () => {
+  const r = read('README.md');
+  const sec = r.slice(r.indexOf('## Dashboard'), r.indexOf('\n## ', r.indexOf('## Dashboard') + 1));
+  assert.ok(sec.length > 100, 'README has a Dashboard section');
+  for (const w of ['hx dashboard', '--port', '--open', '**Now**', '**Board**', '**Stats**', '**Log**', '.hx/run.log', 'run.log.1',
+    '127.0.0.1 only', 'Host', 'GET only', 'read', 'escaped text']) assert.ok(sec.includes(w), w);
+  assert.doesNotMatch(sec, /\.(png|jpe?g|gif)\b/i, 'no screenshots');
+  assert.match(read('docs/design.md'), /\| 8 \| ~~\*\*Web dashboard \/ stats\*\*~~ done \|/);
+  const c = read('CLAUDE.md');
+  const map = c.slice(c.indexOf('## Where things are'), c.indexOf('## Conventions'));
+  for (const f of ['dashboard.ts', 'dashboard.html', 'outcomes.ts']) assert.ok(map.includes(`\`${f}\``), f);
+});

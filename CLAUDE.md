@@ -10,6 +10,8 @@ roadmap and the agreed order of the next features) before changing anything.
   Erasable syntax only (no enums, no parameter properties); imports end in `.ts`.
   `state.ts` pure board logic · `pool.ts` runner + sessions · `agent.ts` claude process + Ralph loop ·
   `runstate.ts` live.json / pause · `github.ts` gh wrapper · `worktree.ts` · `config.ts` · `cli.ts`
+  · `dashboard.ts` `hx dashboard` server (localhost, GET only) · `dashboard.html` its page (text only, no `innerHTML`) ·
+  `outcomes.ts` run.log → outcome numbers
 - `prompts/` — one per role (`impl`, `decompose`, `review`, `continue`, `checkpoint`, `grill`, `audit`, `critic`, `revise`, `security`), `{{VAR}}` placeholders
 - `scripts/issue.mjs` — prints an issue with comments from untrusted accounts removed (`HX_TRUSTED`); the only way agents read issues
 - `scripts/ship.mjs` — the one-call commit → rebase → test → push → PR → merge → close routine workers use
