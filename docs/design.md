@@ -74,7 +74,7 @@ Agreed order (2026-10-30), highest quality gain first. Build them in this order.
 | # | Feature | What it adds | Notes |
 |---|---|---|---|
 | 1 | ~~**Auditor per issue**~~ done | a fresh session checks the implementer's work against the issue before merge; a failed audit goes back to the implementer | biggest quality gain; measure with the benchmark (hidden tests, tokens) |
-| 2 | **Grill session** | `hx grill` interviews the user until the PRD is unambiguous, then files it | interactive `claude`, not headless |
+| 2 | ~~**Grill session**~~ done | `hx grill` interviews the user until the PRD is unambiguous, then files it | interactive `claude`, not headless |
 | 3 | **Gauntlet / security audit** | PRD review in rounds with a critic, plus a security pass; gaps become issues | builds on the auditor |
 | 4 | ~~**CI gate**~~ done | no new claims while the default branch is red; running sessions continue | Harness: `ci_gate_ok` |
 | 5 | **rtdd** | names the tests a change needs and the changed lines no test reaches | check `npx github:VocanicZ/rtdd` on Windows first |

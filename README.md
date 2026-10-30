@@ -95,6 +95,8 @@ npm link
 cd <your repo>
 hx init                 # writes .hx/config.json and creates the GitHub labels
 hx prd feature.md       # file a PRD issue (title from the file's first "# " line)
+hx grill "dark mode"    # an interactive claude session interviews you into a PRD (idea: text or a .md file),
+                        # shows it and files it on confirm (--yes: no question); kept in .hx/prds/
 hx status               # the runner, live sessions, usage window, and the board
 hx run --dry-run        # the board and what would run next, without changing anything
 hx run                  # work the board until nothing is left, then exit
