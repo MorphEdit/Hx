@@ -29,7 +29,7 @@ writeFileSync(stateFile, JSON.stringify({ comments: [], prs: [], issues: [
   { number: 7, title: XSS, body: 'x', state: 'OPEN', labels: [L.ready] },
   { number: 8, title: `PRD ${XSS}`, body: 'p', state: 'OPEN', labels: [L.prd] },
 ] }));
-writeFileSync(path.join(stateDir, 'run.log'), `2026-10-01T10:00:00.000Z #7 impl: ${XSS}\n`);
+writeFileSync(path.join(stateDir, 'run.log'), `2026-10-01T10:00:00.000Z [#7] impl: ${XSS}\n`);
 const project = { root: tmp, stateDir, config: { ...DEFAULTS, repo: 'me/app', defaultBranch: 'main', worktreeRoot: path.join(tmp, 'wt') } };
 
 const servers: { close(): Promise<void> }[] = [];
@@ -128,7 +128,7 @@ test('the page script renders hostile strings as text, links issues by integer, 
   assert.ok(bd.all().every((e) => e.tag !== 'img'));
   assert.ok(links(bd).includes('https://github.com/me/app/issues/7'));
   assert.ok(text(bd).includes('0/0 done'));
-  assert.ok(text(log).includes(`#7 impl: ${XSS}`));
+  assert.ok(text(log).includes(`[#7] impl: ${XSS}`));
   assert.match(text(p.ids.get('status')!), /last updated \d\d:\d\d:\d\d/);
   assert.match(text(st), /0 PASS/);
   assert.equal(state.usage.byPrd, null, '/api/state came before any /api/board');
@@ -148,7 +148,7 @@ test('the page script renders hostile strings as text, links issues by integer, 
     gate: { sha: 'abcdef1234567', ok: false, at: since, fixIssue: 14.7 },
     usage: { ...state.usage, byPrd: null, byDay: [{ key: '2026-10-01', tokens: 300 }, { key: '2026-10-02', tokens: 57 }] },
     outcomes: { audit: { pass: 3, fail: 1, mergedIssues: 2, avgRounds: 1.5 }, gauntlet: { rounds: 4, pass: 3, fail: 1 },
-      security: { passes: 2, filed: [21, 22] }, gate: { red: 2, recovered: 1, openRed: true, redMs: [600_000], avgRedMs: 600_000 },
+      security: { passes: 2, filed: 1 }, gate: { red: 2, recovered: 1, openRed: true, redMs: [600_000], avgRedMs: 600_000 },
       issues: { done: 2, medianMs: 3_900_000 } } };
   const p2 = page(s2, { ...board, prds: [], board: [], error: `HTTP 502 ${XSS}` });
   await p2.flush();
@@ -158,9 +158,8 @@ test('the page script renders hostile strings as text, links issues by integer, 
   assert.ok(links(now2).includes('https://github.com/me/app/issues/14'), 'the gate fix issue, coerced to an integer');
   assert.ok(links(now2).every((h) => /^https:\/\/github\.com\/me\/app\/issues\/\d+$/.test(h!)), String(links(now2)));
   assert.equal(text(bd2), `board unavailable: HTTP 502 ${XSS}`);
-  for (const w of ['3 PASS', '1 FAIL', 'avg rounds 1.5', '4 rounds', '2 passes', '#21', '2 RED', 'avg RED → green 10m 00s', 'RED now',
+  for (const w of ['3 PASS', '1 FAIL', 'avg rounds 1.5', '4 rounds', '2 passes · 1 filed issues', '2 RED', 'avg RED → green 10m 00s', 'RED now',
     'median wall time 1h 05m', 'waiting for the board']) assert.ok(text(st2).includes(w), w);
-  assert.ok(links(st2).includes('https://github.com/me/app/issues/22'));
   const svg = st2.all().find((e) => e.tag === 'svg')!;
   assert.equal(svg.ns, 'http://www.w3.org/2000/svg');
   assert.equal(svg.all().filter((e) => e.tag === 'rect').length, 2);

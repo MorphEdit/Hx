@@ -48,15 +48,15 @@ writeFileSync(path.join(stateDir, 'usage.jsonl'), [
 ].map((r) => JSON.stringify(r)).join('\n') + '\n');
 
 const oldLog = [
-  '2026-10-01T10:00:00.000Z #11 impl: part a',
-  '2026-10-01T10:30:00.000Z #11 audit PASS ✓',
+  '2026-10-01T10:00:00.000Z [#11] impl: part a',
+  '2026-10-01T10:30:00.000Z [#11] audit PASS ✓',
 ];
 const newLog = [
-  '2026-10-01T10:31:00.000Z #11 DONE ✓ audited and merged (1 round(s))',
-  '2026-10-01T11:00:00.000Z #12 impl: part b',
-  '2026-10-01T11:20:00.000Z #12 audit FAIL ✗ missing test',
-  '2026-10-01T11:21:00.000Z - gate RED ✗ at abc1234',
-  '2026-10-01T11:31:00.000Z - gate green ✓ again at def5678',
+  '2026-10-01T10:31:00.000Z [#11] DONE ✓ audited and merged (1 round(s))',
+  '2026-10-01T11:00:00.000Z [#12] impl: part b',
+  '2026-10-01T11:20:00.000Z [#12] audit FAIL ✗ missing test',
+  '2026-10-01T11:21:00.000Z gate RED ✗ at abc1234',
+  '2026-10-01T11:31:00.000Z gate green ✓ again at def5678',
 ];
 writeFileSync(path.join(stateDir, 'run.log.1'), oldLog.join('\n') + '\n');
 writeFileSync(path.join(stateDir, 'run.log'), newLog.join('\n') + '\n');
@@ -127,12 +127,14 @@ test('/api/state: runner, sessions, gate, usage by role and by PRD, log, outcome
   assert.equal(row(s.usage.byModel, 'claude-opus-5-5').tokens, 357);
 
   assert.deepEqual(s.log, newLog);
-  assert.deepEqual(s.outcomes, parseOutcomes([...oldLog, ...newLog].join('\n')));
-  assert.equal(s.outcomes.audit.pass, 1);
+  // outcomes come from run.log only: run.log.1 (#11's impl start and its audit PASS) is not read
+  assert.deepEqual(s.outcomes, parseOutcomes(newLog));
+  assert.equal(s.outcomes.audit.pass, 0);
   assert.equal(s.outcomes.audit.fail, 1);
   assert.equal(s.outcomes.audit.mergedIssues, 1);
-  assert.equal(s.outcomes.issues.done, 1);
-  assert.equal(s.outcomes.issues.medianMs, 31 * 60_000, 'the impl line in run.log.1 starts #11');
+  assert.equal(s.outcomes.issues.done, 0, 'the impl line that starts #11 is in run.log.1');
+  assert.equal(s.outcomes.gate.red, 1);
+  assert.deepEqual(s.outcomes.gate.redMs, [10 * 60_000]);
   assert.equal(s.outcomes.gate.recovered, 1);
 });
 

@@ -152,11 +152,11 @@ open), and keeps the last data with an "offline / last updated" note when a fetc
   If `gh` fails, the error shows here and the rest of the page keeps working.
 - **Stats** — tokens per day, tokens/turns/sessions/time by PRD, role and model, and outcomes parsed
   from the run log: audit PASS/FAIL and average rounds, gauntlet rounds and FAILs, security passes and
-  the issues they filed, gate REDs with the average RED → green time, and the median issue wall time.
+  how many of them filed issues, gate REDs with the average RED → green time, and the median issue wall time.
 - **Log** — the tail of `.hx/run.log`, newest last.
 
 `hx run` writes every line it prints to `.hx/run.log` with an ISO timestamp; past 2 MiB the file is
-rotated to `run.log.1` (one old file is kept), and the outcome numbers read both.
+rotated to `run.log.1` (one old file is kept), and the outcome numbers are parsed from `run.log` only.
 
 Safety: the server binds **127.0.0.1 only**, answers only a `Host` of `127.0.0.1:<port>` or
 `localhost:<port>` (no DNS rebinding), takes **GET only**, sends no CORS headers and changes nothing —
@@ -324,7 +324,7 @@ it reads. So Hx only works on text from **trusted accounts**: your `gh` login pl
 - `.hx/logs/<role>-N.jsonl` — the raw Claude event stream per issue / PRD, for debugging
 - `.hx/live.json` — the running `hx run`: its pid and live sessions (read by `hx status`)
 - `.hx/pause` — present while paused (`drain` or `now`)
-- `.hx/run.log` — the `hx run` log with ISO timestamps (rotated to `run.log.1` past 2 MiB), read by `hx dashboard`
+- `.hx/run.log` — the `hx run` log, `<ISO time> [#n] message` per line (rotated to `run.log.1` past 2 MiB), read by `hx dashboard`
 
 `.hx/` is added to `.git/info/exclude` by `hx init`, so it never shows up in `git status`.
 

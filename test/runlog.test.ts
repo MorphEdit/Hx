@@ -21,7 +21,7 @@ test('runLogFile is <stateDir>/run.log', () => {
   assert.equal(runLogFile(path.join('x', '.hx')), path.join('x', '.hx', 'run.log'));
 });
 
-test('log() appends `<ISO> #<n> <msg>` and `<ISO> - <msg>`, one line per call', () => {
+test('log() appends `<ISO> [#<n>] <msg>` and `<ISO> <msg>` (PRD #37 §1), one line per call', () => {
   const f = runLogFile(path.join(dir(), '.hx')); // the directory is created on the first line
   capture();
   setRunLog(f);
@@ -31,10 +31,10 @@ test('log() appends `<ISO> #<n> <msg>` and `<ISO> - <msg>`, one line per call', 
   assert.equal(printed.length, 3, 'still prints');
   const l = lines(f);
   assert.equal(l.length, 3);
-  assert.match(l[0], /^\d{4}-\d\d-\d\dT[\d:.]+Z #7 x$/);
-  assert.match(l[1], /^\d{4}-\d\d-\d\dT[\d:.]+Z - y$/);
-  assert.match(l[2], /^\d{4}-\d\d-\d\dT[\d:.]+Z #3 two lines here$/);
-  assert.ok(!Number.isNaN(Date.parse(l[0].split(' ')[0])));
+  assert.match(l[0], /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z \[#7\] x$/);
+  assert.match(l[1], /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z y$/);
+  assert.match(l[2], /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z \[#3\] two lines here$/);
+  for (const x of l) assert.equal(new Date(x.split(' ')[0]).toISOString(), x.split(' ')[0], 'new Date().toISOString()');
 });
 
 test('unset: log() only prints', () => {
@@ -49,18 +49,18 @@ test('rotation: past maxBytes run.log becomes run.log.1, and only one old file i
   const d = dir();
   const f = path.join(d, 'run.log');
   capture();
-  setRunLog(f, 200); // a padded line is 56 bytes: the 5th line rotates
+  setRunLog(f, 190); // a padded line is 54 bytes: the 5th line rotates
   for (let i = 0; i < 4; i++) log(`first ${i} ${'.'.repeat(20)}`);
   log('second 0');
   assert.deepEqual(readdirSync(d).sort(), ['run.log', 'run.log.1']);
   assert.equal(lines(f + '.1').length, 4);
-  assert.match(lines(f + '.1')[0], / - first 0 /);
-  assert.deepEqual(lines(f).map((l) => l.replace(/^\S+ /, '')), ['- second 0']);
+  assert.match(lines(f + '.1')[0], /Z first 0 /);
+  assert.deepEqual(lines(f).map((l) => l.replace(/^\S+ /, '')), ['second 0']);
   for (let i = 1; i < 4; i++) log(`second ${i} ${'.'.repeat(20)}`);
   log('third 0');
   assert.deepEqual(readdirSync(d).sort(), ['run.log', 'run.log.1'], 'never more than two files');
-  assert.ok(lines(f + '.1').every((l) => / - second /.test(l)), 'the second rotation replaced run.log.1');
-  assert.deepEqual(lines(f).map((l) => l.replace(/^\S+ /, '')), ['- third 0']);
+  assert.ok(lines(f + '.1').every((l) => /Z second /.test(l)), 'the second rotation replaced run.log.1');
+  assert.deepEqual(lines(f).map((l) => l.replace(/^\S+ /, '')), ['third 0']);
 });
 
 test('a path that cannot be written: log() does not throw and still prints', () => {
