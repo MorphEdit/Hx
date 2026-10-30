@@ -27,7 +27,7 @@ const loadBoard = () => loadJson(boardFile);
 const saveBoard = (b) => saveJson(boardFile, b);
 const file = (b, title, body, labels) => {
   const number = Math.max(0, ...b.issues.map((i) => i.number)) + 1;
-  b.issues.push({ number, title, body, state: 'OPEN', labels });
+  b.issues.push({ number, title, body, state: 'OPEN', labels, author: b.login ?? 'me' }); // filed as the gh login
   return number;
 };
 

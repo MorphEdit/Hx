@@ -6,6 +6,7 @@ export interface Issue {
   body: string;
   state: 'OPEN' | 'CLOSED';
   labels: string[];
+  author: string; // login of who opened it ('' = a deleted, "ghost" account)
 }
 
 const GH = process.env.HX_GH_BIN || 'gh';
@@ -17,11 +18,21 @@ function toIssue(raw: any): Issue {
     body: raw.body ?? '',
     state: String(raw.state ?? 'OPEN').toUpperCase() === 'CLOSED' ? 'CLOSED' : 'OPEN',
     labels: (raw.labels ?? []).map((l: any) => (typeof l === 'string' ? l : l.name)),
+    author: raw.author?.login ?? '',
   };
 }
 
 export async function repoSlug(cwd: string): Promise<string> {
   return (await runOk(GH, ['repo', 'view', '--json', 'nameWithOwner', '-q', '.nameWithOwner'], { cwd })).trim();
+}
+
+/** The account gh is logged in as. Throws when gh cannot tell: hx never runs with an empty trusted set. */
+export async function ghLogin(): Promise<string> {
+  const r = await run(GH, ['api', 'user', '-q', '.login']);
+  const login = r.stdout.trim();
+  if (r.code !== 0 || !login)
+    throw new Error(`could not look up the gh login (gh api user${r.code !== 0 ? ` failed: ${(r.stderr || r.stdout).trim().slice(0, 200)}` : ' returned no login'}) — run  gh auth login  and try again`);
+  return login;
 }
 
 export async function defaultBranch(repo: string): Promise<string> {
@@ -31,7 +42,7 @@ export async function defaultBranch(repo: string): Promise<string> {
 /** Every issue, open and closed (closed children still count toward their PRD). PRs excluded. */
 export async function listIssues(repo: string): Promise<Issue[]> {
   const out = await runOk(GH, ['issue', 'list', '-R', repo, '--state', 'all', '--limit', '1000',
-    '--json', 'number,title,body,state,labels']);
+    '--json', 'number,title,body,state,labels,author']);
   return JSON.parse(out).map(toIssue);
 }
 

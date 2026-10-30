@@ -14,9 +14,13 @@ const mutate = (fn) => locked(file, () => { const cur = load(); const r = fn(cur
 const ghLabels = (i) => i.labels.map((name) => ({ name }));
 
 const s = load();
+// the account gh is logged in as: state.login (default 'me'); state.loginFails makes `gh api user` fail.
+// An issue or comment without an `author` was opened by it.
+const LOGIN = s.login ?? 'me';
+const author = (x) => ({ login: x.author ?? LOGIN });
 if (a[0] === 'issue' && a[1] === 'list') {
   const state = opt('--state') ?? 'open';
-  const out = s.issues.filter((i) => state === 'all' || i.state === state.toUpperCase()).map((i) => ({ ...i, labels: ghLabels(i) }));
+  const out = s.issues.filter((i) => state === 'all' || i.state === state.toUpperCase()).map((i) => ({ ...i, labels: ghLabels(i), author: author(i) }));
   process.stdout.write(JSON.stringify(out));
 } else if (a[0] === 'pr' && a[1] === 'list') {
   const pr = (s.prs ?? []).find((p) => p.head === opt('--head') && p.state === 'OPEN');
@@ -55,6 +59,10 @@ if (a[0] === 'issue' && a[1] === 'list') {
       .map((c) => ({ author: ghAuthor(c.author), body: c.body, createdAt: c.createdAt ?? '' }));
   }
   process.stdout.write(JSON.stringify(out));
+} else if (a[0] === 'api' && a[1] === 'user') {
+  if (s.loginFails) { process.stderr.write('HTTP 401: Bad credentials'); process.exit(1); }
+  process.stdout.write(opt('-q') === '.login' ? `${LOGIN}
+` : JSON.stringify({ login: LOGIN }));
 } else if (a[0] === 'api') {
   const path = a.find((x) => x.startsWith('repos/'));
   const one = /issues\/(\d+)$/.exec(path);
@@ -79,17 +87,17 @@ if (a[0] === 'issue' && a[1] === 'list') {
 } else if (a[0] === 'repo' && a[1] === 'view') {
   process.stdout.write(opt('-q') === '.defaultBranchRef.name' ? 'main\n' : 'me/app\n');
 } else if (a[0] === 'issue' && a[1] === 'comment') {
-  withStdin((body) => mutate((cur) => { cur.comments.push({ issue: Number(a[2]), body }); }));
+  withStdin((body) => mutate((cur) => { cur.comments.push({ issue: Number(a[2]), body, author: LOGIN }); }));
 } else if (a[0] === 'issue' && a[1] === 'close') {
   mutate((cur) => {
     find(cur, a[2]).state = 'CLOSED';
-    if (opt('--comment')) cur.comments.push({ issue: Number(a[2]), body: opt('--comment') });
+    if (opt('--comment')) cur.comments.push({ issue: Number(a[2]), body: opt('--comment'), author: LOGIN });
   });
 } else if (a[0] === 'issue' && a[1] === 'create') {
   withStdin((body) => {
     const number = mutate((cur) => {
       const n = Math.max(0, ...cur.issues.map((i) => i.number)) + 1;
-      cur.issues.push({ number: n, title: opt('--title'), body, state: 'OPEN', labels: all('--label') });
+      cur.issues.push({ number: n, title: opt('--title'), body, state: 'OPEN', labels: all('--label'), author: LOGIN });
       return n;
     });
     process.stdout.write(`https://github.com/me/app/issues/${number}\n`);

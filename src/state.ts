@@ -34,8 +34,21 @@ export const refKey = (r: Ref) => `${r.repo.toLowerCase()}#${r.number}`;
 export interface BoardRow {
   number: number;
   title: string;
-  status: 'claimable' | 'working' | 'blocked-label' | 'waiting';
+  status: 'claimable' | 'working' | 'blocked-label' | 'waiting' | 'untrusted';
   waitingOn: Ref[]; // open blockers, for status === 'waiting'
+  author?: string; // status 'untrusted' through its own author ('' = a deleted account)
+  untrustedPrd?: { number: number; author: string }; // status 'untrusted' through its PRD's author
+}
+
+/** Whether an issue's author is in the trusted set (lowercased logins). No set = no filter (unit tests);
+ *  hx run / status always pass one. An empty author (a deleted, "ghost" account) is never trusted. */
+export function isTrusted(i: Issue, trusted?: Set<string>): boolean {
+  return !trusted || (!!i.author && trusted.has(i.author.toLowerCase()));
+}
+
+/** The trusted set: the gh login plus config.trustedAuthors, lowercased for a case-insensitive match. */
+export function trustedSet(login: string, extra: string[] = []): Set<string> {
+  return new Set([login, ...extra].map((l) => l.trim().toLowerCase()).filter(Boolean));
 }
 
 /**
@@ -44,12 +57,21 @@ export interface BoardRow {
  * Claimable rows come first, oldest issue first.
  */
 export function board(issues: Issue[], repo: string, labels: Labels, states: Map<string, 'OPEN' | 'CLOSED'>,
-  inFlight: Set<number> = new Set(), inherited: Map<number, Ref[]> = new Map()): BoardRow[] {
+  inFlight: Set<number> = new Set(), inherited: Map<number, Ref[]> = new Map(), trusted?: Set<string>,
+  untrustedPrd: Map<number, { number: number; author: string }> = new Map()): BoardRow[] {
   const rows: BoardRow[] = [];
   for (const i of issues) {
     if (i.state !== 'OPEN' || !i.labels.includes(labels.ready) || i.labels.includes(labels.prd)) continue;
     let status: BoardRow['status'];
     let waitingOn: Ref[] = [];
+    if (!isTrusted(i, trusted)) {
+      rows.push({ number: i.number, title: i.title, status: 'untrusted', waitingOn, author: i.author ?? '' });
+      continue;
+    }
+    if (untrustedPrd.has(i.number)) {
+      rows.push({ number: i.number, title: i.title, status: 'untrusted', waitingOn, untrustedPrd: untrustedPrd.get(i.number) });
+      continue;
+    }
     if (inFlight.has(i.number) || i.labels.includes(labels.working)) status = 'working';
     else if (i.labels.includes(labels.blocked)) status = 'blocked-label';
     else {
@@ -58,7 +80,7 @@ export function board(issues: Issue[], repo: string, labels: Labels, states: Map
     }
     rows.push({ number: i.number, title: i.title, status, waitingOn });
   }
-  const rank = { claimable: 0, working: 1, waiting: 2, 'blocked-label': 3 } as const;
+  const rank = { claimable: 0, working: 1, waiting: 2, 'blocked-label': 3, untrusted: 4 } as const;
   return rows.sort((a, b) => rank[a.status] - rank[b.status] || a.number - b.number);
 }
 
@@ -106,10 +128,11 @@ export type Action =
 export interface PrdRow {
   number: number;
   title: string;
-  status: 'gauntlet' | 'decompose' | 'building' | 'review' | 'security' | 'done' | 'working' | 'waiting' | 'blocked-label';
+  status: 'gauntlet' | 'decompose' | 'building' | 'review' | 'security' | 'done' | 'working' | 'waiting' | 'blocked-label' | 'untrusted';
   open: number; // open children
   closed: number;
   waitingOn: Ref[];
+  author?: string; // status 'untrusted': who opened it ('' = a deleted account)
 }
 
 export interface Plan {
@@ -134,9 +157,12 @@ export const issueKey = (n: number) => `issue:${n}`;
  *    unless `opts.security` is false
  *  - reviewed (and security-reviewed) and every child closed → the engine closes it
  * A PRD's own `## Blocked by` sequences PRDs: until it clears, nothing of that PRD runs.
+ * `opts.trusted` (lowercased logins): a PRD opened by anyone else is `untrusted` and nothing of it runs —
+ * its children are not claimed either; an issue opened by anyone else is never claimed and never counts
+ * as a PRD's child (it neither holds a PRD in building nor reaches a session's prompt).
  */
 export function plan(all: Issue[], repo: string, labels: Labels, states: Map<string, 'OPEN' | 'CLOSED'>,
-  busy: Set<string> = new Set(), opts: { gauntlet?: boolean; security?: boolean } = {}): Plan {
+  busy: Set<string> = new Set(), opts: { gauntlet?: boolean; security?: boolean; trusted?: Set<string> } = {}): Plan {
   const gauntlet = opts.gauntlet ?? true;
   const security = opts.security ?? true;
   const prdIssues = all.filter((i) => i.labels.includes(labels.prd)).sort((a, b) => a.number - b.number);
@@ -144,7 +170,7 @@ export function plan(all: Issue[], repo: string, labels: Labels, states: Map<str
   const children = new Map<number, Issue[]>(prdIssues.map((p) => [p.number, []]));
   const parentOf = new Map<number, number>();
   for (const i of all) {
-    if (prdNums.has(i.number)) continue;
+    if (prdNums.has(i.number) || !isTrusted(i, opts.trusted)) continue;
     const p = parseParent(i.body, repo);
     if (p && p.repo.toLowerCase() === repo.toLowerCase() && prdNums.has(p.number)) {
       children.get(p.number)!.push(i);
@@ -156,6 +182,7 @@ export function plan(all: Issue[], repo: string, labels: Labels, states: Map<str
   const engine: Action[] = [];
   const prds: PrdRow[] = [];
   const inherited = new Map<number, Ref[]>();
+  const untrustedPrd = new Map<number, { number: number; author: string }>();
   for (const p of prdIssues) {
     if (p.state !== 'OPEN') continue;
     const kids = children.get(p.number)!;
@@ -167,15 +194,19 @@ export function plan(all: Issue[], repo: string, labels: Labels, states: Map<str
     // them (a child filed first may get its `Blocked by` from a sibling that does not exist yet)
     if (waitingOn.length || busy.has(prdKey(p.number)))
       for (const k of kids) inherited.set(k.number, [{ repo, number: p.number }]);
+    const trusted = isTrusted(p, opts.trusted);
+    if (!trusted) for (const k of kids) untrustedPrd.set(k.number, { number: p.number, author: p.author ?? '' });
     let status: PrdRow['status'];
-    if (p.labels.includes(labels.blocked)) status = 'blocked-label';
+    if (!trusted) status = 'untrusted';
+    else if (p.labels.includes(labels.blocked)) status = 'blocked-label';
     else if (waitingOn.length) status = 'waiting';
     else if (busy.has(prdKey(p.number))) status = 'working';
     else if (!kids.length) status = gauntlet && !p.labels.includes(labels.hardened) ? 'gauntlet' : 'decompose';
     else if (open.length) status = 'building';
     else if (!p.labels.includes(labels.reviewed)) status = 'review';
     else status = security && !p.labels.includes(labels.secured) ? 'security' : 'done';
-    prds.push({ number: p.number, title: p.title, status, open: open.length, closed: kids.length - open.length, waitingOn });
+    prds.push({ number: p.number, title: p.title, status, open: open.length, closed: kids.length - open.length, waitingOn,
+      ...(trusted ? {} : { author: p.author ?? '' }) });
 
     if (status === 'gauntlet') actions.push({ kind: 'gauntlet', prd: p.number, title: p.title });
     else if (status === 'decompose') actions.push({ kind: 'decompose', prd: p.number, title: p.title, children: kids });
@@ -190,7 +221,7 @@ export function plan(all: Issue[], repo: string, labels: Labels, states: Map<str
   }
 
   const inFlight = new Set([...busy].filter((k) => k.startsWith('issue:')).map((k) => Number(k.slice(6))));
-  const rows = board(all, repo, labels, states, inFlight, inherited);
+  const rows = board(all, repo, labels, states, inFlight, inherited, opts.trusted, untrustedPrd);
   for (const r of rows) if (r.status === 'claimable') actions.push({ kind: 'impl', issue: r.number, title: r.title });
   return { actions: [...actions.filter((a) => a.kind !== 'impl'), ...engine, ...actions.filter((a) => a.kind === 'impl')], prds, board: rows };
 }

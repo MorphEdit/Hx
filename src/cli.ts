@@ -5,7 +5,7 @@ import { createInterface } from 'node:readline';
 import { DEFAULTS, defaultWorktreeRoot, findProjectRoot, loadProject, saveConfig, STATE_DIR, type Config } from './config.ts';
 import * as gh from './github.ts';
 import { resolveCmd, runOk } from './exec.ts';
-import { log, printPlan, readPlan, runPool } from './pool.ts';
+import { log, lookupTrusted, printPlan, readPlan, runPool } from './pool.ts';
 import { killAllSessions } from './agent.ts';
 import { clearPause, otherRunner, pidAlive, readLive, readPause, setPause } from './runstate.ts';
 import { readGate } from './gate.ts';
@@ -81,6 +81,7 @@ async function init(): Promise<number> {
   const abs = path.isAbsolute(exclude) ? exclude : path.join(root, exclude);
   if (!existsSync(abs) || !readFileSync(abs, 'utf8').split(/\r?\n/).includes(`/${STATE_DIR}/`)) appendFileSync(abs, `\n/${STATE_DIR}/\n`);
 
+  const login = await gh.ghLogin().catch((e) => `?? (${e.message})`);
   const L = config.labels;
   await gh.ensureLabel(config.repo, L.ready, '0e8a16', 'hx: an agent may pick this up');
   await gh.ensureLabel(config.repo, L.working, 'fbca04', 'hx: an agent is working on this');
@@ -95,6 +96,7 @@ async function init(): Promise<number> {
   console.log(`${existing ? 'updated' : 'created'} ${path.join(root, STATE_DIR, 'config.json')}
   repo        ${config.repo} (base ${config.defaultBranch})
   workers     ${config.workers}   model ${config.model}   max ${config.maxIterations} turns/issue
+  trusted     ${login} (+ config.trustedAuthors${config.trustedAuthors?.length ? `: ${config.trustedAuthors.join(', ')}` : ', none'}) — issues and PRDs by anyone else are skipped
   worktrees   ${config.worktreeRoot}
   labels      ${L.ready}, ${L.working}, ${L.blocked}, ${L.prd}, ${L.hardened}, ${L.reviewed}, ${L.secured}, ${L.security}
 
@@ -217,8 +219,10 @@ async function status(): Promise<number> {
   if (paused) console.log(`paused   ${paused} — hx resume to clear`);
   console.log(`model    ${c.model}${c.effort ? ` (${c.effort} effort)` : ''}\n`);
 
-  // the board
-  const pl = await readPlan(p);
+  // the board (only issues and PRDs opened by a trusted account are worked on)
+  let trusted: Set<string>;
+  try { trusted = await lookupTrusted(c); } catch (e: any) { console.error(`hx: ${e.message}`); return 2; }
+  const pl = await readPlan(p, trusted);
   console.log(`${c.repo} — ${pl.prds.length} open PRD(s), ${pl.board.length} open '${c.labels.ready}' issue(s)\n`);
   printPlan(pl, c.repo);
   const recs = readUsage(p.stateDir);

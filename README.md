@@ -240,6 +240,7 @@ Remove `agent-blocked` from an issue to let Hx try it again.
 
 | key | default | |
 |---|---|---|
+| `trustedAuthors` | `[]` | accounts besides the gh login whose issues and PRDs hx works on (case-insensitive); anything opened by anyone else is skipped and shown as `untrusted` |
 | `workers` | 2 | sessions running in parallel |
 | `model` | `claude-opus-5-5` | model for every session; prefer a full id — the `opus` alias may resolve to an older Opus |
 | `effort` | `medium` | `claude --effort`: `low`, `medium`, `high`, `xhigh`, `max`, or `""` for the CLI default |

@@ -53,6 +53,7 @@ test('a red main: hx files the fix, claims nothing else until main is green agai
   const fix = s.issues.find((i: any) => /^Default branch is red/.test(i.title));
   assert.ok(fix, 'hx filed a fix issue');
   assert.deepEqual(fix.labels.sort(), [L.gateFix, L.ready].sort());
+  assert.equal(fix.author, 'me', 'filed as the gh login, so the trusted-author filter lets it through');
   assert.match(fix.body, /## Blocked by\nNone/);
   assert.equal(fix.state, 'CLOSED');
   assert.equal(s.issues.filter((i: any) => /^Default branch is red/.test(i.title)).length, 1, 'filed once');
