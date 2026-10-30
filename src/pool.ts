@@ -194,7 +194,7 @@ export async function runPool(p: Project, o: PoolOptions): Promise<number> {
       }
 
       for (const a of actions) {
-        if (stop.signal.aborted || live.draining || Date.now() < (live.pausedUntil ?? 0)) break;
+        if (stop.signal.aborted || fatal || live.draining || Date.now() < (live.pausedUntil ?? 0)) break; // fatal may land during readPlan
         if (a.kind === 'close-prd' || a.kind === 'label-ready') { await engineStep(p, a).catch((e) => log(`${a.kind} failed: ${e.message}`, target(a))); continue; }
         if (inFlight.size >= o.workers) continue; // engine steps further down still run
         idleLogged = false;
