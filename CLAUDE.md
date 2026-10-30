@@ -32,8 +32,9 @@ roadmap and the agreed order of the next features) before changing anything.
   only issues opened by trusted accounts (the `gh` login + `trustedAuthors`) are claimed.
 
 ## Next up
-The auditor (#1), the CI gate (#4), the grill session (#2, `hx grill`) and the gauntlet (#3: a critic →
-reviser loop before decompose, a security pass before a PRD closes) are done. Next is #5 (rtdd): write
-PRDs for the next features in the roadmap order (#5 rtdd, #6 bug lane, …) — `hx grill` helps — and run
-`hx run --watch` on this repo, reviewing the merged PRs. Re-run the benchmark and the audit eval
+The auditor (#1), the CI gate (#4), the grill session (#2, `hx grill`), the gauntlet (#3: a critic →
+reviser loop before decompose, a security pass before a PRD closes) and rtdd (#5, #34: skills per role via
+`roleSkills`) are done. Next is #6 (bug lane): write PRDs for the next features in the roadmap order
+(#6 bug lane, #7 inject, …) — `hx grill` helps — and run `hx run --watch` on this repo, reviewing the
+merged PRs. Re-run the benchmark and the audit eval
 (`node bench/audit-eval.mjs`) after changes to prompts, roles or the merge path.

@@ -78,7 +78,7 @@ Agreed order (2026-10-30), highest quality gain first. Build them in this order.
 | 2 | ~~**Grill session**~~ done | `hx grill` interviews the user until the PRD is unambiguous, then files it | interactive `claude`, not headless |
 | 3 | ~~**Gauntlet / security audit**~~ done | PRD review in rounds with a critic, plus a security pass; gaps become issues | builds on the auditor; `gauntlet`/`gauntletRounds`, `security`/`securityRounds` |
 | 4 | ~~**CI gate**~~ done | no new claims while the default branch is red; running sessions continue | Harness: `ci_gate_ok` |
-| 5 | **rtdd** | names the tests a change needs and the changed lines no test reaches | check `npx github:VocanicZ/rtdd` on Windows first |
+| 5 | ~~**rtdd**~~ done | names the tests a change needs and the changed lines no test reaches | #34: rtdd v0.4.0 as a skill for `impl` and `audit`. Design choice: the orchestrator is code and needs no skills; skills are given per role through config (`roleSkills`) |
 | 6 | **Bug lane** | `bug` issues: a triage session, then a fix session; priority over normal issues | reuses auditor + CI gate |
 | 7 | **Inject into a running fleet** | `hx prd/issue` while `hx run --watch` runs (grill → file) | mostly done: `--watch` already picks new issues up |
 | 8 | ~~**Web dashboard / stats**~~ done | read-only local page over `live.json`, `usage.jsonl`, the board; stats per PRD/role/model | `hx dashboard` (#37): 127.0.0.1 only, Host check, GET only, escaped text; outcomes from `.hx/run.log` |
