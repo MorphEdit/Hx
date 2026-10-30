@@ -106,7 +106,7 @@ export function dashboardState(p: Project, board: () => BoardSeen): object {
 
   const logFile = runLogFile(dir);
   const read = (f: string) => (existsSync(f) ? readFileSync(f, 'utf8') : '');
-  const outcomes = parseOutcomes(read(logFile + '.1') + '\n' + read(logFile));
+  const outcomes = parseOutcomes(read(logFile).split(/\r?\n/)); // run.log only, not run.log.1
   return { repo: p.config.repo, runner, sessions, gate, usage, log: tailLines(logFile, LOG_LINES), outcomes };
 }
 

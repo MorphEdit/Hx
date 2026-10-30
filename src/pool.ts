@@ -54,14 +54,14 @@ export function log(msg: string, issue?: number): void {
   const now = new Date();
   console.log(`${now.toTimeString().slice(0, 8)} ${issue ? `[#${issue}] ` : ''}${msg}`);
   if (!runLog) return;
-  // `<ISO> #<n> <msg>` or `<ISO> - <msg>`, one line per call; a write failure drops the line
+  // `<ISO> [#<n>] <msg>` or `<ISO> <msg>` (the console line with an ISO time), one line per call; a write failure drops the line
   try {
     const { file, maxBytes } = runLog;
     mkdirSync(path.dirname(file), { recursive: true });
     let size = 0;
     try { size = statSync(file).size; } catch {}
     if (size > maxBytes) renameSync(file, `${file}.1`);
-    appendFileSync(file, `${now.toISOString()} ${issue ? `#${issue}` : '-'} ${msg.replace(/\r?\n|\r/g, ' ')}\n`);
+    appendFileSync(file, `${now.toISOString()} ${issue ? `[#${issue}] ` : ''}${msg.replace(/\r?\n|\r/g, ' ')}\n`);
   } catch {}
 }
 
@@ -503,11 +503,10 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
     const why = await verify(p, a, n, ctx.trusted, before);
     if (!why) {
       // the pass filed security issues: once they are fixed the PRD is reviewed, then checked, again
-      const filedIssues = a.kind === 'security' ? [...(await securitySnapshot(p, n, ctx.trusted)).issues].filter((k) => !before?.issues.has(k)) : [];
-      const filed = filedIssues.length > 0;
+      const filed = a.kind === 'security' && [...(await securitySnapshot(p, n, ctx.trusted)).issues].some((k) => !before?.issues.has(k));
       const drop = filed ? [L.reviewed, ...((await gh.issueLabels(c.repo, n)).includes(L.secured) ? [L.secured] : [])] : [];
       await gh.editLabels(c.repo, n, [], [L.working, ...drop]).catch(() => {});
-      if (filed) log(`security pass filed ${filedIssues.map((k) => `#${k}`).join(', ')} — removed ${L.reviewed}`, n);
+      if (filed) log(`security pass filed issue(s) — removed ${L.reviewed}`, n);
       await removeWorktree(p.root, wt.dir);
       log(`${a.kind} DONE ✓ (${summary})`, n);
       if (a.kind === 'impl') ctx.merged?.();
