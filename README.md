@@ -142,11 +142,33 @@ other-owner/other-repo#3
 
 Write `None` under the heading (or leave it out) for an issue with no dependencies.
 
+## Every PR is audited before it merges
+
+The implementer never merges its own work. It ships with `ship.mjs --no-merge` and stops at an open PR.
+Then a **separate auditor session**, in its own fresh checkout of the pushed branch, checks the PR
+against the issue — every rule and example, by reading the code and running the cases itself, and
+whether the new tests would fail if the feature were wrong. It answers `VERDICT: PASS` or `FAIL`
+with findings, posted on the issue.
+
+```
+implement ──▶ PR open ──▶ audit ──PASS──▶ hx rebases, re-tests, merges, closes the issue
+                 ▲                  │
+                 └── findings ◀─FAIL┘   (after auditRounds FAILs: agent-blocked, for a human)
+```
+
+## CI gate
+
+After every merge (and when `hx run` starts) Hx runs the project's test command on a fresh checkout of
+the default branch. If it fails, Hx files one `hx-gate-fix` issue with the output and **claims nothing
+else** until a later run is green — no worker builds on a broken base. The command is `gateCommand`,
+or the test command the first audited merge used. `hx status` shows the gate.
+
 ## What happens to an issue
 
 | Outcome | Hx does |
 |---|---|
-| agent prints `<promise>ISSUE n DONE</promise>` and the issue is closed | removes `agent-working` and the worktree |
+| the audit passes and the merge goes through | hx merges the PR, closes the issue, removes `agent-working` and the worktree |
+| the audit fails | the findings go to a fresh implementer session on the same branch; after `auditRounds` FAILs: `agent-blocked` |
 | no promise after `maxIterations` turns, or the agent errors | comments the reason and last reply on the issue, labels it `agent-blocked`, keeps the worktree |
 | usage limit hit | releases the issue, stops claiming until the limit resets |
 | Claude rejects the setup (API 400/401/403/404: unknown model, outdated CLI, auth) | hands the issue back untouched and stops the whole run with the reason |
@@ -162,6 +184,10 @@ Remove `agent-blocked` from an issue to let Hx try it again.
 | `effort` | `medium` | `claude --effort`: `low`, `medium`, `high`, `xhigh`, `max`, or `""` for the CLI default |
 | `maxIterations` | 8 | turns per session before giving up |
 | `reviewRounds` | 3 | PRD reviews before a human has to look |
+| `audit` | `true` | an independent auditor checks every implementation PR before hx merges it |
+| `auditRounds` | 3 | implement → audit attempts before the issue goes to a human |
+| `gate` | `true` | test the default branch after every merge; while red, claim only its fix |
+| `gateCommand` | `""` | the gate's test command (empty: learned from the first audited merge) |
 | `usagePauseAt` | 0.9 | claim nothing new once a usage window is this full (0..1) |
 | `checkpointMinutes` | 10 | time a stopped session gets to commit, push and write its handoff |
 | `turnTimeoutMinutes` | 45 | wall-clock limit for one turn |
