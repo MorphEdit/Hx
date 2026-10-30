@@ -1,0 +1,8 @@
+{
+  "name": "issuebot",
+  "version": "0.0.1",
+  "description": "Small helpers that act on GitHub issues",
+  "type": "module",
+  "scripts": { "test": "node --test" },
+  "license": "MIT"
+}
