@@ -17,6 +17,8 @@ export interface Config {
   effort: string; // claude --effort: low | medium | high | xhigh | max ('' = the CLI's default)
   maxIterations: number; // Ralph-loop turns per issue before giving up
   reviewRounds: number; // PRD reviews (each may file gap issues) before a human has to look
+  audit: boolean; // an independent auditor session checks every implementation PR before hx merges it
+  auditRounds: number; // implement → audit attempts before the issue goes to a human
   usagePauseAt: number; // 0..1: claim nothing new once a usage window is this full, until it resets
   checkpointMinutes: number; // time a stopped session gets to commit, push and write its handoff
   turnTimeoutMinutes: number;
@@ -37,6 +39,8 @@ export const DEFAULTS: Omit<Config, 'repo' | 'defaultBranch' | 'worktreeRoot'> =
   effort: 'medium',
   maxIterations: 8,
   reviewRounds: 3,
+  audit: true,
+  auditRounds: 3,
   usagePauseAt: 0.9,
   checkpointMinutes: 10,
   turnTimeoutMinutes: 45,

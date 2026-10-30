@@ -51,6 +51,13 @@ export async function createIssue(repo: string, title: string, body: string, lab
   return (await runOk(GH, args, { input: body })).trim();
 }
 
+/** The open PR whose head is `branch`, or null. */
+export async function openPrFor(repo: string, branch: string): Promise<number | null> {
+  const r = await run(GH, ['pr', 'list', '-R', repo, '--head', branch, '--state', 'open', '--json', 'number', '-q', '.[0].number']);
+  const n = Number(r.stdout.trim());
+  return r.code === 0 && n > 0 ? n : null;
+}
+
 export async function closeIssue(repo: string, n: number, commentBody: string): Promise<void> {
   await runOk(GH, ['issue', 'close', String(n), '-R', repo, '--comment', commentBody]);
 }

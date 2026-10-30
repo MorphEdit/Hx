@@ -12,7 +12,9 @@ export interface WorktreeSpec {
 }
 
 export const implWorktree = (issue: number, base: string): WorktreeSpec => ({ name: `i${issue}`, branch: `issue/${issue}`, base, fresh: false });
-export const prdWorktree = (prd: number, base: string): WorktreeSpec => ({ name: `p${prd}`, branch: `hx/prd-${prd}`, base, fresh: true });
+/** A read-only checkout of the implementer's pushed branch, for the auditor. */
+export const auditWorktree = (issue: number): WorktreeSpec => ({ name: `a${issue}`, branch: `hx/audit-${issue}`, base: `issue/${issue}`, fresh: true });
+export const prdWorktree =(prd: number, base: string): WorktreeSpec => ({ name: `p${prd}`, branch: `hx/prd-${prd}`, base, fresh: true });
 
 // Worktree commands of parallel workers write the same .git/config and index locks; run them one at a time.
 let queue: Promise<unknown> = Promise.resolve();
