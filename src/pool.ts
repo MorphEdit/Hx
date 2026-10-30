@@ -20,9 +20,10 @@ export const REVIEW_MARKER = '<!-- hx-review -->';
 export const HANDOFF_MARKER = '<!-- hx-handoff -->';
 export const GAUNTLET_MARKER = '<!-- hx-gauntlet -->';
 export const ORIGINAL_MARKER = '<!-- hx-prd-original -->';
+export const SECURITY_MARKER = '<!-- hx-security -->';
 const firstLineIs = (marker: string) => (b: string) => b.trimStart().split(/\r?\n/, 1)[0].trim() === marker;
 
-type SessionAction = Extract<Action, { kind: 'impl' | 'gauntlet' | 'decompose' | 'review' }>;
+type SessionAction = Extract<Action, { kind: 'impl' | 'gauntlet' | 'decompose' | 'review' | 'security' }>;
 
 export interface PoolOptions {
   workers: number;
@@ -263,7 +264,9 @@ async function recoverStaleClaims(p: Project): Promise<void> {
 async function engineStep(p: Project, a: Extract<Action, { kind: 'close-prd' | 'label-ready' }>): Promise<void> {
   const c = p.config;
   if (a.kind === 'close-prd') {
-    await gh.closeIssue(c.repo, a.prd, 'All child issues are closed and the PRD passed review — closed by hx.');
+    await gh.closeIssue(c.repo, a.prd, a.secured
+      ? 'All child issues are closed and the PRD passed review and the security pass — closed by hx.'
+      : 'All child issues are closed and the PRD passed review — closed by hx.');
     log('PRD closed ✓', a.prd);
   } else {
     await gh.editLabels(c.repo, a.issue, [c.labels.ready]);
@@ -290,7 +293,17 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
     }
   } else if (a.kind === 'gauntlet') {
     round = (await gh.commentBodies(c.repo, n)).filter(firstLineIs(GAUNTLET_MARKER)).length + 1;
+  } else if (a.kind === 'security') {
+    round = (await gh.commentBodies(c.repo, n)).filter(firstLineIs(SECURITY_MARKER)).length + 1;
+    if (round > c.securityRounds) {
+      await gh.comment(c.repo, n, `**hx:** ${c.securityRounds} security passes have run and each filed security issues. A human needs to look; add the \`${c.labels.secured}\` label to sign it off, or raise \`securityRounds\` and remove \`${c.labels.blocked}\` to allow more passes.`);
+      await gh.editLabels(c.repo, n, [c.labels.blocked]);
+      log(`security round cap (${c.securityRounds}) reached — labelled ${c.labels.blocked}`, n);
+      return undefined;
+    }
   }
+  // what verify() compares a security session against: the security issues and verdicts already there
+  const before = a.kind === 'security' ? await securitySnapshot(p, n) : undefined;
 
   await gh.editLabels(c.repo, n, [c.labels.working]);
   log(`${a.kind}${round ? ` (round ${round})` : ''}: ${title}`, n);
@@ -316,13 +329,15 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
   const audited = a.kind === 'impl' && c.audit;
   const vars: Record<string, string | number> = {
     REPO: c.repo, BASE: c.defaultBranch, TITLE: title, SHIP,
-    LABEL_READY: L.ready, LABEL_REVIEWED: L.reviewed, ROUND: round, ROUNDS: a.kind === 'gauntlet' ? c.gauntletRounds : c.reviewRounds,
+    LABEL_READY: L.ready, LABEL_REVIEWED: L.reviewed, LABEL_SECURED: L.secured, LABEL_SECURITY: L.security, ROUND: round,
+    ROUNDS: a.kind === 'gauntlet' ? c.gauntletRounds : a.kind === 'security' ? c.securityRounds : c.reviewRounds,
     ISSUE: n, PRD: n, BRANCH: `issue/${n}`,
-    EXISTING: a.kind === 'decompose' ? childList(a.children) : '', CHILDREN: a.kind === 'review' ? childList(a.children) : '',
+    EXISTING: a.kind === 'decompose' ? childList(a.children) : '', CHILDREN: a.kind === 'review' || a.kind === 'security' ? childList(a.children) : '',
     RESUMED: resumeNote,
     SUBJECT: a.kind === 'impl' ? `issue #${n} (branch issue/${n}): look at \`git status\`, its PR (\`gh pr list -R ${c.repo} --head issue/${n}\`) and the issue`
       : a.kind === 'decompose' ? `PRD #${n}: list the issues you have filed for it so far`
-      : a.kind === 'gauntlet' ? `gauntlet round ${round} of PRD #${n}` : `the review of PRD #${n}`,
+      : a.kind === 'gauntlet' ? `gauntlet round ${round} of PRD #${n}`
+      : a.kind === 'security' ? `security pass ${round} of PRD #${n}` : `the review of PRD #${n}`,
     // with an auditor the implementer stops at an open PR; hx merges once the audit passes
     SHIP_FLAGS: audited ? ' --no-merge' : '',
     SHIP_WHAT: audited ? ' (it does NOT merge: an independent auditor checks the PR first)' : ', squash-merges it, deletes the branch and closes the issue',
@@ -429,9 +444,13 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
     const summary = `${r.iterations} turn(s), ${fmt(totalTokens(r.usage))} tokens`;
     if (r.stopReason === 'aborted' && a.kind === 'impl' && r.iterations > 0) await checkpoint(p, n, r.sessionId, wt.dir, vars, eventLog);
     if (stopped(r)) return handBack(r, summary);
-    const why = await verify(p, a, n);
+    const why = await verify(p, a, n, before);
     if (!why) {
-      await gh.editLabels(c.repo, n, [], [L.working]).catch(() => {});
+      // the pass filed security issues: once they are fixed the PRD is reviewed, then checked, again
+      const filed = a.kind === 'security' && [...(await securitySnapshot(p, n)).issues].some((k) => !before?.issues.has(k));
+      const drop = filed ? [L.reviewed, ...((await gh.issueLabels(c.repo, n)).includes(L.secured) ? [L.secured] : [])] : [];
+      await gh.editLabels(c.repo, n, [], [L.working, ...drop]).catch(() => {});
+      if (filed) log(`security pass filed issue(s) — removed ${L.reviewed}`, n);
       await removeWorktree(p.root, wt.dir);
       log(`${a.kind} DONE ✓ (${summary})`, n);
       if (a.kind === 'impl') ctx.merged?.();
@@ -543,8 +562,23 @@ async function checkpoint(p: Project, n: number, sessionId: string, cwd: string,
   log(t.ok ? `checkpoint saved (${fmt(totalTokens(t.usage))} tokens)` : `checkpoint failed: ${t.error?.slice(0, 160)} — the worktree still has the work`, n);
 }
 
+type SecuritySnapshot = { issues: Set<number>; comments: number };
+
+/** PRD `n`'s open security issues and its security verdict comments, taken before a security session. */
+async function securitySnapshot(p: Project, n: number): Promise<SecuritySnapshot> {
+  const c = p.config;
+  const [all, comments] = await Promise.all([gh.listIssues(c.repo), gh.commentBodies(c.repo, n)]);
+  return { issues: new Set(openSecurityIssues(p, all, n)), comments: comments.filter(firstLineIs(SECURITY_MARKER)).length };
+}
+
+const openSecurityIssues = (p: Project, all: Issue[], n: number) => all.filter((i) => {
+  const par = parseParent(i.body, p.config.repo);
+  return i.state === 'OPEN' && i.labels.includes(p.config.labels.security)
+    && !!par && par.repo.toLowerCase() === p.config.repo.toLowerCase() && par.number === n;
+}).map((i) => i.number);
+
 /** Did the session leave GitHub in the state its role promises? null = yes, else why not. */
-async function verify(p: Project, a: SessionAction, n: number): Promise<string | null> {
+async function verify(p: Project, a: SessionAction, n: number, before?: SecuritySnapshot): Promise<string | null> {
   const c = p.config;
   if (a.kind === 'impl') return (await gh.issueState(c.repo, n)) === 'CLOSED' ? null : 'the agent reported done but the issue is still open';
   const all = await gh.listIssues(c.repo);
@@ -553,6 +587,14 @@ async function verify(p: Project, a: SessionAction, n: number): Promise<string |
     return par && par.repo.toLowerCase() === c.repo.toLowerCase() && par.number === n;
   });
   if (a.kind === 'decompose') return kids.length ? null : 'the agent reported done but filed no issue with `## Parent` #' + n;
+  if (a.kind === 'security') {
+    const secured = all.find((i) => i.number === n)?.labels.includes(c.labels.secured);
+    const filed = openSecurityIssues(p, all, n).some((k) => !before?.issues.has(k));
+    if (!secured && !filed) return `the security pass neither added \`${c.labels.secured}\` nor filed a \`${c.labels.security}\` issue with \`## Parent\` #${n}`;
+    // the session owns the verdict comment: hx posts none of its own
+    const posted = (await gh.commentBodies(c.repo, n)).filter(firstLineIs(SECURITY_MARKER)).length > (before?.comments ?? 0);
+    return posted ? null : `the security pass posted no \`${SECURITY_MARKER}\` comment`;
+  }
   const signedOff = all.find((i) => i.number === n)?.labels.includes(c.labels.reviewed);
   const gaps = kids.some((k) => k.state === 'OPEN');
   return signedOff || gaps ? null : `the review neither added \`${c.labels.reviewed}\` nor filed a gap issue`;

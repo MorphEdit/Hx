@@ -3,6 +3,9 @@
 //   decompose: files two children (the second blocked by the first) and prints the promise
 //   review:    round 1 files a gap issue; later rounds sign off. Both post the review comment.
 //   critic:    FAIL until the PRD body holds the fake reviser's marker (GAUNTLETNEVER in the body: always FAIL)
+//   security:  round 1 files a `security` issue, later rounds sign off (security-reviewed); both post the
+//              verdict comment. In the PRD body: SECURITYNEVER = files one every round, SECURITYNOOP = does
+//              nothing at all, SECURITYNOCOMMENT = signs off without the comment
 //   revise:    appends its marker to the body with `gh issue edit --body-file` (REVISENOOP in the body: changes nothing)
 //   grill:     interactive (prompt as the last argument, not stdin): writes a PRD to the output path the prompt
 //              names (FAKE_GRILL_NOWRITE=1: writes nothing, =blank: whitespace only) and exits
@@ -57,7 +60,7 @@ process.stdin.on('data', (d) => (prompt += d)).on('end', () => {
   const counter = path.join(process.env.HX_FAKE_DIR, `${sid}.json`);
   const st = existsSync(counter) ? JSON.parse(readFileSync(counter, 'utf8'))
     : { turns: 0, role: /Role: (\w+)/.exec(prompt)?.[1] ?? 'implement', n: Number(/(?:Issue|PRD): #(\d+)/.exec(prompt)?.[1]),
-        round: Number(/(?:review|audit) round (\d+)/.exec(prompt)?.[1] ?? 0) };
+        round: Number(/(?:review|audit|security) round (\d+)/.exec(prompt)?.[1] ?? 0) };
   st.turns++;
   writeFileSync(counter, JSON.stringify(st));
   writeFileSync(path.join(process.env.HX_FAKE_DIR, `${sid}.prompt-${st.turns}.txt`), prompt);
@@ -150,6 +153,16 @@ function finish(st, checkpoint, prompt) {
       else me.labels.push('prd-reviewed');
       b.comments.push({ issue: st.n, body: `<!-- hx-review -->\nround ${st.round}` });
       t = `reviewed. ${done()}`;
+    } else if (st.role === 'security') {
+      t = `checked. ${done()}`;
+      if (/SECURITYNOOP/.test(me.body)) return t;
+      if (st.round === 1 || /SECURITYNEVER/.test(me.body)) {
+        const k = file(b, `security: injection in ${me.title}`, `exploit\n\n## Blocked by\nNone\n\n## Parent\n#${st.n}\n`, ['ready-for-agent', 'security']);
+        b.comments.push({ issue: st.n, body: `<!-- hx-security -->\nround ${st.round}: filed #${k}` });
+      } else {
+        me.labels.push('security-reviewed');
+        if (!/SECURITYNOCOMMENT/.test(me.body)) b.comments.push({ issue: st.n, body: `<!-- hx-security -->\nround ${st.round}: signed off` });
+      }
     }
     saveBoard(b);
     return t;

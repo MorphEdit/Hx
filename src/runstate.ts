@@ -9,7 +9,7 @@ import type { RateLimit } from './agent.ts';
 export interface LiveSession {
   key: string; // issue:<n> | prd:<n>
   number: number;
-  kind: string; // impl | gauntlet | decompose | review
+  kind: string; // impl | gauntlet | decompose | review | security
   title: string;
   since: string; // ISO time the session started
   turn: number;

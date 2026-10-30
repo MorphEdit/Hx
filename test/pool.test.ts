@@ -94,7 +94,7 @@ test('PRD flow: decompose → build → review (gap, then sign-off) → close, P
   b.issues.push(prd(20, 'Auth'), prd(21, 'Billing', '## Blocked by\n#20\n'));
   b.comments = [];
   writeFileSync(stateFile, JSON.stringify(b));
-  const p = { ...setupProject(), config: { ...baseConfig(), reviewRounds: 3 } };
+  const p = { ...setupProject(), config: { ...baseConfig(), reviewRounds: 3, security: false } }; // the security pass: test/security.test.ts
 
   const lines: string[] = [];
   const orig = console.log;

@@ -35,7 +35,7 @@ const HELP = `usage: hx <command> [options]
 Ctrl+C in hx run = pause --now for that run; Ctrl+C again force-quits (sessions are killed).
 
 A PRD (label prd) is decomposed into child issues, each child is implemented, then the PRD is
-reviewed (which may file gap issues) and closed. An issue is picked up when it is open, labelled
+reviewed (which may file gap issues), gets a security pass (which may file security issues) and is closed. An issue is picked up when it is open, labelled
 ready-for-agent, not agent-working / agent-blocked, and every issue under its "## Blocked by"
 heading is closed (a child also waits for its PRD's own "## Blocked by").`;
 
@@ -83,13 +83,15 @@ async function init(): Promise<number> {
   await gh.ensureLabel(config.repo, L.prd, '5319e7', 'hx: a PRD, decomposed into child issues');
   await gh.ensureLabel(config.repo, L.reviewed, '1d76db', 'hx: PRD reviewed and signed off');
   await gh.ensureLabel(config.repo, L.hardened, 'c5def5', 'hx: PRD passed the gauntlet (critique and revision) and may be decomposed');
+  await gh.ensureLabel(config.repo, L.secured, '0052cc', "hx: the security pass found nothing in the PRD's merged work");
+  await gh.ensureLabel(config.repo, L.security, 'e99695', 'hx: a security issue filed by the security pass');
   await gh.ensureLabel(config.repo, L.gateFix, 'b60205', 'hx: fixes a red default branch (the only work claimed while it is red)');
 
   console.log(`${existing ? 'updated' : 'created'} ${path.join(root, STATE_DIR, 'config.json')}
   repo        ${config.repo} (base ${config.defaultBranch})
   workers     ${config.workers}   model ${config.model}   max ${config.maxIterations} turns/issue
   worktrees   ${config.worktreeRoot}
-  labels      ${L.ready}, ${L.working}, ${L.blocked}, ${L.prd}, ${L.hardened}, ${L.reviewed}
+  labels      ${L.ready}, ${L.working}, ${L.blocked}, ${L.prd}, ${L.hardened}, ${L.reviewed}, ${L.secured}, ${L.security}
 
 Next: file a PRD with  hx prd <file.md>  or label an issue '${L.ready}', then run  hx status  and  hx run`);
   return 0;
