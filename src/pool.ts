@@ -16,6 +16,13 @@ import { run as runCmd } from './exec.ts';
 const PROMPTS = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'prompts');
 // the one-call commit → rebase → test → push → PR → merge → close routine (forward slashes: the agent's shell may be bash)
 const SHIP = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'scripts', 'ship.mjs').replace(/\\/g, '/');
+// how agents read an issue: it prints only the comments by accounts in HX_TRUSTED
+export const ISSUE_SCRIPT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'scripts', 'issue.mjs').replace(/\\/g, '/');
+
+/** The env every Claude session gets: HX_TRUSTED = the trusted set, which scripts/issue.mjs filters comments by. */
+export function trustedEnv(trusted: Set<string>): { HX_TRUSTED: string } {
+  return { HX_TRUSTED: [...trusted].join(',') };
+}
 export const REVIEW_MARKER = '<!-- hx-review -->';
 export const HANDOFF_MARKER = '<!-- hx-handoff -->';
 export const GAUNTLET_MARKER = '<!-- hx-gauntlet -->';
@@ -45,7 +52,7 @@ interface WorkContext {
   progress: (key: string, turn: number, tokens: number) => void;
   rateLimit: (rl: RateLimit) => void;
   merged?: (testCommand?: string) => void; // a PR reached the default branch: the CI gate re-tests it
-  trusted: Set<string>; // this run's trusted set: only their comments count in hx's own logic
+  trusted: Set<string>; // this run's trusted set: only their comments count in hx's own logic; passed to every session as HX_TRUSTED
 }
 
 const sleep = (ms: number, signal?: AbortSignal) => new Promise<void>((r) => {
@@ -356,7 +363,7 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
   const L = c.labels;
   const audited = a.kind === 'impl' && c.audit;
   const vars: Record<string, string | number> = {
-    REPO: c.repo, BASE: c.defaultBranch, TITLE: title, SHIP,
+    REPO: c.repo, BASE: c.defaultBranch, TITLE: title, SHIP, ISSUE_SCRIPT,
     LABEL_READY: L.ready, LABEL_REVIEWED: L.reviewed, LABEL_SECURED: L.secured, LABEL_SECURITY: L.security, ROUND: round,
     ROUNDS: a.kind === 'gauntlet' ? c.gauntletRounds : a.kind === 'security' ? c.securityRounds : c.reviewRounds,
     ISSUE: n, PRD: n, BRANCH: `issue/${n}`,
@@ -376,6 +383,7 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
   mkdirSync(logDir, { recursive: true });
   const eventLog = path.join(logDir, `${a.kind === 'impl' ? 'issue' : a.kind}-${n}.jsonl`);
   let sessionTokens = 0;
+  const env = trustedEnv(ctx.trusted);
   /** One role session (a fresh Claude session with its Ralph loop), logged and counted. */
   const goal = (role: string, cwd: string, promptFile: string, promise: string, extra: Record<string, string | number> = {}) => {
     const v = { ...vars, ...extra, PROMISE: promise };
@@ -383,7 +391,7 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
       bin: c.claudeBin, cwd, model: c.model, effort: c.effort, extraArgs: workerArgs(c), timeoutMs: c.turnTimeoutMinutes * 60_000,
       prompt: render(readFileSync(path.join(PROMPTS, promptFile), 'utf8'), v),
       continuePrompt: render(readFileSync(path.join(PROMPTS, 'continue.md'), 'utf8'), v),
-      promise, maxIterations: c.maxIterations, signal: ctx.signal,
+      promise, maxIterations: c.maxIterations, signal: ctx.signal, env,
       onEvent: (ev) => {
         appendFileSync(eventLog, JSON.stringify(ev) + '\n');
         const rl = rateLimitOf(ev);
@@ -470,7 +478,7 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
   if (!audited) {
     const r = await goal(a.kind, wt.dir, `${a.kind}.md`, promise);
     const summary = `${r.iterations} turn(s), ${fmt(totalTokens(r.usage))} tokens`;
-    if (r.stopReason === 'aborted' && a.kind === 'impl' && r.iterations > 0) await checkpoint(p, n, r.sessionId, wt.dir, vars, eventLog);
+    if (r.stopReason === 'aborted' && a.kind === 'impl' && r.iterations > 0) await checkpoint(p, n, r.sessionId, wt.dir, vars, eventLog, env);
     if (stopped(r)) return handBack(r, summary);
     const why = await verify(p, a, n, ctx.trusted, before);
     if (!why) {
@@ -492,7 +500,7 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
   for (let attempt = 1; ; attempt++) {
     const r = await goal('impl', wt.dir, 'impl.md', promise, extra);
     let summary = `${fmt(sessionTokens)} tokens so far`;
-    if (r.stopReason === 'aborted' && r.iterations > 0) await checkpoint(p, n, r.sessionId, wt.dir, vars, eventLog);
+    if (r.stopReason === 'aborted' && r.iterations > 0) await checkpoint(p, n, r.sessionId, wt.dir, vars, eventLog, env);
     if (stopped(r)) return handBack(r, summary);
     const pr = r.done ? await gh.openPrFor(c.repo, `issue/${n}`) : null;
     if (!pr) return fail(r, r.done ? 'the implementer reported ready but no open PR for its branch exists'
@@ -578,11 +586,12 @@ function mergeAudited(cwd: string): Promise<{ ok: boolean; retry: boolean; code:
  * The run is stopping mid-session: resume the session once more and have it commit and push its
  * WIP and leave a handoff comment, so the next session picks up where this one stopped.
  */
-async function checkpoint(p: Project, n: number, sessionId: string, cwd: string, vars: Record<string, string | number>, eventLog: string): Promise<void> {
+async function checkpoint(p: Project, n: number, sessionId: string, cwd: string, vars: Record<string, string | number>, eventLog: string,
+  env: Record<string, string>): Promise<void> {
   const c = p.config;
   log('checkpointing: committing WIP and writing a handoff note…', n);
   const t = await runTurn({ bin: c.claudeBin, cwd, model: c.model, effort: c.effort, extraArgs: workerArgs(c),
-    timeoutMs: c.checkpointMinutes * 60_000, sessionId, resume: true,
+    timeoutMs: c.checkpointMinutes * 60_000, sessionId, resume: true, env,
     prompt: render(readFileSync(path.join(PROMPTS, 'checkpoint.md'), 'utf8'), vars),
     onEvent: (ev) => appendFileSync(eventLog, JSON.stringify(ev) + '\n') });
   recordUsage(p.stateDir, { ts: new Date().toISOString(), issue: n, role: 'checkpoint', sessionId, iteration: 0, model: c.model,

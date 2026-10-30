@@ -1,7 +1,7 @@
 // The auditor loop end to end: real git (a local bare origin), the real ship.mjs, fake gh and claude.
 //   implementer ships with --no-merge → an independent audit session → hx merges on PASS, or the
 //   findings go back to the implementer; too many FAILs and the issue goes to a human.
-import { E2E } from './isolate.ts';
+import { E2E, sessionEnvs } from './isolate.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
@@ -72,6 +72,10 @@ test('audit PASS: hx merges the PR the implementer left open', E2E, async () => 
   assert.deepEqual([...new Set(readUsage(stateDir).filter((r) => r.issue === 1).map((r) => r.role))].sort(), ['audit', 'impl']);
   assert.equal(git(root, 'ls-remote', '--heads', 'origin', 'issue/1'), '', 'branch deleted after the merge');
   assert.ok(!existsSync(path.join(tmp, 'wt', 'a1')), 'audit worktree removed');
+  // the implementer and the auditor both get the trusted set (the gh login) for scripts/issue.mjs
+  const envs = sessionEnvs(fakeDir);
+  assert.deepEqual([...new Set(envs.map((e) => e.role))].sort(), ['audit', 'implement']);
+  for (const e of envs) assert.equal(e.trusted, 'me', JSON.stringify(e));
 });
 
 test('audit FAIL: the findings go back to a fresh implementer, then PASS and merge', E2E, async () => {

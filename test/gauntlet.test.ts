@@ -1,6 +1,6 @@
 // The gauntlet end to end: real git (a local bare origin), fake gh and claude.
 //   critic FAIL → the reviser rewrites the PRD body → … → prd-hardened → decompose.
-import { E2E } from './isolate.ts';
+import { E2E, sessionEnvs } from './isolate.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
@@ -72,6 +72,9 @@ test('critic FAIL → reviser edits the body → critic PASS → prd-hardened �
   assert.ok(passed > 0 && decomposed > passed, lines.join('\n'));
   const roles = readUsage(stateDir).filter((r) => r.issue === 1).map((r) => r.role);
   assert.deepEqual([...new Set(roles)].sort(), ['critic', 'decompose', 'revise']);
+  const envs = sessionEnvs(fakeDir);
+  assert.deepEqual([...new Set(envs.map((e) => e.role))].sort(), ['critic', 'decompose', 'revise']);
+  for (const e of envs) assert.equal(e.trusted, 'me', JSON.stringify(e));
   assert.ok(!existsSync(path.join(tmp, 'wt', 'p1')), 'worktree removed');
 });
 

@@ -18,7 +18,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runGoal } from '../src/agent.ts';
 import { DEFAULTS, workerArgs } from '../src/config.ts';
-import { auditVerdict } from '../src/pool.ts';
+import { auditVerdict, ISSUE_SCRIPT } from '../src/pool.ts';
 import { render } from '../src/state.ts';
 import { useFakeGh } from './eval-gh.mjs';
 
@@ -59,14 +59,14 @@ async function critic(it) {
   const dir = path.join(work, `c${it.number}`);
   sh('git', ['clone', '-q', project, dir]);
   const promise = `CRITIC ${it.number} DONE`;
-  const vars = { REPO: repo, BASE: 'main', TITLE: it.title, PRD: it.number, ISSUE: it.number, ROUND: 1, ROUNDS: config.gauntletRounds,
+  const vars = { REPO: repo, ISSUE_SCRIPT, BASE: 'main', TITLE: it.title, PRD: it.number, ISSUE: it.number, ROUND: 1, ROUNDS: config.gauntletRounds,
     SUBJECT: `gauntlet round 1 of PRD #${it.number}`, PROMISE: promise };
   const t0 = Date.now();
   let tokens = 0;
   const r = await runGoal({
     bin: config.claudeBin, cwd: dir, model: config.model, effort: config.effort, extraArgs: workerArgs(config),
     timeoutMs: config.turnTimeoutMinutes * 60_000, prompt: render(template, vars), continuePrompt: render(cont, vars),
-    promise, maxIterations: 3,
+    promise, maxIterations: 3, env: { HX_TRUSTED: 'eval' }, // the fake gh's issues and comments are by `eval`
     onEvent: (ev) => appendFileSync(path.join(logDir, `${it.name}.jsonl`), JSON.stringify(ev) + '\n'),
     onTurn: (_n, _s, t) => { tokens += t.usage.input + t.usage.cacheWrite + t.usage.cacheRead + t.usage.output; },
   });

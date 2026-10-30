@@ -42,6 +42,7 @@ export interface TurnOptions {
   timeoutMs: number;
   onEvent?: (ev: any) => void; // every raw stream-json line, for the per-issue log
   signal?: AbortSignal;
+  env?: Record<string, string>; // added to this process's env for the session (e.g. HX_TRUSTED)
 }
 
 const LIMIT_TEXT = /usage limit|hit your [a-z]+ limit|limit reached|out of (usage )?credits/i;
@@ -82,7 +83,7 @@ export function runTurn(o: TurnOptions): Promise<TurnResult> {
   return new Promise((resolve) => {
     const [cmd, argv] = resolveCmd(o.bin, args);
     const child = spawn(cmd, argv, { cwd: o.cwd, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'],
-      detached: process.platform !== 'win32' });
+      detached: process.platform !== 'win32', ...(o.env ? { env: { ...process.env, ...o.env } } : {}) });
     if (child.pid) live.add(child.pid);
     const res: TurnResult = { ok: false, text: '', usage: emptyUsage(), costUsd: 0, durationMs: 0, numTurns: 0 };
     const texts: string[] = [];

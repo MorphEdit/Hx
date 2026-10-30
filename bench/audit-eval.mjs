@@ -16,7 +16,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runGoal } from '../src/agent.ts';
 import { DEFAULTS, workerArgs } from '../src/config.ts';
-import { auditVerdict } from '../src/pool.ts';
+import { auditVerdict, ISSUE_SCRIPT, trustedEnv } from '../src/pool.ts';
 import { render } from '../src/state.ts';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -83,12 +83,13 @@ async function audit(cse) {
   const dir = path.join(wtRoot, `${i}${kind}`);
   sh('git', ['-C', work, 'worktree', 'add', '-q', '--detach', dir, `origin/${branch}`]);
   const promise = `AUDIT ${i} DONE`;
-  const vars = { REPO: repo, ISSUE: i, TITLE: issues[i - 1].title, BRANCH: branch, BASE: `base-${i}`, PR: branch, ROUND: 1, ROUNDS: 1, PROMISE: promise };
+  const vars = { REPO: repo, ISSUE_SCRIPT, ISSUE: i, TITLE: issues[i - 1].title, BRANCH: branch, BASE: `base-${i}`, PR: branch, ROUND: 1, ROUNDS: 1, PROMISE: promise };
   const t0 = Date.now();
   let tokens = 0;
   const r = await runGoal({
     bin: config.claudeBin, cwd: dir, model: config.model, effort: config.effort, extraArgs: workerArgs(config),
     timeoutMs: 30 * 60_000, prompt: render(template, vars), promise, maxIterations: 3,
+    env: trustedEnv(new Set([owner.toLowerCase()])), // the issues were filed as the gh login
     continuePrompt: `Continue the audit and end with the VERDICT / FINDINGS block and <promise>${promise}</promise>.`,
     onEvent: (ev) => appendFileSync(path.join(logDir, `${i}-${kind}.jsonl`), JSON.stringify(ev) + '\n'),
     onTurn: (_n, _s, t) => { tokens += t.usage.input + t.usage.cacheWrite + t.usage.cacheRead + t.usage.output; },

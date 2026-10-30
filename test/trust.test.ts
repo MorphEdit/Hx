@@ -1,10 +1,10 @@
 // Trusted authors end to end: real git (a local bare origin), fake gh and claude. Only issues and PRDs
 // opened by the gh login or config.trustedAuthors are worked on; the rest are skipped, logged once.
-import { E2E } from './isolate.ts';
+import { E2E, sessionEnvs } from './isolate.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -97,6 +97,21 @@ test('hx run builds only trusted work; each untrusted issue / PRD is logged once
   once('#4 skipped: opened by @eve, who is not trusted (add them to trustedAuthors to allow)');
   once('#5 skipped: its PRD #4 was opened by @eve, who is not trusted (add them to trustedAuthors to allow)');
   once('#7 skipped: opened by @ghost, who is not trusted (add them to trustedAuthors to allow)');
+
+  // every session got the trusted set as HX_TRUSTED (the gh login + trustedAuthors, lower-cased) ...
+  const envs = sessionEnvs(process.env.HX_FAKE_DIR!);
+  assert.deepEqual([...new Set(envs.map((e) => e.role))].sort(), ['decompose', 'implement', 'review']);
+  for (const e of envs) assert.equal(e.trusted, 'hx-bot,alice', JSON.stringify(e));
+  // ... and a prompt that reads its issue through scripts/issue.mjs, by absolute path, with nothing left unrendered
+  const script = path.join(here, '..', 'scripts', 'issue.mjs').replace(/\\/g, '/');
+  const prompts = readdirSync(process.env.HX_FAKE_DIR!).filter((f) => f.endsWith('.prompt-1.txt'))
+    .map((f) => readFileSync(path.join(process.env.HX_FAKE_DIR!, f), 'utf8'));
+  assert.ok(prompts.length >= 5);
+  for (const pr of prompts) {
+    assert.doesNotMatch(pr, /\{\{\w+\}\}/);
+    assert.doesNotMatch(pr, /gh issue view|--comments/);
+    assert.ok(pr.includes(`node "${script}" --repo me/app --issue `), pr.slice(0, 300));
+  }
 });
 
 test('gh api user failing or returning no login: hx run stops non-zero and claims nothing', E2E, async () => {

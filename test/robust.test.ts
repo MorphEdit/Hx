@@ -1,6 +1,6 @@
 // Phase 3: crash recovery, one runner per repo, pause (drain / now), Ctrl+C checkpoints, usage holds.
 // Real git (a local bare origin), fake gh and fake claude, like pool.test.ts.
-import { E2E, deadPid } from './isolate.ts';
+import { E2E, sessionEnvs, deadPid } from './isolate.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
@@ -118,6 +118,10 @@ test('stop mid-session (Ctrl+C / pause --now): checkpoint, hand back, the next s
   assert.ok(s.comments.some((c: any) => c.issue === 5 && c.body.startsWith('<!-- hx-handoff -->')));
   assert.ok(existsSync(path.join(project().config.worktreeRoot, 'i5')), 'worktree kept');
   assert.ok(readUsage(stateDir).some((r) => r.issue === 5 && r.role === 'checkpoint'));
+  // the checkpoint turn is a session of its own: it gets HX_TRUSTED too
+  const checkpoints = sessionEnvs(fakeDir).filter((e) => e.checkpoint);
+  assert.ok(checkpoints.length > 0);
+  for (const e of checkpoints) assert.equal(e.trusted, 'me');
 
   // next run: the fresh session's first prompt carries the handoff note
   const before = new Set(readdirSync(fakeDir));

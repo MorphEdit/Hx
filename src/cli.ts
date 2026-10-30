@@ -5,7 +5,7 @@ import { createInterface } from 'node:readline';
 import { DEFAULTS, defaultWorktreeRoot, findProjectRoot, loadProject, saveConfig, STATE_DIR, type Config } from './config.ts';
 import * as gh from './github.ts';
 import { resolveCmd, runOk } from './exec.ts';
-import { log, lookupTrusted, printPlan, readPlan, runPool } from './pool.ts';
+import { log, lookupTrusted, printPlan, readPlan, runPool, trustedEnv } from './pool.ts';
 import { killAllSessions } from './agent.ts';
 import { clearPause, otherRunner, pidAlive, readLive, readPause, setPause } from './runstate.ts';
 import { readGate } from './gate.ts';
@@ -131,6 +131,9 @@ async function prd(args: string[]): Promise<number> {
 async function grill(args: string[]): Promise<number> {
   const p = loadProject();
   const c = p.config;
+  // the session reads issues with scripts/issue.mjs, which needs the trusted set
+  let trusted: Set<string>;
+  try { trusted = await lookupTrusted(c); } catch (e: any) { console.error(`hx: ${e.message}`); return 2; }
   // a fresh name: a PRD left from an earlier session in the same second must not be taken for this one's
   let t = Date.now(), paths = grillPaths(p.stateDir, new Date(t));
   while (existsSync(paths.prd) || existsSync(paths.promptFile)) paths = grillPaths(p.stateDir, new Date(t += 1000));
@@ -139,7 +142,8 @@ async function grill(args: string[]): Promise<number> {
     paths.promptFile);
   // the user talks to this session directly: inherited stdio, no shell
   await new Promise<void>((resolve, reject) => {
-    const child = spawn(...resolveCmd(c.claudeBin, grillArgs(c, prompt)), { cwd: p.root, stdio: 'inherit' });
+    const child = spawn(...resolveCmd(c.claudeBin, grillArgs(c, prompt)), { cwd: p.root, stdio: 'inherit',
+      env: { ...process.env, ...trustedEnv(trusted) } });
     child.on('error', reject).on('exit', () => resolve());
   });
   const text = existsSync(paths.prd) ? readFileSync(paths.prd, 'utf8') : '';
