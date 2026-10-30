@@ -1,19 +1,25 @@
-import { appendFileSync, existsSync, readFileSync } from 'node:fs';
+import { spawn } from 'node:child_process';
+import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
+import { createInterface } from 'node:readline';
 import { DEFAULTS, defaultWorktreeRoot, findProjectRoot, loadProject, saveConfig, STATE_DIR, type Config } from './config.ts';
 import * as gh from './github.ts';
-import { runOk } from './exec.ts';
+import { resolveCmd, runOk } from './exec.ts';
 import { log, printPlan, readPlan, runPool } from './pool.ts';
 import { killAllSessions } from './agent.ts';
 import { clearPause, otherRunner, pidAlive, readLive, readPause, setPause } from './runstate.ts';
 import { readGate } from './gate.ts';
 import { filePrd } from './prd.ts';
+import { grillArgs, grillPaths, grillPrompt, ideaFrom } from './grill.ts';
 import { fmt, readUsage, summarize, totalTokens, type UsageRow } from './usage.ts';
 
 const HELP = `usage: hx <command> [options]
 
   init                     set up hx in the current repo (.hx/config.json + GitHub labels)
   prd <file.md> [--title T] file a PRD issue from a markdown file (title: --title or its first '# ' line)
+  grill [<idea.md> | "idea"] [--yes]
+                           an interactive claude session interviews you into a PRD; on confirm
+                           (or --yes) it is filed like hx prd
   run [options]            work the board until nothing is left, then exit
       --watch              keep running and pick up new / unblocked work
       --workers N          parallel sessions (default: config.workers)
@@ -46,6 +52,7 @@ export async function main(argv: string[]): Promise<number> {
   switch (cmd) {
     case 'init': return init();
     case 'prd': return prd(args);
+    case 'grill': return grill(args);
     case 'run': return runCmd(args);
     case 'status': return status();
     case 'pause': return pause(args);
@@ -109,6 +116,44 @@ async function prd(args: string[]): Promise<number> {
   const url = await filePrd(p.config, file, flag(args, '--title'));
   console.log(`filed ${url}\nhx run will decompose it into issues.`);
   return 0;
+}
+
+async function grill(args: string[]): Promise<number> {
+  const p = loadProject();
+  const c = p.config;
+  // a fresh name: a PRD left from an earlier session in the same second must not be taken for this one's
+  let t = Date.now(), paths = grillPaths(p.stateDir, new Date(t));
+  while (existsSync(paths.prd) || existsSync(paths.promptFile)) paths = grillPaths(p.stateDir, new Date(t += 1000));
+  mkdirSync(path.dirname(paths.prd), { recursive: true });
+  const prompt = grillPrompt({ repo: c.repo, base: c.defaultBranch, idea: ideaFrom(args.find((a) => !a.startsWith('--'))), output: paths.prd },
+    paths.promptFile);
+  // the user talks to this session directly: inherited stdio, no shell
+  await new Promise<void>((resolve, reject) => {
+    const child = spawn(...resolveCmd(c.claudeBin, grillArgs(c, prompt)), { cwd: p.root, stdio: 'inherit' });
+    child.on('error', reject).on('exit', () => resolve());
+  });
+  const text = existsSync(paths.prd) ? readFileSync(paths.prd, 'utf8') : '';
+  if (!text.trim()) { console.log('no PRD written — nothing filed'); return 1; }
+  console.log(`\n${text.trimEnd()}\n`);
+  if (!args.includes('--yes') && !/^y(es)?$/i.test((await ask(`File this PRD on ${c.repo}? [y/N] `)).trim())) {
+    console.log(`not filed. The PRD is in ${paths.prd} — edit it if you like and file it later with  hx prd <file>`);
+    return 0;
+  }
+  const url = await filePrd(c, paths.prd);
+  console.log(`filed ${url}\nhx run will decompose it into issues.`);
+  return 0;
+}
+
+/** One line from stdin ('' when stdin closes first). */
+function ask(question: string): Promise<string> {
+  return new Promise((resolve) => {
+    const rl = createInterface({ input: process.stdin, output: process.stdout });
+    let answer = '';
+    rl.once('line', (l) => { answer = l; rl.close(); });
+    rl.once('close', () => resolve(answer));
+    rl.setPrompt(question);
+    rl.prompt();
+  });
 }
 
 function pause(args: string[]): number {

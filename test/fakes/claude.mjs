@@ -2,6 +2,8 @@
 //   implement: turn 1 "working", turn 2 closes the issue and prints the promise (never, if the body says FAIL)
 //   decompose: files two children (the second blocked by the first) and prints the promise
 //   review:    round 1 files a gap issue; later rounds sign off. Both post the review comment.
+//   grill:     interactive (prompt as the last argument, not stdin): writes a PRD to the output path the prompt
+//              names (FAKE_GRILL_NOWRITE=1: writes nothing, =blank: whitespace only) and exits
 // FAKE_CLAUDE_MODE=limit / crash for the error paths.
 import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
@@ -22,6 +24,18 @@ const file = (b, title, body, labels) => {
   b.issues.push({ number, title, body, state: 'OPEN', labels });
   return number;
 };
+
+const grillPrompt = a.at(-1) ?? '';
+if (/^Role: grill/m.test(grillPrompt)) {
+  // the short variant only points at the full prompt file
+  const ptr = /^Read (.+?) first and follow it/m.exec(grillPrompt);
+  const full = ptr ? readFileSync(ptr[1], 'utf8') : grillPrompt;
+  const output = /Write the PRD to `([^`]+)`/.exec(full)[1];
+  if (process.env.HX_FAKE_DIR) writeFileSync(path.join(process.env.HX_FAKE_DIR, 'grill-args.json'), JSON.stringify({ args: a, cwd: process.cwd(), full }));
+  if (process.env.FAKE_GRILL_NOWRITE === 'blank') writeFileSync(output, '  \n\t\n');
+  else if (!process.env.FAKE_GRILL_NOWRITE) writeFileSync(output, '# Grilled feature\n\n## Goals\nShip it.\n');
+  process.exit(0);
+}
 
 let prompt = '';
 process.stdin.on('data', (d) => (prompt += d)).on('end', () => {
