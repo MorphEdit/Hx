@@ -10,13 +10,25 @@ import { DEFAULTS } from '../src/config.ts';
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const read = (f: string) => readFileSync(path.join(root, f), 'utf8');
 const LIFECYCLE = 'gauntlet → decompose → building → review → security → done';
+// A config table row starting `| `key` | value |` (plain text, no regex).
+const hasRow = (doc: string, key: string, value: string) => doc.split('\n').some((l) => l.startsWith(`| \`${key}\` | ${value} |`));
+
+test('hasRow: only a row with that key and value matches', () => {
+  const doc = '| key | default |\n|---|---|\n| `skillMaxChars` | `12000` | cap |\n| `rtddBin` | `"rtdd"` | cmd |';
+  assert.ok(hasRow(doc, 'skillMaxChars', '`12000`'));
+  assert.ok(hasRow(doc, 'rtddBin', '`"rtdd"`'));
+  assert.ok(!hasRow(doc, 'skillMaxChars', '`99999`'));
+  assert.ok(!hasRow(doc, 'rtddBin', '`"nope"`'));
+  assert.ok(!hasRow('no table here', 'skillMaxChars', '`12000`'));
+  assert.ok(!hasRow(read('README.md'), 'skillMaxChars', '`99999`'));
+});
 
 test('README: lifecycle, round comments, original body, config keys with their defaults, labels', () => {
   const r = read('README.md');
   assert.ok(r.includes(LIFECYCLE));
   for (const m of ['<!-- hx-gauntlet -->', '<!-- hx-security -->', '<!-- hx-prd-original -->']) assert.ok(r.includes(m), m);
-  for (const k of ['gauntlet', 'security'] as const) assert.match(r, new RegExp(`\| \`${k}\` \| \`${DEFAULTS[k]}\` \|`), k);
-  for (const k of ['gauntletRounds', 'securityRounds'] as const) assert.match(r, new RegExp(`\| \`${k}\` \| ${DEFAULTS[k]} \|`), k);
+  for (const k of ['gauntlet', 'security'] as const) assert.ok(hasRow(r, k, `\`${DEFAULTS[k]}\``), k);
+  for (const k of ['gauntletRounds', 'securityRounds'] as const) assert.ok(hasRow(r, k, String(DEFAULTS[k])), k);
   const labels = r.split('\n').find((l) => l.startsWith('| `labels`'))!;
   for (const l of [DEFAULTS.labels.hardened, DEFAULTS.labels.secured, DEFAULTS.labels.security]) assert.ok(labels.includes(`\`${l}\``), l);
 });
@@ -69,9 +81,9 @@ test('skills: README section and config rows, design #5 done, CLAUDE.md next is 
   const start = r.indexOf('## Skills for workers');
   assert.ok(start >= 0, 'README has a Skills for workers section');
   const sec = r.slice(start, r.indexOf('\n## ', start + 1));
-  assert.match(r, new RegExp(`\| \`roleSkills\` \| \`${JSON.stringify(DEFAULTS.roleSkills).replace(/[[\]{}]/g, '\$&')}\` \|`));
-  assert.match(r, new RegExp(`\| \`skillMaxChars\` \| \`${DEFAULTS.skillMaxChars}\` \|`));
-  assert.match(r, new RegExp(`\| \`rtddBin\` \| \`"${DEFAULTS.rtddBin}"\` \|`));
+  assert.ok(hasRow(r, 'roleSkills', `\`${JSON.stringify(DEFAULTS.roleSkills)}\``), 'roleSkills row');
+  assert.ok(hasRow(r, 'skillMaxChars', `\`${DEFAULTS.skillMaxChars}\``), 'skillMaxChars row');
+  assert.ok(hasRow(r, 'rtddBin', `\`${JSON.stringify(DEFAULTS.rtddBin)}\``), 'rtddBin row');
   const locs = ['`<repo>/.claude/skills/x/SKILL.md`', '`<home>/.claude/skills/x/SKILL.md`', '`<repo>/.agents/skills/x/SKILL.md`'];
   const at = locs.map((l) => sec.indexOf(l));
   assert.ok(at.every((i) => i >= 0), 'skill locations');
