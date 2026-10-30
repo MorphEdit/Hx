@@ -123,7 +123,7 @@ test('a repo that only takes auto-merge: hx waits for it to land instead of fail
   assert.ok(!s.issues[0].labels.includes(L.blocked));
 });
 
-test('audit PASS but the merge hits a rebase conflict: logged and commented, back to the implementer, then merged', async () => {
+test('audit PASS but the merge hits a rebase conflict: logged and commented, back to the implementer, then merged', E2E, async () => {
   board([issue(5, 'AUDITCONFLICT')]);
   const { rc, lines } = await run([5]);
   assert.equal(rc, 0, lines.join('\n'));
