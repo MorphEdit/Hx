@@ -49,6 +49,16 @@ const ok = (cmd, a, step) => {
   return r.stdout.trim();
 };
 const say = (m) => console.log(`ship: ${m}`);
+const sleep = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+// another worktree of the same repo may be fetching at the same moment: the ref update can race
+const fetchBase = () => {
+  for (let i = 1; ; i++) {
+    const r = run('git', ['fetch', '-q', 'origin', base]);
+    if (r.status === 0) return;
+    if (i >= 4) { console.error(`ship: git fetch failed: ${(r.stderr || '').trim().slice(-400)}`); process.exit(5); }
+    sleep(1000 * i);
+  }
+};
 
 const branch = ok('git', ['rev-parse', '--abbrev-ref', 'HEAD'], 'reading the branch');
 if (branch === base) { console.error(`ship: on ${base}; run from the issue branch`); process.exit(2); }
@@ -61,7 +71,7 @@ if (run('git', ['diff', '--cached', '--quiet']).status !== 0) {
 }
 
 // 2. rebase on the current base: other workers merge while this one works
-ok('git', ['fetch', '-q', 'origin', base], 'git fetch');
+fetchBase();
 const rb = run('git', ['rebase', `origin/${base}`]);
 if (rb.status !== 0) {
   const files = run('git', ['diff', '--name-only', '--diff-filter=U']).stdout.trim().split('\n').filter(Boolean);
@@ -91,7 +101,13 @@ if (noMerge) {
   console.log(`READY #${issue} PR #${pr}`);
   process.exit(0);
 }
-const m = run('gh', ['pr', 'merge', pr, '-R', repo, '--squash']);
+// right after a push GitHub may still be computing mergeability: retry before falling back to auto-merge
+let m;
+for (let i = 1; i <= 5; i++) {
+  m = run('gh', ['pr', 'merge', pr, '-R', repo, '--squash']);
+  if (m.status === 0) break;
+  sleep(Number(process.env.HX_SHIP_RETRY_MS ?? 3000) * i);
+}
 if (m.status !== 0) {
   // some repos only allow auto-merge
   const a = run('gh', ['pr', 'merge', pr, '-R', repo, '--squash', '--auto']);

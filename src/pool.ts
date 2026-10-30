@@ -116,14 +116,14 @@ export async function runPool(p: Project, o: PoolOptions): Promise<number> {
       do {
         gateAgain = false;
         const r = await runGate(p.root, c.worktreeRoot, c.defaultBranch, cmd).catch((e) => ({ sha: '', ok: true, command: cmd, output: String(e.message), at: new Date().toISOString(), error: true }));
-        if ('error' in r) { log(`gate: could not run (${r.output.slice(0, 160)}) — ignored`); break; }
+        if ('error' in r) { log(`gate: could not run (${r.output.slice(0, 160)}) — retried after the next merge`); continue; }
         const wasRed = gateRed();
         gs.last = r;
         if (!r.ok) {
           log(`gate RED ✗ — \`${cmd}\` fails on ${c.defaultBranch} at ${r.sha.slice(0, 7)}; claiming only its fix`);
           await fileGateIssue(r).catch((e) => log(`gate: filing the fix issue failed: ${e.message}`));
         } else {
-          if (wasRed) log(`gate green ✓ again at ${r.sha.slice(0, 7)}`);
+          log(wasRed ? `gate green ✓ again at ${r.sha.slice(0, 7)}` : `gate green ✓ at ${r.sha.slice(0, 7)}`);
           gs.fixIssue = undefined;
         }
         writeGate(p.stateDir, gs);
@@ -410,6 +410,8 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
     let feedback: string;
     if (v.pass) {
       const m = await mergeAudited(wt.dir);
+      // the repo only took an auto-merge: it lands within moments, wait for it rather than fail
+      if (!m.ok && /AUTO-MERGE set/.test(m.output)) m.ok = await waitClosed(c.repo, n, 10 * 60_000);
       if (m.ok && (await gh.issueState(c.repo, n)) === 'CLOSED') {
         const shipped = await shipInfo(wt.dir);
         await gh.editLabels(c.repo, n, [], [L.working]).catch(() => {});
@@ -436,6 +438,13 @@ export function auditVerdict(text: string): { pass: boolean; findings: string } 
   if (!m) return null;
   const f = /FINDINGS:\s*([\s\S]*?)(?:<promise>|$)/i.exec(text.slice(m.index));
   return { pass: m[1].toUpperCase() === 'PASS', findings: (f?.[1] ?? '').trim() || '(none given)' };
+}
+
+/** Poll until the issue is closed (an auto-merge landed), up to `ms`. */
+async function waitClosed(repo: string, n: number, ms: number): Promise<boolean> {
+  for (const end = Date.now() + ms; Date.now() < end; await new Promise((r) => setTimeout(r, 10_000)))
+    if ((await gh.issueState(repo, n)) === 'CLOSED') return true;
+  return false;
 }
 
 /** What the implementer's `ship --no-merge` recorded in its worktree (repo, base, test command, PR). */

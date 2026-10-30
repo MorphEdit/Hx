@@ -105,3 +105,17 @@ test('audit keeps failing: after auditRounds the issue goes to a human, nothing 
   assert.equal(audits(3).length, 2);
   assert.ok(s.comments.some((c: any) => c.issue === 3 && /still not passing after 2 audit round/.test(c.body)));
 });
+
+test('a repo that only takes auto-merge: hx waits for it to land instead of failing the issue', async () => {
+  board([issue(4)]);
+  process.env.HX_FAKE_AUTOMERGE = '1';
+  process.env.HX_SHIP_RETRY_MS = '10';
+  try {
+    const { rc, lines } = await run([4]);
+    assert.equal(rc, 0, lines.join('\n'));
+    assert.ok(lines.some((l) => /\[#4\] DONE ✓ audited and merged/.test(l)));
+  } finally { delete process.env.HX_FAKE_AUTOMERGE; delete process.env.HX_SHIP_RETRY_MS; }
+  const s = read();
+  assert.equal(s.issues[0].state, 'CLOSED');
+  assert.ok(!s.issues[0].labels.includes(L.blocked));
+});
