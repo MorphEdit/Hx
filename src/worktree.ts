@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import { run, runOk } from './exec.ts';
 
@@ -61,11 +61,46 @@ async function addWorktreeNow(checkout: string, root: string, { name, branch, ba
   return { dir, resumed };
 }
 
-async function removeWorktreeNow(checkout: string, dir: string): Promise<void> {
-  if (existsSync(dir)) {
+/** Deletes a worktree directory; replaceable so tests can simulate Windows holding a file open. */
+export const worktreeFs = {
+  removeDir: async (checkout: string, dir: string): Promise<void> => {
     await run(GIT, ['-C', checkout, 'worktree', 'remove', '--force', dir]);
     // `worktree remove` leaves the dir behind when a process still holds a file open on Windows
     if (existsSync(dir)) rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 500 });
+  },
+};
+
+const warnStuck = (dir: string, e: any) =>
+  console.log(`[${new Date().toLocaleTimeString()}] warning: could not remove ${dir} (in use?) — remove it by hand or it will be cleaned up next run (${e?.code ?? e?.message ?? e})`);
+
+/** Cleanup: never throws, so a finished issue is never failed by a directory Windows still holds open. */
+async function removeWorktreeNow(checkout: string, dir: string): Promise<void> {
+  if (existsSync(dir)) {
+    try { await worktreeFs.removeDir(checkout, dir); } catch (e) { warnStuck(dir, e); }
   }
   await run(GIT, ['-C', checkout, 'worktree', 'prune']);
+}
+
+const norm = (p: string) => { const r = path.resolve(p).replace(/[\\/]+$/, ''); return process.platform === 'win32' ? r.toLowerCase() : r; };
+
+/**
+ * Best effort, on start: delete directories under `root` that git no longer lists as worktrees
+ * (left by a removal that failed). Listed worktrees stay: they may hold an interrupted session's work.
+ */
+export function cleanStaleWorktrees(checkout: string, root: string, owned: Iterable<string> = []): Promise<string[]> {
+  return serial(async () => {
+    if (!existsSync(root)) return [];
+    await run(GIT, ['-C', checkout, 'worktree', 'prune']);
+    const list = await run(GIT, ['-C', checkout, 'worktree', 'list', '--porcelain']);
+    if (list.code !== 0) return [];
+    const keep = new Set([...owned].map(norm));
+    for (const m of list.stdout.matchAll(/^worktree (.+)$/gm)) keep.add(norm(m[1].trim()));
+    const removed: string[] = [];
+    for (const e of readdirSync(root, { withFileTypes: true })) {
+      const dir = path.join(root, e.name);
+      if (!e.isDirectory() || keep.has(norm(dir))) continue;
+      try { rmSync(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 200 }); removed.push(dir); } catch (err) { warnStuck(dir, err); }
+    }
+    return removed;
+  });
 }
