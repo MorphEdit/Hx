@@ -122,7 +122,7 @@ export async function runPool(p: Project, o: PoolOptions): Promise<number> {
         const wasRed = gateRed();
         gs.last = r;
         if (!r.ok) {
-          log(`gate RED ✗ — \`${cmd}\` fails on ${c.defaultBranch} at ${r.sha.slice(0, 7)}; claiming only its fix`);
+          log(`gate RED ✗ — \`${cmd}\` ${r.timedOut ? 'timed out' : 'fails'} on ${c.defaultBranch} at ${r.sha.slice(0, 7)}; claiming only its fix`);
           await fileGateIssue(r).catch((e) => log(`gate: filing the fix issue failed: ${e.message}`));
         } else {
           log(wasRed ? `gate green ✓ again at ${r.sha.slice(0, 7)}` : `gate green ✓ at ${r.sha.slice(0, 7)}`);

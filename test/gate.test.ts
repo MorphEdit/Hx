@@ -1,6 +1,7 @@
 // The CI gate end to end: real git (a local bare origin), fake gh and claude.
 // main is broken → hx files a fix issue, claims nothing else, the fix lands, the gate turns green,
 // and only then does the rest of the board run.
+import { E2E, alive } from './isolate.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
@@ -37,7 +38,7 @@ const stateDir = path.join(root, '.hx');
 mkdirSync(stateDir);
 const GATE = `node -e "process.exit(require('fs').existsSync('BROKEN') ? 1 : 0)"`;
 
-test('a red main: hx files the fix, claims nothing else until main is green again', async () => {
+test('a red main: hx files the fix, claims nothing else until main is green again', E2E, async () => {
   writeFileSync(stateFile, JSON.stringify({ comments: [], prs: [], issues: [{ number: 1, title: 'task 1', body: '', state: 'OPEN', labels: [L.ready] }] }));
   const lines: string[] = [];
   const orig = console.log;
@@ -64,4 +65,18 @@ test('a red main: hx files the fix, claims nothing else until main is green agai
   const g = readGate(stateDir);
   assert.equal(g.last?.ok, true);
   assert.equal(g.fixIssue, undefined);
+});
+
+test('a gate command that hangs: killed with its whole tree at the timeout, the gate is red with "timed out"', E2E, async () => {
+  const { runGate } = await import('../src/gate.ts');
+  const pidFile = path.join(tmp, 'gate.pid').replace(/\\/g, '/');
+  const hang = `node -e "require('fs').writeFileSync('${pidFile}', String(process.pid)); setInterval(() => {}, 1e3)"`;
+  const t0 = Date.now();
+  const r = await runGate(root, path.join(tmp, 'wt'), 'main', hang, 1500);
+  assert.ok(Date.now() - t0 < 15_000, 'gave up within seconds');
+  assert.equal(r.ok, false);
+  assert.equal(r.timedOut, true);
+  assert.match(r.output, /timed out after 0\.03 min/);
+  const pid = Number(readFileSync(pidFile, 'utf8'));
+  assert.ok(pid > 0 && !alive(pid), `the gate's test process ${pid} is not left running`);
 });

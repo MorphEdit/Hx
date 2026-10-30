@@ -182,6 +182,10 @@ the default branch. If it fails, Hx files one `hx-gate-fix` issue with the outpu
 else** until a later run is green — no worker builds on a broken base. The command is `gateCommand`,
 or the test command the first audited merge used. `hx status` shows the gate.
 
+A hung test run cannot block anything: `ship.mjs` gives the tests `--test-timeout` minutes (default 15,
+remembered for `--resume`) and the gate 20 minutes; past that the whole process tree is killed and the
+run counts as failed (exit 4 / a red gate marked "timed out").
+
 ## What happens to an issue
 
 | Outcome | Hx does |

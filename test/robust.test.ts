@@ -1,5 +1,6 @@
 // Phase 3: crash recovery, one runner per repo, pause (drain / now), Ctrl+C checkpoints, usage holds.
 // Real git (a local bare origin), fake gh and fake claude, like pool.test.ts.
+import { E2E, deadPid } from './isolate.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
@@ -61,11 +62,13 @@ function whenSessionStarts(fn: () => void): void {
   const t = setInterval(() => {
     if (readdirSync(fakeDir).some((f) => !before.has(f) && f.endsWith('.prompt-1.txt'))) { clearInterval(t); setTimeout(fn, 200); }
   }, 50);
+  // a session that never starts must fail the test, not keep this file's event loop alive forever
+  setTimeout(() => clearInterval(t), 30_000).unref();
 }
 
-test('a crashed run: its claims are handed back and the work completes', async () => {
+test('a crashed run: its claims are handed back and the work completes', E2E, async () => {
   board([issue(1, [L.ready, L.working])]);
-  writeLive(stateDir, { pid: 999_999, startedAt: new Date().toISOString(), repo: 'me/app', workers: 1,
+  writeLive(stateDir, { pid: deadPid(), startedAt: new Date().toISOString(), repo: 'me/app', workers: 1,
     sessions: [{ key: 'issue:1', number: 1, kind: 'impl', title: 'task 1', since: new Date().toISOString(), turn: 1, tokens: 0 }] });
   const { rc, lines } = await run();
   assert.equal(rc, 0);
@@ -75,7 +78,7 @@ test('a crashed run: its claims are handed back and the work completes', async (
   assert.equal(readLive(stateDir), null, 'live.json removed when the run ends');
 });
 
-test('a second runner for the same repo is refused', async () => {
+test('a second runner for the same repo is refused', E2E, async () => {
   board([issue(2)]);
   writeLive(stateDir, { pid: process.ppid, startedAt: new Date().toISOString(), repo: 'me/app', workers: 1, sessions: [] });
   const { rc, lines } = await run();
@@ -85,7 +88,7 @@ test('a second runner for the same repo is refused', async () => {
   writeFileSync(path.join(stateDir, 'live.json'), '{}');
 });
 
-test('pause (drain): the running session finishes, nothing new is claimed, then resume continues', async () => {
+test('pause (drain): the running session finishes, nothing new is claimed, then resume continues', E2E, async () => {
   board([issue(3), issue(4)]);
   whenSessionStarts(() => setPause(stateDir, 'drain'));
   const { rc, lines } = await run({ env: { FAKE_CLAUDE_DELAY_MS: '1200' } });
@@ -102,7 +105,7 @@ test('pause (drain): the running session finishes, nothing new is claimed, then 
   assert.equal(byNum(4).state, 'CLOSED', 'resume picks up the rest');
 });
 
-test('stop mid-session (Ctrl+C / pause --now): checkpoint, hand back, the next session gets the handoff', async () => {
+test('stop mid-session (Ctrl+C / pause --now): checkpoint, hand back, the next session gets the handoff', E2E, async () => {
   board([issue(5)]);
   const ac = new AbortController();
   whenSessionStarts(() => ac.abort());
@@ -125,7 +128,7 @@ test('stop mid-session (Ctrl+C / pause --now): checkpoint, hand back, the next s
     'handoff note passed to the next session');
 });
 
-test('pause --now from another terminal stops a running session the same way', async () => {
+test('pause --now from another terminal stops a running session the same way', E2E, async () => {
   board([issue(6)]);
   whenSessionStarts(() => setPause(stateDir, 'now'));
   const { lines } = await run({ env: { FAKE_CLAUDE_DELAY_MS: '5000' } });
@@ -134,7 +137,7 @@ test('pause --now from another terminal stops a running session the same way', a
   clearPause(stateDir);
 });
 
-test('a usage window over usagePauseAt holds new claims until it resets', async () => {
+test('a usage window over usagePauseAt holds new claims until it resets', E2E, async () => {
   board([issue(7), issue(8)]);
   const t0 = Date.now();
   const { rc, lines } = await run({ env: { FAKE_CLAUDE_RATE: '0.95' } });

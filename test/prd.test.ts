@@ -1,4 +1,5 @@
 // filePrd: the one path from a markdown file to a PRD issue (fake gh).
+import { E2E } from './isolate.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
@@ -20,7 +21,7 @@ const board = () => JSON.parse(readFileSync(stateFile, 'utf8'));
 const md = (name: string, text: string) => { const f = path.join(tmp, name); writeFileSync(f, text); return f; };
 const reset = () => writeFileSync(stateFile, JSON.stringify({ comments: [], prs: [], issues: [] }));
 
-test('the first "# " line is the title and leaves the body', async () => {
+test('the first "# " line is the title and leaves the body', E2E, async () => {
   reset();
   const url = await filePrd(config, md('a.md', '# My title\n\n## Problem\nIt hurts.\n'));
   assert.equal(url, 'https://github.com/me/app/issues/1');
@@ -31,7 +32,7 @@ test('the first "# " line is the title and leaves the body', async () => {
   assert.equal(issues[0].body, '## Problem\nIt hurts.\n');
 });
 
-test('a title argument overrides the "# " line', async () => {
+test('a title argument overrides the "# " line', E2E, async () => {
   reset();
   await filePrd(config, md('b.md', '# Ignored\n\nbody\n'), 'X');
   const { issues } = board();
@@ -40,7 +41,7 @@ test('a title argument overrides the "# " line', async () => {
   assert.deepEqual(issues[0].labels, [DEFAULTS.labels.prd]);
 });
 
-test('no "# " line and no title: throws, nothing filed', async () => {
+test('no "# " line and no title: throws, nothing filed', E2E, async () => {
   reset();
   await assert.rejects(filePrd(config, md('c.md', 'just text\n## not h1\n')), /no title: pass --title/);
   assert.equal(board().issues.length, 0);

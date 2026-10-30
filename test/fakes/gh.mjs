@@ -1,10 +1,9 @@
 // Fake `gh` for tests: the board lives in the JSON file named by HX_FAKE_STATE.
-import { readFileSync, renameSync, writeFileSync } from 'node:fs';
-import { locked } from './lock.mjs';
+import { loadJson, locked, saveJson } from './lock.mjs';
 
 const file = process.env.HX_FAKE_STATE;
-const load = () => JSON.parse(readFileSync(file, 'utf8'));
-const save = (s) => { writeFileSync(file + '.tmp', JSON.stringify(s, null, 2)); renameSync(file + '.tmp', file); };
+const load = () => loadJson(file);
+const save = (s) => saveJson(file, s);
 const a = process.argv.slice(2);
 const opt = (n) => { const i = a.indexOf(n); return i < 0 ? undefined : a[i + 1]; };
 const all = (n) => a.flatMap((x, i) => (x === n ? [a[i + 1]] : []));

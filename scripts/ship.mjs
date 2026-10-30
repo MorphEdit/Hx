@@ -14,8 +14,9 @@
 //
 // Exit codes, each with a one-line reason on stderr:
 //   0 shipped · 2 bad arguments · 3 rebase conflict (rebase aborted; resolve by hand, then re-run)
-//   4 tests failed on the rebased branch (output tail printed) · 5 a git/gh step failed
-import { spawnSync } from 'node:child_process';
+//   4 tests failed on the rebased branch, or ran past --test-timeout <minutes> (default 15; the whole
+//     process tree is killed) — output tail printed · 5 a git/gh step failed
+import { execFileSync, spawn, spawnSync } from 'node:child_process';
 
 import { readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
@@ -31,10 +32,13 @@ if (args.includes('--resume')) {
 }
 const repo = opt('repo') ?? saved.repo, base = opt('base') ?? saved.base ?? 'main', issue = opt('issue') ?? saved.issue,
   title = opt('title') ?? saved.title, testCmd = opt('test') ?? saved.test;
-if (!repo || !issue || !title || !testCmd) {
-  console.error('usage: ship.mjs --repo owner/name --base main --issue N --title "type: summary" --test "<test command>" [--no-merge | --resume]');
+const testTimeout = Number(opt('test-timeout') ?? saved.testTimeout ?? 15); // minutes, fractions allowed
+if (!repo || !issue || !title || !testCmd || !(testTimeout > 0)) {
+  console.error('usage: ship.mjs --repo owner/name --base main --issue N --title "type: summary" --test "<test command>" [--test-timeout <minutes>] [--no-merge | --resume]');
   process.exit(2);
 }
+// HX_SHIP_TEST_TIMEOUT_MS overrides the minutes (tests use it)
+const testTimeoutMs = Number(process.env.HX_SHIP_TEST_TIMEOUT_MS) || testTimeout * 60_000;
 
 // gh can be swapped (HX_GH_BIN, as in hx itself); a .js/.mjs one runs under this node
 const GH = process.env.HX_GH_BIN || 'gh';
@@ -81,10 +85,33 @@ if (rb.status !== 0) {
   process.exit(3);
 }
 
-// 3. the tests, on exactly what will be merged
-const t = run(testCmd, [], { shell: true });
+// 3. the tests, on exactly what will be merged. A hung run is killed with everything it started:
+// a plain kill of the shell leaves `npm test` → `node --test` → test files running.
+const killTree = (pid) => {
+  if (process.platform === 'win32') try { execFileSync('taskkill', ['/pid', String(pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true }); } catch {}
+  else try { process.kill(-pid, 'SIGKILL'); } catch { try { process.kill(pid, 'SIGKILL'); } catch {} }
+};
+const t = await new Promise((resolve) => {
+  const child = spawn(testCmd, [], { shell: true, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'], detached: process.platform !== 'win32' });
+  let out = '', timedOut = false, settled = false;
+  const keep = (d) => { out = (out + d).slice(-1024 * 1024); };
+  child.stdout.on('data', keep); child.stderr.on('data', keep);
+  const done = (status) => { if (!settled) { settled = true; clearTimeout(timer); resolve({ status, out, timedOut }); } };
+  const timer = setTimeout(() => {
+    timedOut = true;
+    killTree(child.pid);
+    setTimeout(() => done(null), 5000).unref(); // a stray grandchild may still hold the pipes open
+  }, testTimeoutMs);
+  child.on('error', (e) => { out += String(e.message); done(1); });
+  child.on('close', (code) => done(code));
+});
+const tail = () => t.out.trim().split('\n').slice(-40).join('\n');
+if (t.timedOut) {
+  console.error(`ship: tests timed out after ${+(testTimeoutMs / 60_000).toFixed(2)} min (\`${testCmd}\`), process tree killed:\n${tail()}`);
+  process.exit(4);
+}
 if (t.status !== 0) {
-  console.error(`ship: tests failed after rebasing on origin/${base} (\`${testCmd}\`):\n${(t.stdout + t.stderr).trim().split('\n').slice(-40).join('\n')}`);
+  console.error(`ship: tests failed after rebasing on origin/${base} (\`${testCmd}\`):\n${tail()}`);
   process.exit(4);
 }
 say('tests pass');
@@ -97,7 +124,7 @@ if (!pr) {
   pr = /\/pull\/(\d+)/.exec(url)?.[1] ?? '';
 }
 if (noMerge) {
-  writeFileSync(stateFile, JSON.stringify({ repo, base, issue, title, test: testCmd, pr }, null, 2));
+  writeFileSync(stateFile, JSON.stringify({ repo, base, issue, title, test: testCmd, testTimeout, pr }, null, 2));
   console.log(`READY #${issue} PR #${pr}`);
   process.exit(0);
 }
