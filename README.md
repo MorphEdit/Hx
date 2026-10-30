@@ -134,6 +134,36 @@ hx usage --by role      # recorded token usage (by issue | role | model | day)
 hx dashboard [--open]   # a read-only page on http://127.0.0.1:4777/ (localhost only; --port N)
 ```
 
+## Dashboard
+
+```bash
+hx dashboard            # http://127.0.0.1:4777/ (the next free port up to 4786 if it is taken)
+hx dashboard --port 8080 --open   # another port; --open starts the default browser
+```
+
+A read-only page over `.hx/` and the board. It works with or without an `hx run` going, refreshes
+`/api/state` every 5 s and the board every 30 s (one `gh issue list` per 30 s however many tabs are
+open), and keeps the last data with an "offline / last updated" note when a fetch fails.
+
+- **Now** — the runner ("not running", or its pid, uptime, workers, paused/draining and the rate-limit
+  window), the live sessions (issue, kind, title, turn, tokens, elapsed) and the CI gate (green/red,
+  sha, when, the fix issue).
+- **Board** — PRDs with their status and `closed/total done`, and the open issues with their status.
+  If `gh` fails, the error shows here and the rest of the page keeps working.
+- **Stats** — tokens per day, tokens/turns/sessions/time by PRD, role and model, and outcomes parsed
+  from the run log: audit PASS/FAIL and average rounds, gauntlet rounds and FAILs, security passes and
+  the issues they filed, gate REDs with the average RED → green time, and the median issue wall time.
+- **Log** — the tail of `.hx/run.log`, newest last.
+
+`hx run` writes every line it prints to `.hx/run.log` with an ISO timestamp; past 2 MiB the file is
+rotated to `run.log.1` (one old file is kept), and the outcome numbers read both.
+
+Safety: the server binds **127.0.0.1 only**, answers only a `Host` of `127.0.0.1:<port>` or
+`localhost:<port>` (no DNS rebinding), takes **GET only**, sends no CORS headers and changes nothing —
+it only reads. The page is one self-contained file under a strict CSP (no external scripts, styles or
+fonts), and every title, label, error and log line is rendered as **escaped text** (`textContent`,
+never `innerHTML`), so an issue titled `<img src=x onerror=…>` shows as that text.
+
 ## Stopping and resuming
 
 | You do | Hx does |
@@ -294,6 +324,7 @@ it reads. So Hx only works on text from **trusted accounts**: your `gh` login pl
 - `.hx/logs/<role>-N.jsonl` — the raw Claude event stream per issue / PRD, for debugging
 - `.hx/live.json` — the running `hx run`: its pid and live sessions (read by `hx status`)
 - `.hx/pause` — present while paused (`drain` or `now`)
+- `.hx/run.log` — the `hx run` log with ISO timestamps (rotated to `run.log.1` past 2 MiB), read by `hx dashboard`
 
 `.hx/` is added to `.git/info/exclude` by `hx init`, so it never shows up in `git status`.
 
