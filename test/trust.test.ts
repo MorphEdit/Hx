@@ -148,3 +148,19 @@ test('hx init prints the trusted accounts; hx status shows untrusted rows and fa
   assert.notEqual(bad.status, 0);
   assert.match(bad.stderr, /could not look up the gh login/);
 });
+
+test("a decompose session that files nothing fails verification even if a stranger files a `## Parent` child", E2E, async () => {
+  writeFileSync(stateFile, JSON.stringify({ login: 'Hx-Bot', comments: [], prs: [], issues: [it(40, [L.prd, L.hardened], 'Hx-Bot', 'DECOMPOSESTRANGER\n')] }));
+  const { rc, lines } = await capture(() => pool());
+  const out = lines.join('\n');
+  assert.equal(rc, 1, out);
+  const stranger = read().issues.filter((i: any) => /## Parent\n#40\b/.test(i.body));
+  assert.deepEqual(stranger.map((i: any) => i.author), ['mallory'], 'only the stranger filed a child');
+  assert.equal(stranger[0].state, 'OPEN', 'the untrusted child is never built');
+  const p = issue(40);
+  assert.equal(p.state, 'OPEN');
+  assert.ok(p.labels.includes(L.blocked) && !p.labels.includes(L.working), p.labels.join());
+  assert.ok(read().comments.some((c: any) => c.issue === 40 && /filed no issue with `## Parent` #40/.test(c.body)), JSON.stringify(read().comments));
+  assert.ok(lines.some((l) => /\[#40\] decompose FAILED/.test(l)), out);
+  assert.ok(!lines.some((l) => /\[#40\] review/.test(l)), 'not treated as decomposed');
+});

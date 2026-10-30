@@ -109,6 +109,7 @@ test('security never passes: after securityRounds the PRD is agent-blocked with 
 
 for (const [name, body, why] of [
   ['neither labels nor files', 'SECURITYNOOP\n', /the security pass neither added `security-reviewed` nor filed a `security` issue/],
+  ['leaves only an untrusted security issue behind', 'SECURITYSTRANGERISSUE\n', /the security pass neither added `security-reviewed` nor filed a `security` issue/],
   ['signs off without its verdict comment', 'SECURITYNOCOMMENT\n', /the security pass posted no `<!-- hx-security -->` comment/],
 ] as const) {
   test(`a security session that ${name} is reported failed; the PRD is not closed`, E2E, async () => {
