@@ -62,7 +62,7 @@ role prompts, promise-based completion.
 | Phase | Scope | Status |
 |---|---|---|
 | 1 | `hx run`: claim ready issues, worktree, Ralph loop, PR → merge → close, worker pool, token log | done |
-| 2 | PRD flow: DECOMPOSE a PRD into issues, REVIEW, close the PRD | |
+| 2 | PRD flow: decompose a PRD into issues, review (gap issues or sign-off), close the PRD, PRD sequencing | done |
 | 3 | Robustness: pause/resume with handoff notes, usage-limit waits, richer `hx status` | |
 | 4 | Token optimisation | |
 

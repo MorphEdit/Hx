@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { board, externalRefs, parseBlockedBy, PROMISE_RE, refKey, render } from '../src/state.ts';
+import { board, externalRefs, parseBlockedBy, parseParent, plan, prdKey, PROMISE_RE, refKey, render } from '../src/state.ts';
 import { DEFAULTS } from '../src/config.ts';
 
 const R = 'me/app';
@@ -34,6 +34,38 @@ test('board: classifies and orders claimable first, oldest first', () => {
   assert.deepEqual(rows.map((r) => [r.number, r.status]), [
     [5, 'claimable'], [9, 'claimable'], [7, 'working'], [11, 'working'], [6, 'waiting'], [10, 'waiting'], [8, 'blocked-label']]);
   assert.deepEqual(externalRefs(issues, R), [{ repo: 'x/y', number: 1 }]);
+});
+
+test('parseParent: heading, inline, colon and legacy forms', () => {
+  assert.deepEqual(parseParent('x\n\n## Parent\n#7\n', R), { repo: R, number: 7 });
+  assert.deepEqual(parseParent('## Parent #8', R), { repo: R, number: 8 });
+  assert.deepEqual(parseParent('Parent: other/x#9', R), { repo: 'other/x', number: 9 });
+  assert.deepEqual(parseParent('Part of #10', R), { repo: R, number: 10 });
+  assert.equal(parseParent('## Blocked by\n#3', R), null);
+});
+
+test('plan: PRD lifecycle and sequencing', () => {
+  const L = DEFAULTS.labels;
+  const i = (number: number, labels: string[], body = '', state: 'OPEN' | 'CLOSED' = 'OPEN') => ({ number, title: `t${number}`, body, state, labels });
+  const kid = (n: number, prdN: number, state: 'OPEN' | 'CLOSED' = 'OPEN', labels = [L.ready]) => i(n, labels, `## Parent\n#${prdN}`, state);
+  const all = [
+    i(1, [L.prd]),                                        // no children → decompose
+    i(2, [L.prd]), kid(10, 2), kid(11, 2, 'CLOSED'),        // building; #10 claimable
+    i(3, [L.prd]), kid(12, 3, 'CLOSED'),                    // all closed, not reviewed → review
+    i(4, [L.prd, L.reviewed]), kid(13, 4, 'CLOSED'),        // reviewed → engine closes
+    i(5, [L.prd], '## Blocked by\n#2'), kid(14, 5),          // PRD waits on #2 → child #14 waits too
+    i(6, [L.prd]), kid(15, 6, 'OPEN', []),                  // unlabelled child → engine labels it
+    i(7, [L.prd, L.ready]), kid(16, 7),                     // a PRD is never implemented itself; its
+  ];                                                        // child waits while decompose (busy) runs
+  const states = new Map(all.map((x) => [refKey({ repo: R, number: x.number }), x.state]));
+  const pl = plan(all, R, L, states, new Set([prdKey(7)]));
+  assert.deepEqual(pl.prds.map((p) => [p.number, p.status]), [
+    [1, 'decompose'], [2, 'building'], [3, 'review'], [4, 'done'], [5, 'waiting'], [6, 'building'], [7, 'working']]);
+  assert.deepEqual(pl.actions.map((a) => `${a.kind}:${'issue' in a ? a.issue : a.prd}`),
+    ['decompose:1', 'review:3', 'close-prd:4', 'label-ready:15', 'impl:10']);
+  assert.deepEqual(pl.board.find((r) => r.number === 14)?.waitingOn, [{ repo: R, number: 5 }]);
+  assert.ok(!pl.board.some((r) => r.number === 7));
+  assert.equal(pl.board.find((r) => r.number === 16)?.status, 'waiting');
 });
 
 test('promise matching and render', () => {

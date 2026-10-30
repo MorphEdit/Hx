@@ -44,23 +44,141 @@ export interface BoardRow {
  * Claimable rows come first, oldest issue first.
  */
 export function board(issues: Issue[], repo: string, labels: Labels, states: Map<string, 'OPEN' | 'CLOSED'>,
-  inFlight: Set<number> = new Set()): BoardRow[] {
+  inFlight: Set<number> = new Set(), inherited: Map<number, Ref[]> = new Map()): BoardRow[] {
   const rows: BoardRow[] = [];
   for (const i of issues) {
-    if (i.state !== 'OPEN' || !i.labels.includes(labels.ready)) continue;
+    if (i.state !== 'OPEN' || !i.labels.includes(labels.ready) || i.labels.includes(labels.prd)) continue;
     let status: BoardRow['status'];
     let waitingOn: Ref[] = [];
     if (inFlight.has(i.number) || i.labels.includes(labels.working)) status = 'working';
     else if (i.labels.includes(labels.blocked)) status = 'blocked-label';
     else {
-      waitingOn = parseBlockedBy(i.body, repo).filter((r) =>
-        !(r.repo.toLowerCase() === repo.toLowerCase() && r.number === i.number) && states.get(refKey(r)) !== 'CLOSED');
+      waitingOn = openBlockers(i, repo, states).concat(inherited.get(i.number) ?? []);
       status = waitingOn.length ? 'waiting' : 'claimable';
     }
     rows.push({ number: i.number, title: i.title, status, waitingOn });
   }
   const rank = { claimable: 0, working: 1, waiting: 2, 'blocked-label': 3 } as const;
   return rows.sort((a, b) => rank[a.status] - rank[b.status] || a.number - b.number);
+}
+
+function openBlockers(i: Issue, repo: string, states: Map<string, 'OPEN' | 'CLOSED'>): Ref[] {
+  return parseBlockedBy(i.body, repo).filter((r) =>
+    !(r.repo.toLowerCase() === repo.toLowerCase() && r.number === i.number) && states.get(refKey(r)) !== 'CLOSED');
+}
+
+// `## Parent` (heading, ref on the next lines), `## Parent #N`, `Parent: #N`, or a legacy `Part of #N`.
+const PARENT_HEADING = /^#{2,3}\s+Parent\s*:?\s*$/im;
+const REF = String.raw`(?:([\w.-]+\/[\w.-]+)#(\d+)|#(\d+))`;
+const PARENT_INLINE = new RegExp(String.raw`^#{2,3}[ \t]+Parent[ \t]*:?[ \t]*${REF}`, 'im');
+const PARENT_COLON = new RegExp(String.raw`(?<![\w.-])Parent:[ \t]*${REF}`, 'i');
+const PART_OF = new RegExp(String.raw`(?<![\w.-])Part of\s+${REF}`, 'i');
+
+/** The PRD an issue belongs to, if its body names one. */
+export function parseParent(body: string, selfRepo: string): Ref | null {
+  body ??= '';
+  const toRef = (m: RegExpExecArray | RegExpMatchArray) =>
+    m[1] ? { repo: m[1], number: Number(m[2]) } : { repo: selfRepo, number: Number(m[3]) };
+  const h = PARENT_HEADING.exec(body);
+  if (h) {
+    let section = body.slice(h.index + h[0].length);
+    const next = NEXT_HEADING.exec(section);
+    if (next) section = section.slice(0, next.index);
+    const m = [...section.matchAll(ISSUE_REF)][0];
+    if (m) return m[1] ? { repo: m[1], number: Number(m[2]) } : { repo: selfRepo, number: Number(m[3]) };
+  }
+  for (const re of [PARENT_INLINE, PARENT_COLON, PART_OF]) {
+    const m = re.exec(body);
+    if (m) return toRef(m);
+  }
+  return null;
+}
+
+export type Action =
+  | { kind: 'decompose'; prd: number; title: string; children: Issue[] }
+  | { kind: 'review'; prd: number; title: string; children: Issue[] }
+  | { kind: 'close-prd'; prd: number }
+  | { kind: 'label-ready'; issue: number; prd: number }
+  | { kind: 'impl'; issue: number; title: string };
+
+export interface PrdRow {
+  number: number;
+  title: string;
+  status: 'decompose' | 'building' | 'review' | 'done' | 'working' | 'waiting' | 'blocked-label';
+  open: number; // open children
+  closed: number;
+  waitingOn: Ref[];
+}
+
+export interface Plan {
+  actions: Action[]; // in priority order: PRD sessions, engine-only steps, then implementation
+  prds: PrdRow[];
+  board: BoardRow[];
+}
+
+/** Session keys the pool tracks in flight: one session per PRD, one per issue. */
+export const prdKey = (n: number) => `prd:${n}`;
+export const issueKey = (n: number) => `issue:${n}`;
+
+/**
+ * The whole board, PRDs included. `all` is every issue (open and closed, no PRs).
+ *  - a PRD (open, `prd` label) with no children → decompose
+ *  - children still open → they are built through the normal ready-issue flow
+ *  - every child closed, not yet `reviewed` → review (may file gap issues: back to building)
+ *  - reviewed and every child closed → the engine closes it
+ * A PRD's own `## Blocked by` sequences PRDs: until it clears, nothing of that PRD runs.
+ */
+export function plan(all: Issue[], repo: string, labels: Labels, states: Map<string, 'OPEN' | 'CLOSED'>,
+  busy: Set<string> = new Set()): Plan {
+  const prdIssues = all.filter((i) => i.labels.includes(labels.prd)).sort((a, b) => a.number - b.number);
+  const prdNums = new Set(prdIssues.map((p) => p.number));
+  const children = new Map<number, Issue[]>(prdIssues.map((p) => [p.number, []]));
+  const parentOf = new Map<number, number>();
+  for (const i of all) {
+    if (prdNums.has(i.number)) continue;
+    const p = parseParent(i.body, repo);
+    if (p && p.repo.toLowerCase() === repo.toLowerCase() && prdNums.has(p.number)) {
+      children.get(p.number)!.push(i);
+      parentOf.set(i.number, p.number);
+    }
+  }
+
+  const actions: Action[] = [];
+  const engine: Action[] = [];
+  const prds: PrdRow[] = [];
+  const inherited = new Map<number, Ref[]>();
+  for (const p of prdIssues) {
+    if (p.state !== 'OPEN') continue;
+    const kids = children.get(p.number)!;
+    const open = kids.filter((k) => k.state === 'OPEN');
+    const waitingOn = openBlockers(p, repo, states);
+    // children wait while their PRD is sequenced behind another, or while decompose is still filing
+    // them (a child filed first may get its `Blocked by` from a sibling that does not exist yet)
+    if (waitingOn.length || busy.has(prdKey(p.number)))
+      for (const k of kids) inherited.set(k.number, [{ repo, number: p.number }]);
+    let status: PrdRow['status'];
+    if (p.labels.includes(labels.blocked)) status = 'blocked-label';
+    else if (waitingOn.length) status = 'waiting';
+    else if (busy.has(prdKey(p.number))) status = 'working';
+    else if (!kids.length) status = 'decompose';
+    else if (open.length) status = 'building';
+    else status = p.labels.includes(labels.reviewed) ? 'done' : 'review';
+    prds.push({ number: p.number, title: p.title, status, open: open.length, closed: kids.length - open.length, waitingOn });
+
+    if (status === 'decompose') actions.push({ kind: 'decompose', prd: p.number, title: p.title, children: kids });
+    else if (status === 'review') actions.push({ kind: 'review', prd: p.number, title: p.title, children: kids });
+    else if (status === 'done') engine.push({ kind: 'close-prd', prd: p.number });
+    // an open child filed without any lane label would hold its PRD forever: make it claimable
+    if (status === 'building')
+      for (const k of open)
+        if (![labels.ready, labels.working, labels.blocked].some((l) => k.labels.includes(l)))
+          engine.push({ kind: 'label-ready', issue: k.number, prd: p.number });
+  }
+
+  const inFlight = new Set([...busy].filter((k) => k.startsWith('issue:')).map((k) => Number(k.slice(6))));
+  const rows = board(all, repo, labels, states, inFlight, inherited);
+  for (const r of rows) if (r.status === 'claimable') actions.push({ kind: 'impl', issue: r.number, title: r.title });
+  return { actions: [...actions.filter((a) => a.kind !== 'impl'), ...engine, ...actions.filter((a) => a.kind === 'impl')], prds, board: rows };
 }
 
 /** Every ref the ready issues depend on that lives in another repo (resolved one by one). */

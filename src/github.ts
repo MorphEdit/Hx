@@ -28,10 +28,31 @@ export async function defaultBranch(repo: string): Promise<string> {
   return (await runOk(GH, ['repo', 'view', repo, '--json', 'defaultBranchRef', '-q', '.defaultBranchRef.name'])).trim();
 }
 
-export async function listOpenIssues(repo: string): Promise<Issue[]> {
-  const out = await runOk(GH, ['issue', 'list', '-R', repo, '--state', 'open', '--limit', '500',
+/** Every issue, open and closed (closed children still count toward their PRD). PRs excluded. */
+export async function listIssues(repo: string): Promise<Issue[]> {
+  const out = await runOk(GH, ['issue', 'list', '-R', repo, '--state', 'all', '--limit', '1000',
     '--json', 'number,title,body,state,labels']);
   return JSON.parse(out).map(toIssue);
+}
+
+export async function issueLabels(repo: string, n: number): Promise<string[]> {
+  const out = await runOk(GH, ['issue', 'view', String(n), '-R', repo, '--json', 'labels']);
+  return toIssue({ number: n, ...JSON.parse(out) }).labels;
+}
+
+export async function commentBodies(repo: string, n: number): Promise<string[]> {
+  const out = await runOk(GH, ['issue', 'view', String(n), '-R', repo, '--json', 'comments']);
+  return (JSON.parse(out).comments ?? []).map((c: any) => c.body ?? '');
+}
+
+export async function createIssue(repo: string, title: string, body: string, labels: string[]): Promise<string> {
+  const args = ['issue', 'create', '-R', repo, '--title', title, '--body-file', '-'];
+  for (const l of labels) args.push('--label', l);
+  return (await runOk(GH, args, { input: body })).trim();
+}
+
+export async function closeIssue(repo: string, n: number, commentBody: string): Promise<void> {
+  await runOk(GH, ['issue', 'close', String(n), '-R', repo, '--comment', commentBody]);
 }
 
 /** number → state for every issue and PR in the repo (a `Blocked by` ref may name either). */

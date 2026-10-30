@@ -23,8 +23,12 @@ export interface TurnResult {
   numTurns: number;
   error?: string;
   limited?: { resetsAt?: number }; // usage limit hit — the pool should stop claiming
+  fatal?: boolean; // the setup is wrong (unknown model, auth): every session would fail the same way
   timedOut?: boolean;
 }
+
+// API statuses that no retry and no other issue can fix: bad request (e.g. model not supported), auth, not found
+const FATAL_STATUS = new Set([400, 401, 403, 404]);
 
 export interface TurnOptions {
   bin: string;
@@ -33,6 +37,7 @@ export interface TurnOptions {
   sessionId: string;
   resume: boolean;
   model: string;
+  effort?: string;
   extraArgs: string[];
   timeoutMs: number;
   onEvent?: (ev: any) => void; // every raw stream-json line, for the per-issue log
@@ -54,7 +59,7 @@ function killTree(pid: number | undefined): void {
 
 export function runTurn(o: TurnOptions): Promise<TurnResult> {
   const args = ['-p', '--output-format', 'stream-json', '--verbose', '--permission-mode', 'bypassPermissions',
-    '--model', o.model, ...(o.resume ? ['--resume', o.sessionId] : ['--session-id', o.sessionId]), ...o.extraArgs];
+    '--model', o.model, ...(o.effort ? ['--effort', o.effort] : []), ...(o.resume ? ['--resume', o.sessionId] : ['--session-id', o.sessionId]), ...o.extraArgs];
   const started = Date.now();
   return new Promise((resolve) => {
     const [cmd, argv] = resolveCmd(o.bin, args);
@@ -86,7 +91,10 @@ export function runTurn(o: TurnOptions): Promise<TurnResult> {
         res.costUsd = ev.total_cost_usd ?? 0;
         res.numTurns = ev.num_turns ?? 0;
         res.ok = !ev.is_error && ev.subtype === 'success';
-        if (!res.ok) res.error = `${ev.subtype}${ev.api_error_status ? ` (${ev.api_error_status})` : ''}: ${String(ev.result ?? '').slice(0, 500)}`;
+        if (!res.ok) {
+          res.error = `${ev.api_error_status ? `API ${ev.api_error_status}` : ev.subtype}: ${String(ev.result ?? '').slice(0, 500)}`;
+          if (FATAL_STATUS.has(Number(ev.api_error_status))) res.fatal = true;
+        }
         if (typeof ev.result === 'string' && ev.result && !texts.includes(ev.result)) texts.push(ev.result);
       }
     });
@@ -124,7 +132,7 @@ export interface GoalResult {
   usage: Usage;
   costUsd: number;
   last?: TurnResult;
-  stopReason: 'promise' | 'max-iterations' | 'error' | 'limited' | 'aborted';
+  stopReason: 'promise' | 'max-iterations' | 'error' | 'limited' | 'aborted' | 'fatal';
 }
 
 /** The Ralph loop: same session, re-prompted until the promise shows up. */
@@ -143,6 +151,7 @@ export async function runGoal(o: GoalOptions): Promise<GoalResult> {
     o.onTurn?.(i, sessionId, last);
     if (o.signal?.aborted) return { done: false, sessionId, iterations: i, usage: total, costUsd, last, stopReason: 'aborted' };
     if (last.limited) return { done: false, sessionId, iterations: i, usage: total, costUsd, last, stopReason: 'limited' };
+    if (last.fatal) return { done: false, sessionId, iterations: i, usage: total, costUsd, last, stopReason: 'fatal' };
     if (promiseRe.test(last.text)) return { done: true, sessionId, iterations: i, usage: total, costUsd, last, stopReason: 'promise' };
     // A first turn that never started (bad flag, auth) cannot be resumed; two failed turns in a row is not transient.
     if (!last.ok && (i === 1 && last.numTurns === 0 || ++errors >= 2))

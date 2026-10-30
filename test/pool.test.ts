@@ -24,13 +24,23 @@ const git = (cwd: string, ...args: string[]) => execFileSync('git', args, { cwd,
 const L = DEFAULTS.labels;
 const fakeClaude = path.join(here, 'fakes', 'claude.mjs');
 
-function setup() {
+// one git repo (with a local bare origin) shared by the tests, which run in order
+let project: { root: string; stateDir: string } | undefined;
+function setupProject() {
+  if (project) return project;
   const origin = path.join(tmp, 'origin.git');
   const root = path.join(tmp, 'app');
   git(tmp, 'init', '-q', '--bare', '-b', 'main', origin);
   git(tmp, 'clone', '-q', origin, root);
   git(root, '-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '--allow-empty', '-m', 'init');
   git(root, 'push', '-q', 'origin', 'HEAD:main');
+  return project = { root, stateDir: path.join(root, '.hx') };
+}
+
+const baseConfig = () => ({ ...DEFAULTS, repo: 'me/app', defaultBranch: 'main', worktreeRoot: path.join(tmp, 'wt'),
+  claudeBin: fakeClaude, maxIterations: 3, pollSeconds: 1 });
+
+function setup() {
   const issue = (number: number, labels: string[], body = '') => ({ number, title: `task ${number}`, body, state: 'OPEN', labels });
   writeFileSync(stateFile, JSON.stringify({ comments: [], issues: [
     issue(1, [L.ready]),
@@ -38,10 +48,7 @@ function setup() {
     issue(3, [L.ready], 'this one will FAIL'),
     issue(4, []),
   ] }));
-  const stateDir = path.join(root, '.hx');
-  const config = { ...DEFAULTS, repo: 'me/app', defaultBranch: 'main', worktreeRoot: path.join(tmp, 'wt'),
-    claudeBin: fakeClaude, maxIterations: 3, pollSeconds: 1 };
-  return { root, stateDir, config };
+  return { ...setupProject(), config: baseConfig() };
 }
 
 test('pool drives the board to completion, respecting Blocked by', async () => {
@@ -52,7 +59,7 @@ test('pool drives the board to completion, respecting Blocked by', async () => {
   const rc = await runPool(p, { workers: 2, watch: false, dryRun: false, signal: new AbortController().signal })
     .finally(() => { console.log = orig; });
   assert.deepEqual(lines.filter((l) => /crashed/.test(l)), [], 'no worker crashed');
-  assert.equal(lines.filter((l) => /claimed/.test(l)).length, 3, 'each ready issue claimed exactly once');
+  assert.equal(lines.filter((l) => /\] impl: /.test(l)).length, 3, 'each ready issue claimed exactly once');
   const s = JSON.parse(readFileSync(stateFile, 'utf8'));
   const by = (n: number) => s.issues.find((i: any) => i.number === n);
 
@@ -78,6 +85,57 @@ test('pool drives the board to completion, respecting Blocked by', async () => {
   const first2 = u.findIndex((r) => r.issue === 2);
   const last1 = u.map((r) => r.issue).lastIndexOf(1);
   assert.ok(first2 > last1);
+});
+
+test('PRD flow: decompose → build → review (gap, then sign-off) → close, PRDs sequenced', async () => {
+  const b = JSON.parse(readFileSync(stateFile, 'utf8'));
+  const prd = (number: number, title: string, body = '') => ({ number, title, body, state: 'OPEN', labels: ['prd'] });
+  b.issues.push(prd(20, 'Auth'), prd(21, 'Billing', '## Blocked by\n#20\n'));
+  b.comments = [];
+  writeFileSync(stateFile, JSON.stringify(b));
+  const p = { ...setupProject(), config: { ...baseConfig(), reviewRounds: 3 } };
+
+  const lines: string[] = [];
+  const orig = console.log;
+  console.log = (m: string) => { lines.push(m); orig(m); };
+  const rc = await runPool(p, { workers: 2, watch: false, dryRun: false, signal: new AbortController().signal, only: undefined })
+    .finally(() => { console.log = orig; });
+
+  const s = JSON.parse(readFileSync(stateFile, 'utf8'));
+  const kids = (n: number) => s.issues.filter((i: any) => new RegExp(`## Parent\\n#${n}\\b`).test(i.body));
+  assert.deepEqual(lines.filter((l) => /crashed|FAILED/.test(l)), []);
+  assert.equal(rc, 0);
+  for (const n of [20, 21]) {
+    const prdIssue = s.issues.find((i: any) => i.number === n);
+    assert.equal(prdIssue.state, 'CLOSED', `PRD #${n} closed`);
+    assert.ok(prdIssue.labels.includes('prd-reviewed'));
+    assert.deepEqual(kids(n).map((k: any) => k.state), ['CLOSED', 'CLOSED', 'CLOSED'], `PRD #${n}: A, B and the gap issue all done`);
+    assert.equal(s.comments.filter((c: any) => c.issue === n && c.body.startsWith('<!-- hx-review -->')).length, 2, 'two review rounds');
+  }
+  // sequencing: nothing of Billing (#21) started before Auth (#20) was closed
+  const closed20 = lines.findIndex((l) => /\[#20\] PRD closed/.test(l));
+  const first21 = lines.findIndex((l) => /\[#21\]/.test(l));
+  assert.ok(closed20 > 0 && first21 > closed20, 'PRD #21 waits for PRD #20');
+  const roles = new Set(readUsage(p.stateDir).map((r) => r.role));
+  assert.deepEqual([...roles].sort(), ['decompose', 'impl', 'review']);
+});
+
+test('a setup error (API 400) stops the pool and leaves the issues untouched', async () => {
+  const b = JSON.parse(readFileSync(stateFile, 'utf8'));
+  b.issues.push({ number: 90, title: 'x', body: '', state: 'OPEN', labels: [L.ready] },
+    { number: 91, title: 'y', body: '', state: 'OPEN', labels: [L.ready] });
+  b.comments = [];
+  writeFileSync(stateFile, JSON.stringify(b));
+  process.env.FAKE_CLAUDE_MODE = 'fatal';
+  try {
+    const p = { ...setupProject(), config: baseConfig() };
+    const rc = await runPool(p, { workers: 1, watch: false, dryRun: false, signal: new AbortController().signal, only: [90, 91] });
+    assert.equal(rc, 2);
+  } finally { delete process.env.FAKE_CLAUDE_MODE; }
+  const s = JSON.parse(readFileSync(stateFile, 'utf8'));
+  for (const n of [90, 91]) assert.deepEqual(s.issues.find((i: any) => i.number === n).labels, [L.ready], `#${n} not labelled`);
+  assert.equal(s.comments.length, 0);
+  assert.equal(readUsage(setupProject().stateDir).filter((r) => r.issue === 91).length, 0, 'no second issue attempted');
 });
 
 test('runGoal: usage limit and crash stop the loop with the right reason', async () => {

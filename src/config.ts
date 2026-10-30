@@ -5,6 +5,8 @@ export interface Labels {
   ready: string;
   working: string;
   blocked: string;
+  prd: string;
+  reviewed: string;
 }
 
 export interface Config {
@@ -12,7 +14,9 @@ export interface Config {
   defaultBranch: string;
   workers: number;
   model: string;
+  effort: string; // claude --effort: low | medium | high | xhigh | max ('' = the CLI's default)
   maxIterations: number; // Ralph-loop turns per issue before giving up
+  reviewRounds: number; // PRD reviews (each may file gap issues) before a human has to look
   turnTimeoutMinutes: number;
   pollSeconds: number;
   worktreeRoot: string; // keep it short: Windows MAX_PATH
@@ -23,13 +27,15 @@ export interface Config {
 
 export const DEFAULTS: Omit<Config, 'repo' | 'defaultBranch' | 'worktreeRoot'> = {
   workers: 2,
-  model: 'sonnet',
+  model: 'claude-opus-5-5', // a full id: the `opus` alias may resolve to an older Opus
+  effort: 'medium',
   maxIterations: 8,
+  reviewRounds: 3,
   turnTimeoutMinutes: 45,
   pollSeconds: 60,
   claudeBin: 'claude',
   claudeArgs: [],
-  labels: { ready: 'ready-for-agent', working: 'agent-working', blocked: 'agent-blocked' },
+  labels: { ready: 'ready-for-agent', working: 'agent-working', blocked: 'agent-blocked', prd: 'prd', reviewed: 'prd-reviewed' },
 };
 
 export interface Project {
@@ -55,7 +61,8 @@ export function loadProject(from: string = process.cwd()): Project {
   const root = findProjectRoot(from);
   if (!root) throw new Error("not inside an hx project (no .hx/config.json here or above). Run 'hx init' in the repo root.");
   const stateDir = path.join(root, STATE_DIR);
-  const raw = JSON.parse(readFileSync(path.join(stateDir, 'config.json'), 'utf8'));
+  // strip a BOM: Notepad and PowerShell 5 add one when saving UTF-8
+  const raw = JSON.parse(readFileSync(path.join(stateDir, 'config.json'), 'utf8').replace(/^﻿/, ''));
   const config: Config = { ...DEFAULTS, ...raw, labels: { ...DEFAULTS.labels, ...(raw.labels ?? {}) } };
   return { root, stateDir, config };
 }
