@@ -3,7 +3,7 @@ import { E2E } from './isolate.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -23,7 +23,8 @@ saveConfig(path.join(root, '.hx'), { ...DEFAULTS, repo: 'me/app', defaultBranch:
 const board = () => JSON.parse(readFileSync(stateFile, 'utf8'));
 const reset = () => writeFileSync(stateFile, JSON.stringify({ comments: [], prs: [], issues: [] }));
 const prds = () => readdirSync(path.join(root, '.hx', 'prds')).filter((f) => !f.endsWith('.prompt.md'));
-const grillSeen = () => JSON.parse(readFileSync(path.join(fakeDir, 'grill-args.json'), 'utf8'));
+const wake = path.join(root, '.hx', 'wake');
+const grillSeen =() => JSON.parse(readFileSync(path.join(fakeDir, 'grill-args.json'), 'utf8'));
 
 function hx(args: string[], input = '', env: Record<string, string> = {}) {
   const r = spawnSync(process.execPath, [HX, ...args], { cwd: root, input, encoding: 'utf8',
@@ -33,6 +34,7 @@ function hx(args: string[], input = '', env: Record<string, string> = {}) {
 
 test('hx grill "idea" --yes: one prd issue titled from the "# " line, exit 0', E2E, () => {
   reset();
+  rmSync(wake, { force: true });
   const r = hx(['grill', 'add dark mode', '--yes']);
   assert.equal(r.code, 0, r.out);
   const { issues } = board();
@@ -41,7 +43,8 @@ test('hx grill "idea" --yes: one prd issue titled from the "# " line, exit 0', E
   assert.deepEqual(issues[0].labels, [DEFAULTS.labels.prd]);
   assert.match(issues[0].body, /## Goals\nShip it\./);
   assert.match(r.out, /# Grilled feature/); // the PRD is shown
-  assert.match(r.out, /filed https:\/\/github\.com\/me\/app\/issues\/1/);
+  assert.match(r.out, /filed https:\/\/github\.com\/me\/app\/issues\/1\r?\nIt will be decomposed into issues\. no hx run is running — start it with {2}hx run --watch/);
+  assert.match(readFileSync(wake, 'utf8').trim(), /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
   assert.doesNotMatch(r.out, /\[y\/N\]/);
   // the session: interactive argv (prompt last), repo root, rendered with repo, base and idea
   const seen = grillSeen();
@@ -54,10 +57,12 @@ test('hx grill "idea" --yes: one prd issue titled from the "# " line, exit 0', E
 
 test('without --yes: "n" files nothing and prints the path; "y" / "YES" file one issue', E2E, () => {
   reset();
+  rmSync(wake, { force: true });
   let r = hx(['grill', 'idea'], 'n\n');
   assert.equal(r.code, 0, r.out);
   assert.match(r.out, /File this PRD on me\/app\? \[y\/N\] /);
   assert.equal(board().issues.length, 0);
+  assert.ok(!existsSync(wake), 'answered no: no .hx/wake');
   assert.ok(r.out.includes(path.join(root, '.hx', 'prds')), r.out);
   assert.match(r.out, /hx prd <file>/);
 
@@ -95,11 +100,13 @@ test('a long idea from a file goes through the prompt file and still works', E2E
 
 test('session writes no PRD: nothing filed, exit 1', E2E, () => {
   reset();
+  rmSync(wake, { force: true });
   const before = prds().length;
   const r = hx(['grill', 'idea', '--yes'], '', { FAKE_GRILL_NOWRITE: '1' });
   assert.equal(r.code, 1, r.out);
   assert.match(r.out, /no PRD written — nothing filed/);
   assert.equal(board().issues.length, 0);
+  assert.ok(!existsSync(wake), 'nothing written: no .hx/wake');
   assert.equal(prds().length, before);
 });
 

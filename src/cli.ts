@@ -7,7 +7,7 @@ import * as gh from './github.ts';
 import { resolveCmd, run, runOk } from './exec.ts';
 import { log, lookupTrusted, printPlan, readPlan, runPool, trustedEnv } from './pool.ts';
 import { killAllSessions } from './agent.ts';
-import { clearPause, otherRunner, pidAlive, readLive, readPause, setPause } from './runstate.ts';
+import { clearPause, nextLine, otherRunner, pidAlive, readLive, readPause, setPause, writeWake } from './runstate.ts';
 import { readGate } from './gate.ts';
 import { DEFAULT_PORT, serveDashboard } from './dashboard.ts';
 import { fileBug, filePrd } from './prd.ts';
@@ -153,7 +153,8 @@ async function prd(args: string[]): Promise<number> {
   const file = args.find((a, i) => !a.startsWith('--') && args[i - 1] !== '--title');
   if (!file) throw new Error('usage: hx prd <file.md> [--title "..."]');
   const url = await filePrd(p.config, file, flag(args, '--title'));
-  console.log(`filed ${url}\nhx run will decompose it into issues.`);
+  writeWake(p.stateDir);
+  console.log(`filed ${url}\n${nextLine(p.stateDir, 'decompose')}`);
   return 0;
 }
 
@@ -162,8 +163,8 @@ async function bug(args: string[]): Promise<number> {
   const arg = args.find((a, i) => !a.startsWith('--') && args[i - 1] !== '--title');
   if (!arg) throw new Error('usage: hx bug <file.md | "text"> [--title "..."]');
   const url = await fileBug(p.config, arg, flag(args, '--title'));
-  console.log(`${url}
-hx run will triage it.`);
+  writeWake(p.stateDir);
+  console.log(`${url}\n${nextLine(p.stateDir, 'triage')}`);
   return 0;
 }
 
@@ -193,7 +194,8 @@ async function grill(args: string[]): Promise<number> {
     return 0;
   }
   const url = await filePrd(c, paths.prd);
-  console.log(`filed ${url}\nhx run will decompose it into issues.`);
+  writeWake(p.stateDir);
+  console.log(`filed ${url}\n${nextLine(p.stateDir, 'decompose')}`);
   return 0;
 }
 
