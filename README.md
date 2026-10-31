@@ -120,6 +120,7 @@ npm link
 cd <your repo>
 hx init                 # writes .hx/config.json and creates the GitHub labels; --rtdd also runs
                         # rtdd init in the repo root (commit .rtdd/), without it a hint if rtdd is installed
+hx bug "status hangs"   # file a bug issue (label bug, text or a .md file; --title T); hx run triages it
 hx prd feature.md       # file a PRD issue (title from the file's first "# " line)
 hx grill "dark mode"    # an interactive claude session interviews you into a PRD (idea: text or a .md file),
                         # shows it and files it on confirm (--yes: no question); kept in .hx/prds/
