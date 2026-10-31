@@ -1,5 +1,5 @@
 // The fleet: the repos one `hx fleet run` works, listed in <hx home>/.hx/fleet.json.
-import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, statSync, unlinkSync, writeFileSync, writeSync } from 'node:fs';
+import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync, writeSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { STATE_DIR } from './config.ts';
@@ -126,4 +126,29 @@ export function acquireSlot(dir: string, cap: number, o: SlotOwner): number | nu
 export function releaseSlot(dir: string, k: number, pid = process.pid): void {
   const file = slotFile(dir, k);
   try { if (JSON.parse(readFileSync(file, 'utf8')).pid === pid) unlinkSync(file); } catch {}
+}
+
+// The shared usage hold: `<fleetDir>/hold.json` holds { until (ms epoch), reason, repo }; no runner claims before `until`.
+export interface Hold { until: number; reason: string; repo: string }
+
+export const holdFile = (dir: string) => path.join(dir, 'hold.json');
+
+/** The hold in force: null when the file is missing, unparsable or already expired. */
+export function readHold(dir: string, now = Date.now()): Hold | null {
+  let h: any;
+  try { h = JSON.parse(readFileSync(holdFile(dir), 'utf8')); } catch { return null; }
+  if (!h || typeof h.until !== 'number' || !Number.isFinite(h.until) || h.until <= now) return null;
+  return { until: h.until, reason: String(h.reason ?? ''), repo: String(h.repo ?? '') };
+}
+
+/** Write the hold unless the file already holds a later `until`; true when written. */
+export function writeHold(dir: string, h: Hold): boolean {
+  let cur: unknown;
+  try { cur = JSON.parse(readFileSync(holdFile(dir), 'utf8')).until; } catch {}
+  if (typeof cur === 'number' && cur >= h.until) return false;
+  mkdirSync(dir, { recursive: true });
+  const tmp = `${holdFile(dir)}.${process.pid}.tmp`;
+  writeFileSync(tmp, JSON.stringify({ until: h.until, reason: h.reason, repo: h.repo }));
+  try { renameSync(tmp, holdFile(dir)); } catch { try { unlinkSync(tmp); } catch {} return false; }
+  return true;
 }
