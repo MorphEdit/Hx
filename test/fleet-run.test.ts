@@ -152,3 +152,14 @@ test('hx help lists fleet run', E2E, () => {
   const r = spawnSync(process.execPath, [HX, 'help'], { encoding: 'utf8' });
   assert.match(r.stdout, /fleet run \[--workers N\] \[--watch\]/);
 });
+
+test('hx fleet run --workers rejects a non-positive or non-integer cap before starting anything', E2E, () => {
+  const a = plain('a');
+  const h = home({ repos: [{ root: a }] });
+  for (const w of ['0', '-1', '1.5', 'x']) {
+    const r = spawnSync(process.execPath, [HX, 'fleet', 'run', '--workers', w], { cwd: tmp, encoding: 'utf8', env: { ...process.env, HX_HOME: h } });
+    assert.equal(r.status, 1, r.stdout + r.stderr);
+    assert.match(r.stderr, /--workers must be a positive integer/);
+  }
+  assert.ok(!existsSync(path.join(a, '.hx', 'live.json')));
+});
