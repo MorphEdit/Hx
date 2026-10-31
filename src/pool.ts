@@ -433,6 +433,8 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
 
   const L = c.labels;
   const audited = a.kind === 'impl' && c.audit;
+  // a bug issue (triaged or not, a PRD child too) gets a reproduce-first note in its impl and audit prompts
+  const bug = a.kind === 'impl' && (await gh.issueLabels(c.repo, n).catch(() => [] as string[])).includes(L.bug);
   const vars: Record<string, string | number> = {
     REPO: c.repo, BASE: c.defaultBranch, TITLE: title, SHIP, ISSUE_SCRIPT,
     LABEL_READY: L.ready, LABEL_REVIEWED: L.reviewed, LABEL_SECURED: L.secured, LABEL_SECURITY: L.security, ROUND: round,
@@ -449,6 +451,7 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
     SHIP_WHAT: audited ? ' (it does NOT merge: an independent auditor checks the PR first)' : ', squash-merges it, deletes the branch and closes the issue',
     SHIP_DONE: audited ? 'READY' : 'SHIPPED',
     SHIP_NOTE: audited ? 'Do not merge the PR or close the issue yourself.\n' : '',
+    BUG_NOTE: bug ? `${IMPL_BUG_NOTE}\n` : '',
   };
   const logDir = path.join(p.stateDir, 'logs');
   mkdirSync(logDir, { recursive: true });
@@ -585,7 +588,8 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
     // the auditor works in its own fresh checkout of the pushed branch and never sees the implementer's session
     const awt = await addWorktree(p.root, c.worktreeRoot, auditWorktree(n));
     log(`audit ${attempt}/${c.auditRounds}: PR #${pr}`, n);
-    const ar = await goal('audit', awt.dir, 'audit.md', `AUDIT ${n} DONE`, { PR: pr, ROUND: attempt, ROUNDS: c.auditRounds });
+    const ar = await goal('audit', awt.dir, 'audit.md', `AUDIT ${n} DONE`, { PR: pr, ROUND: attempt, ROUNDS: c.auditRounds,
+      BUG_NOTE: bug ? `${AUDIT_BUG_NOTE}\n` : '' });
     await removeWorktree(p.root, awt.dir);
     summary = `${fmt(sessionTokens)} tokens`;
     if (stopped(ar)) return handBack(ar, summary);
@@ -624,6 +628,9 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
 }
 
 export const AUDIT_MARKER = '<!-- hx-audit -->';
+/** {{BUG_NOTE}} for an issue labelled `bug`: one text for the implementer, one for its auditor. */
+export const IMPL_BUG_NOTE = 'This is a bug. Start from the triage comment if there is one and add its failing test (or a better one); otherwise write a test that reproduces the bug. See it fail, then fix the root cause. Do not only patch the symptom.';
+export const AUDIT_BUG_NOTE = 'Check that a test reproduces the reported bug and fails without the fix (revert the fix locally to check), and that the fix addresses the root cause (the one named in the triage comment, if there is one).';
 export const RETRY_MARKER = '<!-- hx-retry -->';
 
 /** The auditor's verdict from its final message, or null when it gave none. */
