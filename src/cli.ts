@@ -13,6 +13,7 @@ import { DEFAULT_PORT, serveDashboard } from './dashboard.ts';
 import { fileBug, filePrd } from './prd.ts';
 import { grillArgs, ideaFrom, sessionPaths, sessionPrompt } from './grill.ts';
 import { formatSkills } from './skills.ts';
+import { addRepo, fleetFile, fleetWorkers, readFleet, removeRepo, sameRoot, writeFleet } from './fleet.ts';
 import { fmt, localDay, readUsage, summarize, totalTokens, type UsageRow } from './usage.ts';
 
 const HELP = `usage: hx <command> [options]
@@ -44,6 +45,10 @@ const HELP = `usage: hx <command> [options]
   dashboard [--port N] [--open]
                            a read-only page on http://127.0.0.1:${DEFAULT_PORT}/ (localhost only): the runner,
                            sessions, gate, usage by PRD/role/model/day, run log and the board (--open: browser)
+  fleet add [<path>]       add the hx repo containing <path> (default: here) to the fleet (~/.hx/fleet.json)
+  fleet remove <path>      remove that repo from the fleet (its .hx/ is untouched)
+  fleet list               the fleet's repos: root, repo and whether the root still exists
+  fleet workers <n>        the fleet's worker cap (default 2), read by the next hx fleet run
   help
 
 Ctrl+C in hx run = pause --now for that run; Ctrl+C again force-quits (sessions are killed).
@@ -81,6 +86,7 @@ export async function main(argv: string[]): Promise<number> {
     case 'resume': return resume();
     case 'usage': return usage(args);
     case 'dashboard': return dashboard(args);
+    case 'fleet': return fleet(args);
     case undefined: case 'help': case '-h': case '--help': console.log(HELP); return 0;
     default: console.error(`unknown command: ${cmd}\n\n${HELP}`); return 2;
   }
@@ -342,6 +348,51 @@ function usage(args: string[]): number {
   for (const r of rows) console.log(line(r));
   console.log(line(all));
   return 0;
+}
+
+function fleet(args: string[]): number {
+  const [sub, arg] = args;
+  const f = readFleet();
+  switch (sub) {
+    case 'add': {
+      const from = path.resolve(arg ?? process.cwd());
+      const root = findProjectRoot(from);
+      if (!root) { console.error(`no .hx/config.json in ${from} or above: run hx init there first`); return 1; }
+      if (f.repos.some((r) => sameRoot(r.root, root))) { console.log(`already in the fleet: ${root}`); return 0; }
+      writeFleet(addRepo(f, root));
+      console.log(`added ${root} to the fleet (${fleetFile()})`);
+      return 0;
+    }
+    case 'remove': {
+      if (!arg) { console.error('usage: hx fleet remove <path>'); return 2; }
+      const abs = path.resolve(arg);
+      const inside = findProjectRoot(abs);
+      const root = f.repos.find((r) => sameRoot(r.root, abs)) ?? (inside ? f.repos.find((r) => sameRoot(r.root, inside)) : undefined);
+      if (!root) { console.error(`not in the fleet: ${abs}`); return 1; }
+      writeFleet(removeRepo(f, root.root));
+      console.log(`removed ${root.root} from the fleet`);
+      return 0;
+    }
+    case 'list': {
+      if (!f.repos.length) { console.log('the fleet is empty: add a repo with  hx fleet add <path>'); return 0; }
+      for (const r of f.repos) {
+        const exists = existsSync(r.root);
+        let repo = '?';
+        try { repo = loadProject(r.root).config.repo || '?'; } catch { /* missing root or no config */ }
+        console.log(`${r.root}  ${repo}  ${exists ? 'ok' : 'missing'}`);
+      }
+      console.log(`workers: ${fleetWorkers(f)}`);
+      return 0;
+    }
+    case 'workers': {
+      const n = Number(arg);
+      if (!arg || !Number.isInteger(n) || n < 1) { console.error('usage: hx fleet workers <n>  (n: a positive integer)'); return 2; }
+      writeFleet({ ...f, workers: n });
+      console.log(`fleet workers: ${n} (read by the next hx fleet run)`);
+      return 0;
+    }
+    default: console.error('usage: hx fleet add [<path>] | remove <path> | list | workers <n>'); return 2;
+  }
 }
 
 async function dashboard(args: string[]): Promise<number> {
