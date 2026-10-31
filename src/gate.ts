@@ -43,15 +43,19 @@ export async function remoteSha(checkout: string, base: string): Promise<string>
 export async function runGate(checkout: string, root: string, base: string, command: string, timeoutMs = 20 * 60_000,
   signal?: AbortSignal): Promise<GateResult> {
   const wt = await addWorktree(checkout, root, { name: 'gate', branch: 'hx/gate', base, fresh: true });
+  let aborted = false;
   try {
     const sha = (await run(process.env.HX_GIT_BIN || 'git', ['-C', wt.dir, 'rev-parse', 'HEAD'])).stdout.trim();
     const res = await runShell(command, { cwd: wt.dir, timeoutMs, signal });
+    aborted = !!res.aborted;
     if (res.aborted) return { sha, ok: false, command, output: res.output.trim().split('\n').slice(-60).join('\n'), aborted: true, at: new Date().toISOString() };
     const note = res.timedOut ? `\ngate: timed out after ${+(timeoutMs / 60_000).toFixed(2)} min — process tree killed` : '';
     return { sha, ok: res.code === 0 && !res.timedOut, command, output: (res.output.trim() + note).trim().split('\n').slice(-60).join('\n'),
       ...(res.timedOut ? { timedOut: true } : {}), at: new Date().toISOString() };
   } finally {
-    await removeWorktree(checkout, wt.dir);
+    // after Ctrl+C Windows may hold the killed tree's files for seconds: do not wait (the next gate's fresh add clears it)
+    const removed = removeWorktree(checkout, wt.dir);
+    if (aborted) removed.catch(() => {}); else await removed;
   }
 }
 
