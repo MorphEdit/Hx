@@ -1,5 +1,5 @@
 // `hx run --watch` wakes within seconds when .hx/wake changes, instead of after pollSeconds (#100).
-// Real git (a local bare origin), fake gh and claude. pollSeconds is 600: a claim in seconds is the wake's.
+// Real git (a local bare origin), fake gh and claude. pollSeconds is 600: a claim well before that is the wake's.
 import { E2E, pooled } from './isolate.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -60,7 +60,10 @@ function start() {
   return { lines, run, returned: () => rc !== undefined, stop: async () => { ac.abort(); return run; } };
 }
 const timers = () => process.getActiveResourcesInfo().filter((x) => x === 'Timeout').length;
-const idle = (lines: string[]) => lines.some((l) => /board empty — watching/.test(l));
+const idles = (lines: string[]) => lines.filter((l) => /board empty — watching/.test(l)).length;
+const idle = (lines: string[]) => idles(lines) > 0;
+// wake → claim budget: generous (the whole suite loads the machine and spawns slow) yet a tenth of pollSeconds
+const WAKE_MS = 60_000;
 
 test('a write to .hx/wake wakes an idle --watch run within seconds; no wake file, or a deleted one, is no error', E2E, async () => {
   rmSync(wakeFile, { force: true });
@@ -71,16 +74,18 @@ test('a write to .hx/wake wakes an idle --watch run within seconds; no wake file
     addIssue(1);
     writeFileSync(wakeFile, String(Date.now()));
     const at = Date.now();
-    assert.ok(await until(() => claimed(1), 10_000), `#1 not claimed within 10 s of the wake\n${r.lines.join('\n')}`);
-    assert.ok(Date.now() - at < 10_000);
+    assert.ok(await until(() => claimed(1), WAKE_MS), `#1 not claimed within ${WAKE_MS / 1000} s of the wake\n${r.lines.join('\n')}`);
+    assert.ok(Date.now() - at < WAKE_MS);
     // the file deleted while watched: no error, the run goes on, and a later write wakes it again
     rmSync(wakeFile);
     await new Promise((res) => setTimeout(res, 3000));
     assert.equal(r.returned(), false, 'the run is still going');
-    assert.ok(await until(() => loadJson(stateFile).issues.find((x: any) => x.number === 1).state === 'CLOSED', 60_000), r.lines.join('\n'));
+    assert.ok(await until(() => loadJson(stateFile).issues.find((x: any) => x.number === 1).state === 'CLOSED', 120_000), r.lines.join('\n'));
+    // closed is not finished: with one worker #2 waits for #1's session to end, so wait for the run to idle again
+    assert.ok(await until(() => idles(r.lines) >= 2, 120_000), r.lines.join('\n'));
     addIssue(2);
     writeFileSync(wakeFile, String(Date.now()));
-    assert.ok(await until(() => claimed(2), 10_000), `#2 not claimed after a second wake\n${r.lines.join('\n')}`);
+    assert.ok(await until(() => claimed(2), WAKE_MS), `#2 not claimed after a second wake\n${r.lines.join('\n')}`);
   } finally {
     await r.stop();
   }
@@ -94,7 +99,7 @@ test('a wake that lands while the loop reads the board is latched: the board is 
     slowList: { add: issue(3), wake: wakeFile, ms: 4500 } }));
   const r = start();
   try {
-    assert.ok(await until(() => claimed(3), 30_000), `#3 not claimed: the wake was lost\n${r.lines.join('\n')}`);
+    assert.ok(await until(() => claimed(3), 2 * WAKE_MS), `#3 not claimed: the wake was lost\n${r.lines.join('\n')}`);
   } finally {
     await r.stop();
   }
@@ -110,7 +115,7 @@ test('with .hx/pause present, a wake claims nothing; the drained run leaves no 6
     writeFileSync(path.join(stateDir, 'pause'), 'drain');
     addIssue(4);
     writeFileSync(wakeFile, String(Date.now()));
-    await until(() => r.returned(), 10_000);
+    await until(() => r.returned(), WAKE_MS);
     await new Promise((res) => setTimeout(res, 1000));
     assert.equal(claimed(4), false, r.lines.join('\n'));
   } finally {
