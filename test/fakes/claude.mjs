@@ -13,6 +13,7 @@
 //   grill:     interactive (prompt as the last argument, not stdin): writes a PRD to the output path the prompt
 //              names (FAKE_GRILL_NOWRITE=1: writes nothing, =blank: whitespace only) and exits
 //   issue:     the same for `hx issue`: writes a small issue to its output path (same FAKE_GRILL_NOWRITE)
+// FAKE_CLAUDE_PAUSE=<file>: an implement session writes `drain` there as it closes its issue
 // FAKE_CLAUDE_MODE=limit / crash for the error paths; =stall prints one event, starts a sleeping child, writes both pids
 // to HX_FAKE_DIR/stall-<pid>.json and sleeps FAKE_CLAUDE_SLEEP_MS (default 10 min), then replies.
 import { spawn, spawnSync } from 'node:child_process';
@@ -172,6 +173,8 @@ function finish(st, checkpoint, prompt) {
     } else if (st.role === 'implement' && st.turns >= 2 && !/FAIL/.test(me.body)) {
       me.state = 'CLOSED';
       t = `merged. ${done()}`;
+      // FAKE_CLAUDE_PAUSE=<.hx/pause>: `hx pause` lands just as the issue closes, moments before the session ends
+      if (process.env.FAKE_CLAUDE_PAUSE) writeFileSync(process.env.FAKE_CLAUDE_PAUSE, 'drain');
     } else if (st.role === 'decompose' && /DECOMPOSESTRANGER/.test(me.body)) {
       // files nothing itself; meanwhile a stranger opens an issue claiming to be the PRD's child
       b.issues.push({ number: Math.max(0, ...b.issues.map((i) => i.number)) + 1, title: 'stranger child',
