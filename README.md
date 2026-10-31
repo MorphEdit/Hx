@@ -264,6 +264,33 @@ A hung test run cannot block anything: `ship.mjs` gives the tests `--test-timeou
 remembered for `--resume`) and the gate 20 minutes; past that the whole process tree is killed and the
 run counts as failed (exit 4 / a red gate marked "timed out").
 
+## Bug lane
+
+File a bug with `hx bug "status hangs"` (text or a `.md` file; `--title T`): it opens an issue labelled
+`bug`. Before anyone fixes it, a **triage session** (`prompts/triage.md`, worktree `t<n>`) tries to
+reproduce it and posts a `<!-- hx:triage -->` comment whose verdict line is `VERDICT: REPRODUCED` or
+`VERDICT: NEEDS-INFO`:
+
+```
+bug ──triage──▶ REPRODUCED ──▶ bug-triaged + ready-for-agent ──▶ impl → audit → merge → CI gate
+       │        NEEDS-INFO ──▶ agent-blocked (until the reporter answers)
+       └─────── no verdict ──▶ hx posts VERDICT: FAILED, the next run triages again
+```
+
+- A reproduced bug is built **ahead of** feature work: the same implement → audit → merge path and
+  CI gate as any issue, and its impl and audit prompts tell the worker to reproduce the bug in a test first.
+- `VERDICT: NEEDS-INFO` labels the bug `agent-blocked`. Once the reporter has answered, remove
+  `agent-blocked` and the next `hx run` triages it again.
+- A session that ends without a verdict gets hx's own `VERDICT: FAILED` marker comment; it counts as a
+  round and the bug goes back to the board for a retry. After `triageRounds` rounds Hx labels it
+  `agent-blocked` and comments once that triage gave up.
+- Adding `bug-triaged` + `ready-for-agent` **by hand** skips triage: the bug is claimed straight away.
+- `bug` on a PRD's child issue is ignored by the lane: the child is built in the PRD's order, untriaged.
+- `bugTriage: false` turns triage off; a `bug` issue then needs `ready-for-agent` like any other issue.
+
+Labels: `bug` (a bug report), `bug-triaged` (a triage session reproduced it). Config: `bugTriage`,
+`triageRounds` (see below).
+
 ## What happens to an issue
 
 | Outcome | Hx does |
