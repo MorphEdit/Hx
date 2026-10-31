@@ -5,7 +5,8 @@
 //   critic:    FAIL until the PRD body holds the fake reviser's marker (GAUNTLETNEVER in the body: always FAIL)
 //   security:  round 1 files a `security` issue, later rounds sign off (security-reviewed); both post the
 //              verdict comment. In the PRD body: SECURITYNEVER = files one every round, SECURITYNOOP = does
-//              nothing at all, SECURITYNOCOMMENT = signs off without the comment
+//              nothing at all, SECURITYNOCOMMENT = signs off without the comment, SECURITYTWO = round 1 files
+//              two and gh lists the higher number first
 //              (SECURITYSTRANGER: an untrusted account, mallory, posts one instead)
 //   revise:    appends its marker to the body with `gh issue edit --body-file` (REVISENOOP in the body: changes nothing)
 //   grill:     interactive (prompt as the last argument, not stdin): writes a PRD to the output path the prompt
@@ -180,7 +181,12 @@ function finish(st, checkpoint, prompt) {
         saveBoard(b);
         return t;
       }
-      if (st.round === 1 || /SECURITYNEVER/.test(me.body)) {
+      if (st.round === 1 && /SECURITYTWO/.test(me.body)) {
+        const k = file(b, `security: injection in ${me.title}`, `exploit\n\n## Blocked by\nNone\n\n## Parent\n#${st.n}\n`, ['ready-for-agent', 'security']);
+        const j = file(b, `security: leak in ${me.title}`, `exploit\n\n## Blocked by\nNone\n\n## Parent\n#${st.n}\n`, ['ready-for-agent', 'security']);
+        b.issues.splice(b.issues.findIndex((i) => i.number === k), 0, b.issues.pop()); // gh lists #j before #k
+        b.comments.push({ issue: st.n, body: `<!-- hx-security -->\nround ${st.round}: filed #${k}, #${j}` });
+      } else if (st.round === 1 || /SECURITYNEVER/.test(me.body)) {
         const k = file(b, `security: injection in ${me.title}`, `exploit\n\n## Blocked by\nNone\n\n## Parent\n#${st.n}\n`, ['ready-for-agent', 'security']);
         b.comments.push({ issue: st.n, body: `<!-- hx-security -->\nround ${st.round}: filed #${k}` });
       } else {

@@ -74,7 +74,7 @@ test('security files an issue → prd-reviewed removed → fixed → review agai
   assert.equal(marked(1, '<!-- hx-review -->').length, 3, 'gap, sign-off, then a review of the security fix');
   // order: review sign-off → security 1 → reviewed removed → fix → review 3 → security 2 → closed
   const at = (re: RegExp) => lines.findIndex((l) => re.test(l));
-  const order = [at(/\[#1\] review \(round 2\)/), at(/\[#1\] security \(round 1\)/), at(/\[#1\] security pass filed issue\(s\) — removed prd-reviewed$/),
+  const order = [at(/\[#1\] review \(round 2\)/), at(/\[#1\] security \(round 1\)/), at(new RegExp(`\\[#1\\] security pass filed #${sec[0].number} — removed prd-reviewed$`)),
     at(new RegExp(`\\[#${sec[0].number}\\] impl`)), at(/\[#1\] review \(round 3\)/), at(/\[#1\] security \(round 2\)/), at(/\[#1\] PRD closed/)];
   assert.ok(order.every((x, k) => x >= 0 && (k === 0 || x > order[k - 1])), `${order}\n${lines.join('\n')}`);
   assert.ok(read().comments.some((c: any) => c.issue === 1 && /passed review and the security pass — closed by hx/.test(c.body)), 'close message mentions security');
@@ -91,6 +91,14 @@ test('security files an issue → prd-reviewed removed → fixed → review agai
   const envs = sessionEnvs(fakeDir);
   assert.ok(envs.some((e) => e.role === 'security'));
   for (const e of envs) assert.equal(e.trusted, 'me', JSON.stringify(e));
+});
+
+test('a pass that files several issues names them in ascending order, whatever order gh lists them in', E2E, async () => {
+  board([prd(30, 'SECURITYTWO\n', [L.reviewed]), kid(31, 30)], [reviewedOnce(30)]);
+  const { rc, lines } = await run();
+  assert.equal(rc, 0, lines.join('\n'));
+  assert.deepEqual(read().issues.filter((i: any) => i.labels.includes(L.security)).map((i: any) => i.number), [33, 32], 'gh lists them out of order');
+  assert.ok(lines.some((l) => /\[#30\] security pass filed #32, #33 — removed prd-reviewed$/.test(l)), lines.join('\n'));
 });
 
 test('security never passes: after securityRounds the PRD is agent-blocked with a comment for a human, not closed', E2E, async () => {

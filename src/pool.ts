@@ -561,10 +561,11 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
     const why = await verify(p, a, n, ctx.trusted, before);
     if (!why) {
       // the pass filed security issues: once they are fixed the PRD is reviewed, then checked, again
-      const filed = a.kind === 'security' && [...(await securitySnapshot(p, n, ctx.trusted)).issues].some((k) => !before?.issues.has(k));
+      const filedNums = a.kind === 'security' ? [...(await securitySnapshot(p, n, ctx.trusted)).issues].filter((k) => !before?.issues.has(k)).sort((x, y) => x - y) : [];
+      const filed = filedNums.length > 0;
       const drop = filed ? [L.reviewed, ...((await gh.issueLabels(c.repo, n)).includes(L.secured) ? [L.secured] : [])] : [];
       await relabel(c.repo, n, [], [L.working, ...drop]);
-      if (filed) log(`security pass filed issue(s) — removed ${L.reviewed}`, n);
+      if (filed) log(`security pass filed ${filedNums.map((k) => `#${k}`).join(', ')} — removed ${L.reviewed}`, n);
       await removeWorktree(p.root, wt.dir);
       log(`${a.kind} DONE ✓ (${summary})`, n);
       if (a.kind === 'impl') ctx.merged?.();
