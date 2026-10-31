@@ -1,6 +1,6 @@
 // Comments hx reads for its own logic (handoff note, round markers, the original PRD body, the security
 // verdict) only count when a trusted account wrote them. End to end: real git, fake gh and claude.
-import { E2E } from './isolate.ts';
+import { E2E, pooled } from './isolate.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
@@ -52,7 +52,7 @@ async function run(extra = {}) {
   const orig = console.log;
   console.log = (m: string) => { lines.push(m); orig(m); };
   try {
-    return { rc: await runPool(project(extra), { workers: 1, watch: false, dryRun: false, signal: new AbortController().signal }), lines };
+    return { rc: await pooled((signal) => runPool(project(extra), { workers: 1, watch: false, dryRun: false, signal })), lines };
   } finally { console.log = orig; }
 }
 

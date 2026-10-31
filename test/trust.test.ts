@@ -1,6 +1,6 @@
 // Trusted authors end to end: real git (a local bare origin), fake gh and claude. Only issues and PRDs
 // opened by the gh login or config.trustedAuthors are worked on; the rest are skipped, logged once.
-import { E2E, sessionEnvs } from './isolate.ts';
+import { E2E, pooled, sessionEnvs } from './isolate.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
@@ -57,7 +57,7 @@ async function capture(fn: () => Promise<number>) {
   const rc = await fn().finally(() => { console.log = orig; });
   return { rc, lines };
 }
-const pool = (dryRun = false) => runPool(project, { workers: 2, watch: false, dryRun, signal: new AbortController().signal });
+const pool = (dryRun = false) => pooled((signal) => runPool(project, { workers: 2, watch: false, dryRun, signal }));
 
 test('--dry-run: untrusted rows show who opened them (or their PRD)', E2E, async () => {
   writeFileSync(stateFile, JSON.stringify(BOARD()));

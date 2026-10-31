@@ -1,7 +1,7 @@
 // The auditor loop end to end: real git (a local bare origin), the real ship.mjs, fake gh and claude.
 //   implementer ships with --no-merge → an independent audit session → hx merges on PASS, or the
 //   findings go back to the implementer; too many FAILs and the issue goes to a human.
-import { E2E, sessionEnvs } from './isolate.ts';
+import { E2E, pooled, sessionEnvs } from './isolate.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
@@ -48,7 +48,7 @@ async function run(only: number[]) {
   const orig = console.log;
   console.log = (m: string) => { lines.push(m); orig(m); };
   try {
-    return { rc: await runPool(project(), { workers: 1, watch: false, dryRun: false, only, signal: new AbortController().signal }), lines };
+    return { rc: await pooled((signal) => runPool(project(), { workers: 1, watch: false, dryRun: false, only, signal })), lines };
   } finally { console.log = orig; }
 }
 

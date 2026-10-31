@@ -2,6 +2,7 @@
 // environment, inherited by the worker that runs these tests) or from the user's git setup reaches them.
 // A hung test fails at E2E.timeout instead of blocking `node --test`.
 import { spawnSync } from 'node:child_process';
+import { afterEach } from 'node:test';
 import { mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -19,7 +20,29 @@ Object.assign(process.env, {
   GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t',
 });
 
-export const E2E = { timeout: 120_000 };
+// 5 min: a test that takes 10-25 s alone runs past 2 min when the gate shares the machine with busy workers
+export const E2E = { timeout: 300_000 };
+
+// A pool a test starts stops when the test ends. A test that times out leaves its function running: without
+// this, its pool would go on claiming and building on the board the next test writes, failing that test too.
+let testEnded = new AbortController();
+const pools = new Set<Promise<unknown>>();
+
+/** Run a pool (or anything that takes a stop signal) on a signal aborted when the current test ends, a timeout
+ *  included; `also` (a test's own Ctrl+C) aborts it too. The next test starts once it has stopped. */
+export function pooled<T>(start: (signal: AbortSignal) => Promise<T>, also?: AbortSignal): Promise<T> {
+  const p = start(also ? AbortSignal.any([testEnded.signal, also]) : testEnded.signal);
+  pools.add(p);
+  p.then(() => pools.delete(p), () => pools.delete(p));
+  return p;
+}
+
+// only in a test file: a hook registered elsewhere (a script importing this file) would start a test harness
+if (/\.test\.ts$/.test(process.argv[1] ?? '')) afterEach(async () => {
+  testEnded.abort();
+  await Promise.allSettled([...pools]);
+  testEnded = new AbortController();
+}, E2E);
 
 /** The pid of a process that has exited: a crashed runner. A made-up number may be a live process
  *  (Windows ignores the low two bits of a pid, so 999999 is 999996). */

@@ -1,7 +1,7 @@
 // Worktree cleanup never fails finished work: real git (a local bare origin), the real ship.mjs, fake gh and claude.
 // Removing a worktree directory throws (Windows: EPERM, a file still open) → the issue still ends DONE ✓,
 // the gate re-runs after the merge, and the leftover directory is removed on the next start.
-import { E2E } from './isolate.ts';
+import { E2E, pooled } from './isolate.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
@@ -47,7 +47,7 @@ async function run() {
   const orig = console.log;
   console.log = (m: string) => { lines.push(m); orig(m); };
   try {
-    return { rc: await runPool(project(), { workers: 1, watch: false, dryRun: false, signal: new AbortController().signal }), lines };
+    return { rc: await pooled((signal) => runPool(project(), { workers: 1, watch: false, dryRun: false, signal })), lines };
   } finally { console.log = orig; }
 }
 
