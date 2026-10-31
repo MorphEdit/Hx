@@ -665,8 +665,8 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
       const verdicts = (await gh.commentBodies(c.repo, n, ctx.trusted)).filter((b) => triageVerdict(b) !== null);
       const v = verdicts.length >= round ? triageVerdict(verdicts.at(-1)!) : null;
       if (v === 'REPRODUCED') {
-        await relabel(c.repo, n, [L.triaged, L.ready], [L.working]);
-        log(`triage: REPRODUCED ✓ (${summary})`, n);
+        if (await relabel(c.repo, n, [L.triaged, L.ready], [L.working])) log(`triage: REPRODUCED ✓ (${summary})`, n);
+        else log(`triage: REPRODUCED, but the labels could not be changed — label it ${L.triaged} + ${L.ready} by hand (${summary})`, n);
       } else if (v === 'NEEDS-INFO') {
         await relabel(c.repo, n, [L.blocked], [L.working]);
         log(`triage: NEEDS-INFO — waiting for the reporter (${summary})`, n);

@@ -161,7 +161,7 @@ test('relabel: a label missing from the repo is created and the edit retried onc
   assert.ok(!lines.some((l) => /WARNING/.test(l)), lines.join('\n'));
 });
 
-test('missingLabels: only the added labels gh names as not found', () => {
+test('missingLabels: only the added labels gh names as not found', E2E, () => {
   const { missingLabels } = mod;
   assert.deepEqual(missingLabels("failed to update https://github.com/o/r/issues/71: 'bug-triaged' not found", ['bug-triaged', 'ready-for-agent']), ['bug-triaged']);
   assert.deepEqual(missingLabels('HTTP 502: Bad Gateway', ['bug-triaged']), []);
