@@ -311,6 +311,7 @@ export async function runPool(p: Project, o: PoolOptions): Promise<number> {
       let actions: Action[] = [];
       let stuck: number[] = []; // labelled agent-working with no live session: hx never claims them again
       const finishedBefore = finished;
+      checkPause(); // the 1 s watcher may not have seen a pause written as a session ended: it must win over the next claim
       const held = Date.now() < (live.pausedUntil ?? 0);
       if (!held && !live.draining) {
         try {

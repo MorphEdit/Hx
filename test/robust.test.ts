@@ -106,6 +106,17 @@ test('pause (drain): the running session finishes, nothing new is claimed, then 
   assert.equal(byNum(4).state, 'CLOSED', 'resume picks up the rest');
 });
 
+test('a pause that lands just before a session ends wins over the next claim: the loop checks it before claiming', E2E, async () => {
+  board([issue(11), issue(12)]);
+  const { rc, lines } = await run({ env: { FAKE_CLAUDE_PAUSE: path.join(stateDir, 'pause') } });
+  assert.equal(rc, 0);
+  assert.equal(byNum(11).state, 'CLOSED', 'the running session finished');
+  assert.equal(byNum(12).state, 'OPEN', 'nothing new was claimed');
+  assert.deepEqual(byNum(12).labels, [L.ready]);
+  assert.ok(lines.some((l) => /paused — every session has finished/.test(l)));
+  clearPause(stateDir);
+});
+
 test('stop mid-session (Ctrl+C / pause --now): checkpoint, hand back, the next session gets the handoff', E2E, async () => {
   board([issue(5)]);
   const ac = new AbortController();

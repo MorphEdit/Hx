@@ -1,14 +1,13 @@
 // The filing commands' wake file and closing line: nextLine for every runner/pause fixture, and writeWake.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { nextLine, setPause, writeLive, writeWake, type LiveState } from '../src/runstate.ts';
 
 const tmp = mkdtempSync(path.join(os.tmpdir(), 'hx-wake-'));
-const deadPid = spawnSync(process.execPath, ['-e', '']).pid!;
+const deadPid = 0x7ffffffc; // no process can have it: see deadPid() in isolate.ts
 const ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 
 let n = 0;

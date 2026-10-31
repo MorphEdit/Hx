@@ -1,7 +1,6 @@
 // Imported first by every end-to-end test file: nothing from a live `hx run` on the same machine (its
 // environment, inherited by the worker that runs these tests) or from the user's git setup reaches them.
 // A hung test fails at E2E.timeout instead of blocking `node --test`.
-import { spawnSync } from 'node:child_process';
 import { afterEach } from 'node:test';
 import { mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
@@ -44,9 +43,12 @@ if (/\.test\.ts$/.test(process.argv[1] ?? '')) afterEach(async () => {
   testEnded = new AbortController();
 }, E2E);
 
-/** The pid of a process that has exited: a crashed runner. A made-up number may be a live process
- *  (Windows ignores the low two bits of a pid, so 999999 is 999996). */
-export const deadPid = (): number => spawnSync(process.execPath, ['-e', ''], { stdio: 'ignore' }).pid!;
+/** A pid no process can have: a crashed runner. The pid of a process that has exited is not enough: Windows
+ *  reuses pids within seconds while the full suite spawns hundreds of processes, and a reused pid reads as a
+ *  runner that is still alive. A small made-up number may be live too (Windows ignores the low two bits of a
+ *  pid, so 999999 is 999996). 0x7ffffffc is a multiple of four far above any pid Windows hands out, and above
+ *  Linux's pid_max (2^22). */
+export const deadPid = (): number => 0x7ffffffc;
 
 /** Whether a process is still running. */
 export function alive(pid: number): boolean {
