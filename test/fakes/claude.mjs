@@ -88,10 +88,10 @@ process.stdin.on('data', (d) => (prompt += d)).on('end', () => {
   writeFileSync(path.join(process.env.HX_FAKE_DIR, `${sid}.env-${st.turns}.json`), JSON.stringify({ role: st.role, checkpoint: /HX CHECKPOINT/.test(prompt), trusted: process.env.HX_TRUSTED ?? null, path: process.env.PATH ?? null }));
   if (a.includes('--resume') !== st.turns > 1) { process.stderr.write('resume flag mismatch'); process.exit(4); }
   const checkpoint = /HX CHECKPOINT/.test(prompt);
-  // FAKE_CLAUDE_RATE=<0..1>: report that much of the five-hour window used, resetting in 2s
+  // FAKE_CLAUDE_RATE=<0..1>: report that much of the five-hour window used, resetting in FAKE_CLAUDE_RESET_S (default 2) seconds
   if (process.env.FAKE_CLAUDE_RATE)
     out({ type: 'rate_limit_event', rate_limit_info: { status: 'allowed_warning', utilization: Number(process.env.FAKE_CLAUDE_RATE),
-      resetsAt: Math.ceil(Date.now() / 1000) + 2, rateLimitType: 'five_hour' } });
+      resetsAt: Math.ceil(Date.now() / 1000) + Number(process.env.FAKE_CLAUDE_RESET_S ?? 2), rateLimitType: 'five_hour' } });
   // FAKE_CLAUDE_DELAY_MS: a slow turn, so a test can pause or stop the run mid-session
   setTimeout(() => finish(st, checkpoint, prompt), checkpoint ? 0 : Number(process.env.FAKE_CLAUDE_DELAY_MS ?? 0));
 });

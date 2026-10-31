@@ -13,7 +13,7 @@ import { clearLive, otherRunner, readLive, readPause, writeLive, type LiveSessio
 import { fmt, recordUsage, totalTokens } from './usage.ts';
 import { gateIssueBody, gateIssueTitle, readGate, remoteSha, runGate, writeGate, type GateResult } from './gate.ts';
 import { run as runCmd } from './exec.ts';
-import { acquireSlot, DEFAULT_FLEET_WORKERS, releaseSlot } from './fleet.ts';
+import { acquireSlot, DEFAULT_FLEET_WORKERS, readHold, releaseSlot, writeHold } from './fleet.ts';
 import { appendSkills, resolveSkills, rtddCheck, rtddEnv, SKILL_CHECKS, skillNames, skillsLogLine, type Skill } from './skills.ts';
 
 const PROMPTS = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'prompts');
@@ -268,10 +268,16 @@ export async function runPool(p: Project, o: PoolOptions): Promise<number> {
   let engineRetries = 0;
   let fatal: string | undefined; // a setup error: stop claiming, let running sessions finish
   let finished = 0; // sessions ended so far: a plan read while one was ending is already stale
-  const holdUntil = (until: number, why: string) => {
+  // shared: a hold copied from hold.json, never written back. A hold of the runner's own goes to hold.json too.
+  const holdUntil = (until: number, why: string, shared = false) => {
     if (until <= (live.pausedUntil ?? 0)) return;
     live.pausedUntil = until; live.pauseReason = why; save();
+    if (fleetDir && !shared) writeHold(fleetDir, { until, reason: why, repo: c.repo });
     log(`${why} — no new claims until ${new Date(until).toLocaleTimeString()}`);
+  };
+  const sharedHold = () => {
+    const h = fleetDir ? readHold(fleetDir) : null;
+    if (h) holdUntil(h.until, `shared hold from ${h.repo}: ${h.reason}`, true);
   };
   const ctx: WorkContext = {
     signal: stop.signal,
@@ -316,6 +322,7 @@ export async function runPool(p: Project, o: PoolOptions): Promise<number> {
       let stuck: number[] = []; // labelled agent-working with no live session: hx never claims them again
       const finishedBefore = finished;
       checkPause(); // the 1 s watcher may not have seen a pause written as a session ended: it must win over the next claim
+      sharedHold(); // another fleet runner's usage hold
       const held = Date.now() < (live.pausedUntil ?? 0);
       let slotBlocked = false; // no fleet slot free: no more sessions this pass, look again within 5 s
       if (!held && !live.draining) {
@@ -335,6 +342,7 @@ export async function runPool(p: Project, o: PoolOptions): Promise<number> {
       }
 
       for (const a of actions) {
+        if (a.kind !== 'close-prd' && a.kind !== 'label-ready') sharedHold();
         if (stop.signal.aborted || fatal || live.draining || Date.now() < (live.pausedUntil ?? 0)) break; // fatal may land during readPlan
         if (a.kind === 'close-prd' || a.kind === 'label-ready') { await engineStep(p, a).catch((e) => log(`${a.kind} failed: ${e.message}`, target(a))); continue; }
         if (inFlight.size >= o.workers || slotBlocked) continue; // engine steps further down still run
