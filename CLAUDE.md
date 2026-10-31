@@ -35,8 +35,8 @@ roadmap and the agreed order of the next features) before changing anything.
 
 ## Next up
 The auditor (#1), the CI gate (#4), the grill session (#2, `hx grill`), the gauntlet (#3: a critic →
-reviser loop before decompose, a security pass before a PRD closes) and rtdd (#5, #34: skills per role via
-`roleSkills`) are done. Next is #6 (bug lane): write PRDs for the next features in the roadmap order
-(#6 bug lane, #7 inject, …) — `hx grill` helps — and run `hx run --watch` on this repo, reviewing the
-merged PRs. Re-run the benchmark and the audit eval
+reviser loop before decompose, a security pass before a PRD closes), rtdd (#5, #34: skills per role via
+`roleSkills`) and the bug lane (#6, PRD #78: `hx bug`, triage sessions, bugs built first) are done.
+Next is #7 (inject): write PRDs for the next features in the roadmap order (#7 inject, …) — `hx grill`
+helps — and run `hx run --watch` on this repo, reviewing the merged PRs. Re-run the benchmark and the audit eval
 (`node bench/audit-eval.mjs`) after changes to prompts, roles or the merge path.

@@ -49,11 +49,32 @@ test('design.md marks roadmap #3 (gauntlet) done', () => {
   assert.match(read('docs/design.md'), /\| 3 \| ~~\*\*Gauntlet[^|]*~~ done \|/);
 });
 
-test('CLAUDE.md lists every prompt and names #6 (bug lane) next', () => {
+test('CLAUDE.md lists every prompt and names #7 (inject) next', () => {
   const c = read('CLAUDE.md');
   const line = c.split('\n').find((l) => l.startsWith('- `prompts/`'))!;
   for (const f of readdirSync(path.join(root, 'prompts'))) assert.ok(line.includes(`\`${f.replace(/\.md$/, '')}\``), f);
-  assert.match(c.slice(c.indexOf('## Next up')), /Next is #6 \(bug lane\)/);
+  assert.match(c.slice(c.indexOf('## Next up')), /Next is #7 \(inject\)/);
+});
+
+test('bug lane: README section, config rows and labels, design #6 done, CLAUDE.md triage prompt and next up', () => {
+  const r = read('README.md');
+  const start = r.indexOf('## Bug lane');
+  assert.ok(start >= 0, 'README has a Bug lane section');
+  const sec = r.slice(start, r.indexOf('\n## ', start + 1));
+  for (const w of ['hx bug', '<!-- hx:triage -->', 'VERDICT: REPRODUCED', 'VERDICT: NEEDS-INFO', 'VERDICT: FAILED',
+    '`bug-triaged`', '`ready-for-agent`', '`agent-blocked`', 'triageRounds', 'bugTriage', 'ahead of', 'by hand', 'PRD',
+    'CI gate', 'audit']) assert.ok(sec.includes(w), w);
+  assert.ok(r.includes('<!-- hx:triage -->') && r.includes('hx bug'));
+  assert.ok(hasRow(r, 'bugTriage', `\`${DEFAULTS.bugTriage}\``), 'bugTriage row');
+  assert.ok(hasRow(r, 'triageRounds', String(DEFAULTS.triageRounds)), 'triageRounds row');
+  const labels = r.split('\n').find((l) => l.startsWith('| `labels`'))!;
+  for (const l of [DEFAULTS.labels.bug, DEFAULTS.labels.triaged]) assert.ok(labels.includes(`\`${l}\``), l);
+  assert.match(read('docs/design.md'), /\| 6 \| ~~\*\*Bug lane\*\*~~ done \|/);
+  const c = read('CLAUDE.md');
+  assert.ok(c.split('\n').find((l) => l.startsWith('- `prompts/`'))!.includes('`triage`'), 'triage among the prompts');
+  const next = c.slice(c.indexOf('## Next up'));
+  assert.match(next, /the bug lane \(#6[^.]*are done/);
+  assert.match(next, /Next is #7 \(inject\)/);
 });
 
 test('hx help: the PRD-flow paragraph mentions the gauntlet and the security pass', () => {
@@ -76,7 +97,7 @@ test('dashboard: README section, design #8 done, CLAUDE.md file map', () => {
   for (const f of ['dashboard.ts', 'dashboard.html', 'outcomes.ts']) assert.ok(map.includes(`\`${f}\``), f);
 });
 
-test('skills: README section and config rows, design #5 done, CLAUDE.md next is #6, .rtdd/ setup committed', () => {
+test('skills: README section and config rows, design #5 done, .rtdd/ setup committed', () => {
   const r = read('README.md');
   const start = r.indexOf('## Skills for workers');
   assert.ok(start >= 0, 'README has a Skills for workers section');
@@ -99,7 +120,6 @@ test('skills: README section and config rows, design #5 done, CLAUDE.md next is 
   assert.match(d, /\| 5 \| ~~\*\*rtdd\*\*~~ done \|[^\n]*#34/);
   assert.match(d, /orchestrator is code and needs no skills; skills are given per role through config/);
   const c = read('CLAUDE.md');
-  assert.match(c.slice(c.indexOf('## Next up')), /Next is #6 \(bug lane\)/);
   assert.ok(c.slice(c.indexOf('## Where things are'), c.indexOf('## Conventions')).includes('prompts/skills/'), 'prompts/skills/ in the file map');
   const files = spawnSync('git', ['ls-files', '.rtdd'], { cwd: root, encoding: 'utf8' }).stdout.split('\n').filter(Boolean);
   for (const f of ['.rtdd/config.yaml', '.rtdd/.gitignore']) assert.ok(files.includes(f), `${f} tracked`);
