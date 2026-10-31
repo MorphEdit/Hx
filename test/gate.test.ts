@@ -1,7 +1,7 @@
 // The CI gate end to end: real git (a local bare origin), fake gh and claude.
 // main is broken → hx files a fix issue, claims nothing else, the fix lands, the gate turns green,
 // and only then does the rest of the board run.
-import { E2E, alive } from './isolate.ts';
+import { E2E, pooled, alive } from './isolate.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
@@ -46,7 +46,7 @@ test('a red main: hx files the fix, claims nothing else until main is green agai
   console.log = (m: string) => { lines.push(m); orig(m); };
   const p = { root, stateDir, config: { ...DEFAULTS, repo: 'me/app', defaultBranch: 'main', worktreeRoot: path.join(tmp, 'wt'),
     claudeBin: path.join(here, 'fakes', 'claude.mjs'), maxIterations: 3, pollSeconds: 1, audit: false, gateCommand: GATE } };
-  const rc = await runPool(p, { workers: 2, watch: false, dryRun: false, signal: new AbortController().signal })
+  const rc = await pooled((signal) => runPool(p, { workers: 2, watch: false, dryRun: false, signal }))
     .finally(() => { console.log = orig; });
   assert.equal(rc, 0, lines.join('\n'));
 
@@ -100,7 +100,7 @@ test('Ctrl+C while the startup gate runs: runPool returns within 5 s, the gate p
   }, 50);
   const p = { root, stateDir, config: { ...DEFAULTS, repo: 'me/app', defaultBranch: 'main', worktreeRoot: path.join(tmp, 'wt'),
     claudeBin: path.join(here, 'fakes', 'claude.mjs'), maxIterations: 3, pollSeconds: 1, audit: false, gateCommand: sleeper } };
-  await runPool(p, { workers: 1, watch: true, dryRun: false, signal: ac.signal })
+  await pooled((signal) => runPool(p, { workers: 1, watch: true, dryRun: false, signal }), ac.signal)
     .finally(() => { console.log = orig; clearInterval(poll); });
   assert.ok(abortedAt > 0, 'the gate command started');
   assert.ok(Date.now() - abortedAt < 5000, `returned ${Date.now() - abortedAt} ms after the abort`);

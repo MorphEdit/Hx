@@ -1,6 +1,6 @@
 // #65: a fresh PR missing from `gh pr list --head` for a while, and a label edit that fails, must not leave an
 // issue stuck as agent-working. Real git (a local bare origin), the real ship.mjs, fake gh and claude.
-import { E2E } from './isolate.ts';
+import { E2E, pooled } from './isolate.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
@@ -47,7 +47,7 @@ async function run(only: number[]) {
   const orig = console.log;
   console.log = (m: string) => { lines.push(m); orig(m); };
   try {
-    return { rc: await runPool(project(), { workers: 1, watch: false, dryRun: false, only, signal: new AbortController().signal }), lines };
+    return { rc: await pooled((signal) => runPool(project(), { workers: 1, watch: false, dryRun: false, only, signal })), lines };
   } finally { console.log = orig; }
 }
 

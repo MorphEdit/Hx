@@ -1,6 +1,6 @@
 // Startup repair of broken loose refs of hx branches (issue/N, hx/prd-N, hx/audit-N).
 // Real git (a local bare origin), fake gh and fake claude, like robust.test.ts.
-import { E2E } from './isolate.ts';
+import { E2E, pooled } from './isolate.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
@@ -67,9 +67,9 @@ async function runOnce(root: string, wt: string) {
   const orig = console.log;
   console.log = (m: string) => { lines.push(m); };
   try {
-    const rc = await runPool({ root, stateDir, config: { ...DEFAULTS, repo: 'me/app', defaultBranch: 'main', worktreeRoot: wt,
+    const rc = await pooled((signal) => runPool({ root, stateDir, config: { ...DEFAULTS, repo: 'me/app', defaultBranch: 'main', worktreeRoot: wt,
       claudeBin: path.join(here, 'fakes', 'claude.mjs'), maxIterations: 3, pollSeconds: 1, audit: false } } as any,
-    { workers: 1, watch: false, dryRun: false, signal: new AbortController().signal });
+    { workers: 1, watch: false, dryRun: false, signal }));
     return { rc, lines };
   } finally { console.log = orig; }
 }

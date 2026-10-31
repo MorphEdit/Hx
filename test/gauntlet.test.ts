@@ -1,6 +1,6 @@
 // The gauntlet end to end: real git (a local bare origin), fake gh and claude.
 //   critic FAIL → the reviser rewrites the PRD body → … → prd-hardened → decompose.
-import { E2E, sessionEnvs } from './isolate.ts';
+import { E2E, pooled, sessionEnvs } from './isolate.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
@@ -47,7 +47,7 @@ async function run(only: number[], extra = {}) {
   const orig = console.log;
   console.log = (m: string) => { lines.push(m); orig(m); };
   try {
-    return { rc: await runPool(project(extra), { workers: 1, watch: false, dryRun: false, only, signal: new AbortController().signal }), lines };
+    return { rc: await pooled((signal) => runPool(project(extra), { workers: 1, watch: false, dryRun: false, only, signal })), lines };
   } finally { console.log = orig; }
 }
 

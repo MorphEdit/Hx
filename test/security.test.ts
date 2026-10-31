@@ -1,6 +1,6 @@
 // The security pass end to end: real git (a local bare origin), fake gh and claude.
 //   review sign-off → security files a `security` issue → prd-reviewed removed → fixed → review → security PASS → closed.
-import { E2E, sessionEnvs } from './isolate.ts';
+import { E2E, pooled, sessionEnvs } from './isolate.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
@@ -51,7 +51,7 @@ async function run(extra = {}) {
   const orig = console.log;
   console.log = (m: string) => { lines.push(m); orig(m); };
   try {
-    return { rc: await runPool(project(extra), { workers: 1, watch: false, dryRun: false, signal: new AbortController().signal }), lines };
+    return { rc: await pooled((signal) => runPool(project(extra), { workers: 1, watch: false, dryRun: false, signal })), lines };
   } finally { console.log = orig; }
 }
 

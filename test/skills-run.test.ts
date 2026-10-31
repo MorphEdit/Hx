@@ -1,7 +1,7 @@
 // Role skills in `hx run`: the rtdd check (.rtdd/config.yaml on origin, then `rtdd --version`), the prompts the
 // sessions get, PATH, the run log and live.json. Real git (a local bare origin), fake gh, claude and rtdd, and a
 // temp HX_SKILLS_HOME: never a real rtdd or ~/.claude/skills.
-import { E2E, sessionEnvs } from './isolate.ts';
+import { E2E, pooled, sessionEnvs } from './isolate.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
@@ -65,7 +65,7 @@ async function run(only: number[], extra = {}) {
   let liveSkills: unknown;
   const poll = setInterval(() => { const l = readLive(stateDir); if (l && liveSkills === undefined) liveSkills = l.skills; }, 20);
   try {
-    const rc = await runPool(project(extra), { workers: 1, watch: false, dryRun: false, only, signal: new AbortController().signal });
+    const rc = await pooled((signal) => runPool(project(extra), { workers: 1, watch: false, dryRun: false, only, signal }));
     const fresh = readdirSync(fakeDir).filter((f) => !before.has(f));
     const prompts: Record<string, string[]> = {};
     for (const f of fresh.filter((f) => f.endsWith('.prompt-1.txt'))) {

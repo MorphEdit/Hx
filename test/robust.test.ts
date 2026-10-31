@@ -1,6 +1,6 @@
 // Phase 3: crash recovery, one runner per repo, pause (drain / now), Ctrl+C checkpoints, usage holds.
 // Real git (a local bare origin), fake gh and fake claude, like pool.test.ts.
-import { E2E, sessionEnvs, deadPid } from './isolate.ts';
+import { E2E, pooled, sessionEnvs, deadPid } from './isolate.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
@@ -49,7 +49,7 @@ async function run(opts: { workers?: number; signal?: AbortSignal; env?: Record<
   const saved: Record<string, string | undefined> = {};
   for (const [k, v] of Object.entries(opts.env ?? {})) { saved[k] = process.env[k]; process.env[k] = v; }
   try {
-    const rc = await runPool(project(), { workers: opts.workers ?? 1, watch: false, dryRun: false, signal: opts.signal ?? new AbortController().signal });
+    const rc = await pooled((signal) => runPool(project(), { workers: opts.workers ?? 1, watch: false, dryRun: false, signal }), opts.signal);
     return { rc, lines };
   } finally {
     console.log = orig;

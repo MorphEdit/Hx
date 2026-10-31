@@ -1,6 +1,6 @@
 // {{BUG_NOTE}} end to end: a `bug` issue's impl and audit prompts get the reproduce-first notes; any other
 // issue's prompts get nothing, not even a leftover placeholder or a stray line. Real git, fake gh and claude.
-import { E2E } from './isolate.ts';
+import { E2E, pooled } from './isolate.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
@@ -42,7 +42,7 @@ const issue = (n: number, labels: string[]) => ({ number: n, title: `task ${n}`,
 /** Runs the pool on `only`; returns each new session's first prompt by role and issue. */
 async function run(only: number[], extra = {}) {
   const before = new Set(readdirSync(fakeDir));
-  const rc = await runPool(project(extra), { workers: 1, watch: false, dryRun: false, only, signal: new AbortController().signal });
+  const rc = await pooled((signal) => runPool(project(extra), { workers: 1, watch: false, dryRun: false, only, signal }));
   const prompts: { role: string; n: number; text: string }[] = [];
   for (const f of readdirSync(fakeDir).filter((f) => !before.has(f) && f.endsWith('.prompt-1.txt'))) {
     const text = readFileSync(path.join(fakeDir, f), 'utf8').replace(/\r\n/g, '\n'); // a CRLF checkout of the prompts

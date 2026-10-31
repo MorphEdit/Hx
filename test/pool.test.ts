@@ -1,5 +1,5 @@
 // End to end: real git (a local bare repo as origin), fake gh and fake claude.
-import { E2E } from './isolate.ts';
+import { E2E, pooled } from './isolate.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
@@ -58,7 +58,7 @@ test('pool drives the board to completion, respecting Blocked by', E2E, async ()
   const lines: string[] = [];
   const orig = console.log;
   console.log = (m: string) => { lines.push(m); orig(m); };
-  const rc = await runPool(p, { workers: 2, watch: false, dryRun: false, signal: new AbortController().signal })
+  const rc = await pooled((signal) => runPool(p, { workers: 2, watch: false, dryRun: false, signal }))
     .finally(() => { console.log = orig; });
   assert.deepEqual(lines.filter((l) => /crashed/.test(l)), [], 'no worker crashed');
   assert.equal(lines.filter((l) => /\] impl: /.test(l)).length, 3, 'each ready issue claimed exactly once');
@@ -100,7 +100,7 @@ test('PRD flow: decompose → build → review (gap, then sign-off) → close, P
   const lines: string[] = [];
   const orig = console.log;
   console.log = (m: string) => { lines.push(m); orig(m); };
-  const rc = await runPool(p, { workers: 2, watch: false, dryRun: false, signal: new AbortController().signal, only: undefined })
+  const rc = await pooled((signal) => runPool(p, { workers: 2, watch: false, dryRun: false, signal, only: undefined }))
     .finally(() => { console.log = orig; });
 
   const s = JSON.parse(readFileSync(stateFile, 'utf8'));
@@ -136,7 +136,7 @@ test('a setup error (API 400) stops the pool and leaves the issues untouched', E
   process.env.FAKE_CLAUDE_MODE = 'fatal';
   try {
     const p = { ...setupProject(), config: baseConfig() };
-    const rc = await runPool(p, { workers: 1, watch: false, dryRun: false, signal: new AbortController().signal, only: [90, 91] });
+    const rc = await pooled((signal) => runPool(p, { workers: 1, watch: false, dryRun: false, signal, only: [90, 91] }));
     assert.equal(rc, 2);
   } finally { delete process.env.FAKE_CLAUDE_MODE; }
   const s = JSON.parse(readFileSync(stateFile, 'utf8'));

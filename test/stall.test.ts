@@ -1,5 +1,5 @@
 // A claude turn that stops printing is killed after stallMinutes (not the turn timeout); prompts say foreground only.
-import { E2E, alive } from './isolate.ts';
+import { E2E, pooled, alive } from './isolate.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
@@ -85,8 +85,8 @@ test('through the pool: a stalled issue is handed back as after a timed-out turn
     const orig = console.log;
     console.log = (m: string) => { lines.push(m); orig(m); };
     try {
-      await withMode({ FAKE_CLAUDE_MODE: 'stall' }, () => runPool({ root: proj, stateDir: path.join(proj, '.hx'), config: { ...config, ...over } },
-        { workers: 1, watch: false, dryRun: false, signal: new AbortController().signal, only: [only] }));
+      await withMode({ FAKE_CLAUDE_MODE: 'stall' }, () => pooled((signal) => runPool({ root: proj, stateDir: path.join(proj, '.hx'), config: { ...config, ...over } },
+        { workers: 1, watch: false, dryRun: false, signal, only: [only] })));
     } finally { console.log = orig; }
     return lines;
   };

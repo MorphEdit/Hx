@@ -1,7 +1,7 @@
 // Triage sessions end to end: real git (a local bare origin), fake gh and claude.
 //   REPRODUCED → bug-triaged + ready-for-agent → impl + audit → merged; NEEDS-INFO → agent-blocked;
 //   no verdict → hx's FAILED marker, released; round cap → one give-up comment, agent-blocked.
-import { E2E, deadPid, sessionEnvs } from './isolate.ts';
+import { E2E, pooled, deadPid, sessionEnvs } from './isolate.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
@@ -53,7 +53,7 @@ async function run(extra = {}) {
   const orig = console.log;
   console.log = (m: string) => { lines.push(m); orig(m); };
   try {
-    return { rc: await runPool(project(extra), { workers: 1, watch: false, dryRun: false, signal: new AbortController().signal }), lines };
+    return { rc: await pooled((signal) => runPool(project(extra), { workers: 1, watch: false, dryRun: false, signal })), lines };
   } finally { console.log = orig; }
 }
 
@@ -174,7 +174,7 @@ test('a stopped triage session is handed back: no marker, no round, worktree rem
     const lines: string[] = [];
     const orig = console.log;
     console.log = (m: string) => { lines.push(m); orig(m); if (/paused by usage limit/.test(m)) ac.abort(); };
-    try { await runPool(project(), { workers: 1, watch: false, dryRun: false, signal: ac.signal }); } finally { console.log = orig; }
+    try { await pooled((signal) => runPool(project(), { workers: 1, watch: false, dryRun: false, signal }), ac.signal); } finally { console.log = orig; }
     assert.ok(lines.some((l) => /\[#6\] paused by usage limit — released/.test(l)), lines.join('\n'));
   } finally { delete process.env.FAKE_CLAUDE_MODE; }
   assert.deepEqual(comments(6), []);
