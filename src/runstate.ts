@@ -2,7 +2,8 @@
 //   .hx/live.json — the runner's pid and its sessions; a live.json whose pid is dead marks a crashed
 //                   run, and its sessions are claims to hand back
 //   .hx/pause     — "drain" (finish running sessions, claim nothing) or "now" (checkpoint and stop)
-import { existsSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+//   .hx/wake      — the ISO time a filing command (hx prd, hx bug, hx grill) last filed an issue
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import type { RateLimit } from './agent.ts';
 
@@ -70,4 +71,22 @@ export function setPause(stateDir: string, mode: PauseMode): void {
 
 export function clearPause(stateDir: string): void {
   rmSync(pauseFile(stateDir), { force: true });
+}
+
+/** Marks that a filing command just filed an issue: <stateDir>/wake holds the current ISO time. */
+export function writeWake(stateDir: string): void {
+  mkdirSync(stateDir, { recursive: true });
+  writeFileSync(path.join(stateDir, 'wake'), new Date().toISOString() + '\n');
+}
+
+/** The closing line of a filing command: what happens to the new issue next, and whether a runner will do it. */
+export function nextLine(stateDir: string, lane: 'decompose' | 'triage'): string {
+  const head = lane === 'triage' ? 'It will be triaged. ' : 'It will be decomposed into issues. ';
+  const live = readLive(stateDir);
+  const up = live && typeof live.pid === 'number' && pidAlive(live.pid) ? live : null;
+  const paused = readPause(stateDir) !== null || !!up?.draining;
+  if (up) return head + (paused ? `hx run (pid ${up.pid}) is pausing — run  hx resume  to continue.`
+    : `hx run (pid ${up.pid}) will pick it up now.`);
+  return head + (paused ? 'no hx run is running and hx is paused — run  hx resume, then  hx run --watch'
+    : 'no hx run is running — start it with  hx run --watch');
 }

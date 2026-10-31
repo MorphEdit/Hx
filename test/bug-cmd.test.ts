@@ -3,11 +3,12 @@ import { E2E } from './isolate.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DEFAULTS, saveConfig } from '../src/config.ts';
+import { clearLive, writeLive } from '../src/runstate.ts';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const HX = path.join(here, '..', 'bin', 'hx.mjs');
@@ -40,7 +41,28 @@ test('hx bug <file.md>: the "# " heading is the title, the file is the body, lab
   assert.deepEqual(issues[0].labels, [DEFAULTS.labels.bug]);
   assert.ok(!issues[0].labels.includes(DEFAULTS.labels.ready));
   assert.match(r.out, /https:\/\/github\.com\/me\/app\/issues\/1/);
-  assert.match(r.out, /hx run will triage it\./);
+  assert.match(r.out, /issues\/1\r?\nIt will be triaged\. no hx run is running — start it with {2}hx run --watch/);
+  assert.match(readFileSync(path.join(root, '.hx', 'wake'), 'utf8').trim(), /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
+});
+
+test('hx bug with a live runner: <url>, then the triage lane and "will pick it up now"', E2E, () => {
+  reset();
+  writeLive(path.join(root, '.hx'), { pid: process.pid, startedAt: new Date().toISOString(), repo: 'me/app', workers: 1, sessions: [] });
+  try {
+    const r = hx(['bug', 'it breaks']);
+    assert.equal(r.code, 0, r.out);
+    assert.ok(r.out.replace(/\r\n/g, '\n').includes(
+      `https://github.com/me/app/issues/1\nIt will be triaged. hx run (pid ${process.pid}) will pick it up now.\n`), r.out);
+  } finally { clearLive(path.join(root, '.hx')); }
+});
+
+test('hx bug that files nothing writes no .hx/wake', E2E, () => {
+  reset();
+  rmSync(path.join(root, '.hx', 'wake'), { force: true });
+  const r = hx(['bug', '   ']);
+  assert.notEqual(r.code, 0, r.out);
+  assert.equal(board().issues.length, 0);
+  assert.ok(!existsSync(path.join(root, '.hx', 'wake')));
 });
 
 test('hx bug "text": the title is its first non-empty line, the body the text', E2E, () => {
@@ -51,7 +73,7 @@ test('hx bug "text": the title is its first non-empty line, the body the text', 
   assert.equal(issues[0].title, 'status hangs');
   assert.equal(issues[0].body, '\nstatus hangs\nwhen the board is empty');
   assert.deepEqual(issues[0].labels, [DEFAULTS.labels.bug]);
-  assert.match(r.out, /issues\/1\nhx run will triage it\./);
+  assert.match(r.out, /issues\/1\r?\nIt will be triaged\. /);
 });
 
 test('hx bug "text": a long first line is cut to 80 characters', E2E, () => {
