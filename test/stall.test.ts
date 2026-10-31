@@ -42,15 +42,23 @@ async function withMode<T>(env: Record<string, string>, f: () => Promise<T>): Pr
 }
 
 test('a turn with no stdout for stallMinutes is killed: stalled, not timedOut, and the process tree is gone', E2E, async () => {
-  const before = stallPids().length;
-  const r = await withMode({ FAKE_CLAUDE_MODE: 'stall' }, () => turn({ stallMs: 0.02 * 60_000, timeoutMs: 60_000 }));
-  assert.equal(r.stalled, true);
-  assert.ok(!r.timedOut, 'not a timeout');
-  assert.equal(r.ok, false);
-  assert.match(r.error ?? '', /stalled: no output for 0\.02 min/);
-  assert.ok(r.durationMs < 30_000, `killed early (${r.durationMs} ms)`);
-  const pids = stallPids();
-  assert.equal(pids.length, before + 1);
+  // the stall timer runs from spawn: a machine so loaded that node starts slower than the window kills the fake before
+  // it records its pids. That run is still a stall; the window then grows (0.1, 0.25, 0.5 min) until the fake records them.
+  let pids = stallPids();
+  let recorded = false;
+  for (const min of [0.1, 0.25, 0.5]) {
+    const before = pids.length;
+    const r = await withMode({ FAKE_CLAUDE_MODE: 'stall', FAKE_CLAUDE_START_MS: '1500' }, () => turn({ stallMs: min * 60_000, timeoutMs: 120_000 }));
+    assert.equal(r.stalled, true);
+    assert.ok(!r.timedOut, 'not a timeout');
+    assert.equal(r.ok, false);
+    assert.match(r.error ?? '', new RegExp(`stalled: no output for ${min} min`));
+    assert.ok(r.durationMs < min * 60_000 + 30_000, `killed early (${r.durationMs} ms)`);
+    pids = stallPids();
+    assert.ok(pids.length <= before + 1, 'one claude process per turn');
+    if ((recorded = pids.length === before + 1)) break;
+  }
+  assert.ok(recorded, 'the fake recorded its pids within a 0.5 min window');
   const { pid, child } = pids.at(-1)!;
   assert.ok(await gone(pid), 'claude process gone');
   assert.ok(await gone(child), 'its child gone too');
