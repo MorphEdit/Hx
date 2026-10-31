@@ -5,8 +5,8 @@ import { fileURLToPath } from 'node:url';
 import { effectiveRtddBin, workerArgs, type Project } from './config.ts';
 import * as gh from './github.ts';
 import type { Issue } from './github.ts';
-import { claimable, externalRefs, fenceFindings, isTrusted, issueKey, parseParent, plan, prdKey, refKey, render, trustedSet, type Action, type Plan } from './state.ts';
-import { addWorktree, auditWorktree, cleanStaleWorktrees, implWorktree, prdWorktree, removeWorktree, repairBrokenRefs } from './worktree.ts';
+import { claimable, externalRefs, fenceFindings, isTrusted, issueKey, parseParent, plan, prdKey, refKey, render, TRIAGE_MARKER, triageVerdict, trustedSet, type Action, type Plan } from './state.ts';
+import { addWorktree, auditWorktree, cleanStaleWorktrees, implWorktree, prdWorktree, removeWorktree, repairBrokenRefs, triageWorktree } from './worktree.ts';
 import { rateLimitOf, runGoal, runTurn, type GoalResult, type RateLimit } from './agent.ts';
 import { clearLive, otherRunner, readLive, readPause, writeLive, type LiveSession, type LiveState } from './runstate.ts';
 import { fmt, recordUsage, totalTokens } from './usage.ts';
@@ -31,7 +31,7 @@ export const ORIGINAL_MARKER = '<!-- hx-prd-original -->';
 export const SECURITY_MARKER = '<!-- hx-security -->';
 const firstLineIs = (marker: string) => (b: string) => b.trimStart().split(/\r?\n/, 1)[0].trim() === marker;
 
-type SessionAction = Extract<Action, { kind: 'impl' | 'gauntlet' | 'decompose' | 'review' | 'security' }>;
+type SessionAction = Extract<Action, { kind: 'impl' | 'gauntlet' | 'decompose' | 'review' | 'security' | 'triage' }>;
 
 export interface PoolOptions {
   workers: number;
@@ -136,7 +136,7 @@ export async function readPlan(p: Project, trusted: Set<string>, busy: Set<strin
 }
 
 const target = (a: Action) => ('issue' in a ? a.issue : a.prd);
-const keyOf = (a: SessionAction) => (a.kind === 'impl' ? issueKey(a.issue) : prdKey(a.prd));
+const keyOf = (a: SessionAction) => ('issue' in a ? issueKey(a.issue) : prdKey(a.prd));
 
 const who = (author: string | undefined) => `@${author || 'ghost'}`;
 
@@ -407,6 +407,18 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
       log(`security round cap (${c.securityRounds}) reached — labelled ${c.labels.blocked}`, n);
       return undefined;
     }
+  } else if (a.kind === 'triage') {
+    // a round is a trusted verdict comment, hx's FAILED marker included
+    const done = (await gh.commentBodies(c.repo, n, ctx.trusted)).filter((b) => triageVerdict(b) !== null).length;
+    if (done >= c.triageRounds) {
+      await relabel(c.repo, n, [c.labels.blocked], [c.labels.working]);
+      if (!(await gh.commentBodies(c.repo, n, ctx.trusted)).some((b) => b.trimStart().startsWith(TRIAGE_GAVE_UP))) {
+        await gh.comment(c.repo, n, `${TRIAGE_GAVE_UP} after ${done} rounds — add ${c.labels.triaged} and ${c.labels.ready} to fix it anyway`);
+        log(`triage: GAVE UP after ${done} rounds`, n);
+      } else log(`triage: round cap reached — labelled ${c.labels.blocked}`, n);
+      return undefined;
+    }
+    round = done + 1;
   }
   // what verify() compares a security session against: the security issues and verdicts already there
   const before = a.kind === 'security' ? await securitySnapshot(p, n, ctx.trusted) : undefined;
@@ -415,7 +427,8 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
   log(`${a.kind}${round ? ` (round ${round})` : ''}: ${title}`, n);
   let wt: { dir: string; resumed: boolean };
   try {
-    wt = await addWorktree(p.root, c.worktreeRoot, a.kind === 'impl' ? implWorktree(n, c.defaultBranch) : prdWorktree(n, c.defaultBranch));
+    wt = await addWorktree(p.root, c.worktreeRoot, a.kind === 'impl' ? implWorktree(n, c.defaultBranch)
+      : a.kind === 'triage' ? triageWorktree(n, c.defaultBranch) : prdWorktree(n, c.defaultBranch));
   } catch (e: any) {
     await relabel(c.repo, n, [], [c.labels.working]);
     throw e;
@@ -438,14 +451,15 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
   const vars: Record<string, string | number> = {
     REPO: c.repo, BASE: c.defaultBranch, TITLE: title, SHIP, ISSUE_SCRIPT,
     LABEL_READY: L.ready, LABEL_REVIEWED: L.reviewed, LABEL_SECURED: L.secured, LABEL_SECURITY: L.security, ROUND: round,
-    ROUNDS: a.kind === 'gauntlet' ? c.gauntletRounds : a.kind === 'security' ? c.securityRounds : c.reviewRounds,
+    ROUNDS: a.kind === 'gauntlet' ? c.gauntletRounds : a.kind === 'security' ? c.securityRounds : a.kind === 'triage' ? c.triageRounds : c.reviewRounds,
     ISSUE: n, PRD: n, BRANCH: `issue/${n}`,
     EXISTING: a.kind === 'decompose' ? childList(a.children) : '', CHILDREN: a.kind === 'review' || a.kind === 'security' ? childList(a.children) : '',
     RESUMED: resumeNote,
     SUBJECT: a.kind === 'impl' ? `issue #${n} (branch issue/${n}): look at \`git status\`, its PR (\`gh pr list -R ${c.repo} --head issue/${n}\`) and the issue`
       : a.kind === 'decompose' ? `PRD #${n}: list the issues you have filed for it so far`
       : a.kind === 'gauntlet' ? `gauntlet round ${round} of PRD #${n}`
-      : a.kind === 'security' ? `security pass ${round} of PRD #${n}` : `the review of PRD #${n}`,
+      : a.kind === 'security' ? `security pass ${round} of PRD #${n}`
+      : a.kind === 'triage' ? `triage round ${round} of issue #${n}: did you post the verdict comment?` : `the review of PRD #${n}`,
     // with an auditor the implementer stops at an open PR; hx merges once the audit passes
     SHIP_FLAGS: audited ? ' --no-merge' : '',
     SHIP_WHAT: audited ? ' (it does NOT merge: an independent auditor checks the PR first)' : ', squash-merges it, deletes the branch and closes the issue',
@@ -553,6 +567,35 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
     }
   }
 
+  // triage: one session reproduces the bug and posts a verdict comment; hx acts on it
+  if (a.kind === 'triage') {
+    try {
+      const r = await goal('triage', wt.dir, 'triage.md', promise);
+      const summary = `${r.iterations} turn(s), ${fmt(totalTokens(r.usage))} tokens`;
+      if (stopped(r)) return handBack(r, summary);
+      await removeWorktree(p.root, wt.dir);
+      const verdicts = (await gh.commentBodies(c.repo, n, ctx.trusted)).filter((b) => triageVerdict(b) !== null);
+      const v = verdicts.length >= round ? triageVerdict(verdicts.at(-1)!) : null;
+      if (v === 'REPRODUCED') {
+        await relabel(c.repo, n, [L.triaged, L.ready], [L.working]);
+        log(`triage: REPRODUCED ✓ (${summary})`, n);
+      } else if (v === 'NEEDS-INFO') {
+        await relabel(c.repo, n, [L.blocked], [L.working]);
+        log(`triage: NEEDS-INFO — waiting for the reporter (${summary})`, n);
+      } else {
+        // no verdict: hx's marker counts the round; the issue goes back to the board for the next one
+        if (v !== 'FAILED') await gh.comment(c.repo, n, `${TRIAGE_MARKER}\nVERDICT: FAILED (the session ended without a verdict)`);
+        await relabel(c.repo, n, [], [L.working]);
+        log(`triage: FAILED (${r.done ? 'no verdict comment' : r.stopReason === 'max-iterations' ? `no completion after ${r.iterations} turns` : `agent error: ${r.last?.error ?? 'unknown'}`}; ${summary})`, n);
+      }
+      return { ...r, done: v === 'REPRODUCED' || v === 'NEEDS-INFO' };
+    } catch (e) {
+      await relabel(c.repo, n, [], [L.working]);
+      await removeWorktree(p.root, wt.dir);
+      throw e;
+    }
+  }
+
   if (!audited) {
     const r = await goal(a.kind, wt.dir, `${a.kind}.md`, promise);
     const summary = `${r.iterations} turn(s), ${fmt(totalTokens(r.usage))} tokens`;
@@ -631,6 +674,7 @@ export const AUDIT_MARKER = '<!-- hx-audit -->';
 /** {{BUG_NOTE}} for an issue labelled `bug`: one text for the implementer, one for its auditor. */
 export const IMPL_BUG_NOTE = 'This is a bug. Start from the triage comment if there is one and add its failing test (or a better one); otherwise write a test that reproduces the bug. See it fail, then fix the root cause. Do not only patch the symptom.';
 export const AUDIT_BUG_NOTE = 'Check that a test reproduces the reported bug and fails without the fix (revert the fix locally to check), and that the fix addresses the root cause (the one named in the triage comment, if there is one).';
+export const TRIAGE_GAVE_UP = 'hx: triage gave up';
 export const RETRY_MARKER = '<!-- hx-retry -->';
 
 /** The auditor's verdict from its final message, or null when it gave none. */

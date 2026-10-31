@@ -15,6 +15,8 @@ export const implWorktree = (issue: number, base: string): WorktreeSpec => ({ na
 /** A read-only checkout of the implementer's pushed branch, for the auditor. */
 export const auditWorktree = (issue: number): WorktreeSpec => ({ name: `a${issue}`, branch: `hx/audit-${issue}`, base: `issue/${issue}`, fresh: true });
 export const prdWorktree =(prd: number, base: string): WorktreeSpec => ({ name: `p${prd}`, branch: `hx/prd-${prd}`, base, fresh: true });
+/** A throwaway checkout of the base for a bug's triage session. */
+export const triageWorktree = (issue: number, base: string): WorktreeSpec => ({ name: `t${issue}`, branch: `hx/triage-${issue}`, base, fresh: true });
 
 // Worktree commands of parallel workers write the same .git/config and index locks; run them one at a time.
 let queue: Promise<unknown> = Promise.resolve();

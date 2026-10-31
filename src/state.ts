@@ -268,11 +268,10 @@ export function triageVerdict(body: string): 'REPRODUCED' | 'NEEDS-INFO' | 'FAIL
   return v?.startsWith('VERDICT: FAILED') ? 'FAILED' : null;
 }
 
-/** The plan's actions the pool may start: never `triage` (no triage session exists yet), only the
- *  `--issue` targets, and while the gate is red only its fix issue. */
+/** The plan's actions the pool may start: only the `--issue` targets, and while the gate is red only its
+ *  fix issue (no triage either). */
 export function claimable(actions: Action[], o: { only?: number[]; gateRed?: boolean; fixIssue?: number } = {}): Action[] {
-  return actions.filter((a) => a.kind !== 'triage'
-    && (!o.only || o.only.includes('issue' in a ? a.issue : a.prd))
+  return actions.filter((a) => (!o.only || o.only.includes('issue' in a ? a.issue : a.prd))
     && (!o.gateRed || (a.kind === 'impl' && a.issue === o.fixIssue)));
 }
 

@@ -104,8 +104,8 @@ test('through the pool: a stalled issue is handed back as after a timed-out turn
     comment(2).map((b: string) => b.replace(/turn timed out after \d+ min/, 'X')), 'same hand-back comment but the error');
 });
 
-test('the nine worker prompts (not grill) carry the foreground-only rule verbatim', E2E, () => {
-  for (const f of ['impl', 'audit', 'review', 'security', 'decompose', 'critic', 'revise', 'checkpoint', 'continue'])
+test('the ten worker prompts (not grill) carry the foreground-only rule verbatim', E2E, () => {
+  for (const f of ['impl', 'audit', 'review', 'security', 'decompose', 'critic', 'revise', 'checkpoint', 'continue', 'triage'])
     assert.ok(readFileSync(path.join(root, 'prompts', `${f}.md`), 'utf8').includes(RULE), f);
   assert.ok(!readFileSync(path.join(root, 'prompts', 'grill.md'), 'utf8').includes(RULE), 'grill is interactive: no rule');
 });
