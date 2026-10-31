@@ -157,7 +157,8 @@ open), and keeps the last data with an "offline / last updated" note when a fetc
 - **Log** — the tail of `.hx/run.log`, newest last.
 
 `hx run` writes every line it prints to `.hx/run.log` with an ISO timestamp; past 2 MiB the file is
-rotated to `run.log.1` (one old file is kept), and the outcome numbers are parsed from `run.log` only.
+rotated to `run.log.1` (one old file is kept), and the outcome numbers are parsed from `run.log.1` then `run.log`.
+Usage by day groups records by their local date (the machine's time zone); the logs keep UTC timestamps.
 
 Safety: the server binds **127.0.0.1 only**, answers only a `Host` of `127.0.0.1:<port>` or
 `localhost:<port>` (no DNS rebinding), takes **GET only**, sends no CORS headers and changes nothing —

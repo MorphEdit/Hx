@@ -1,4 +1,4 @@
-// hx dashboard: a read-only page over .hx/ (live.json, usage.jsonl, gate.json, run.log) and the board.
+// hx dashboard: a read-only page over .hx/ (live.json, usage.jsonl, gate.json, run.log.1 + run.log) and the board.
 // Localhost only: it binds 127.0.0.1, answers only a Host of 127.0.0.1:<port> or localhost:<port> (so a
 // web page cannot reach it through DNS rebinding), takes GET only and sends no CORS headers.
 import { execFile } from 'node:child_process';
@@ -13,7 +13,7 @@ import { parseOutcomes } from './outcomes.ts';
 import { lookupTrusted, readPlan, runLogFile } from './pool.ts';
 import { pidAlive, readLive, readPause } from './runstate.ts';
 import type { Plan } from './state.ts';
-import { readUsage, summarize, totalTokens, type UsageRecord, type UsageRow } from './usage.ts';
+import { localDay, readUsage, summarize, totalTokens, type UsageRecord, type UsageRow } from './usage.ts';
 
 export const HTML_FILE = path.join(path.dirname(fileURLToPath(import.meta.url)), 'dashboard.html');
 export const DEFAULT_PORT = 4777;
@@ -99,14 +99,15 @@ export function dashboardState(p: Project, board: () => BoardSeen): object {
     total: rows(recs, () => 'total')[0] ?? null,
     byRole: rows(recs, (r) => r.role ?? 'impl'),
     byModel: rows(recs, (r) => r.model),
-    byDay: rows(recs, (r) => r.ts.slice(0, 10)),
+    byDay: rows(recs, (r) => localDay(r.ts)),
     byPrd: parents ? rows(recs, (r) => String(parents[r.issue] ?? r.issue)) : null,
     ...(b.error !== undefined ? { boardError: b.error } : {}),
   };
 
   const logFile = runLogFile(dir);
   const read = (f: string) => (existsSync(f) ? readFileSync(f, 'utf8') : '');
-  const outcomes = parseOutcomes(read(logFile).split(/\r?\n/)); // run.log only, not run.log.1
+  // run.log.1 (the one rotated file, when there is one) then run.log, as one line sequence
+  const outcomes = parseOutcomes([...read(`${logFile}.1`).split(/\r?\n/), ...read(logFile).split(/\r?\n/)]);
   return { repo: p.config.repo, runner, sessions, gate, usage, log: tailLines(logFile, LOG_LINES), outcomes };
 }
 

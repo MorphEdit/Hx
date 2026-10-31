@@ -13,7 +13,7 @@ import { DEFAULT_PORT, serveDashboard } from './dashboard.ts';
 import { filePrd } from './prd.ts';
 import { grillArgs, grillPaths, grillPrompt, ideaFrom } from './grill.ts';
 import { formatSkills } from './skills.ts';
-import { fmt, readUsage, summarize, totalTokens, type UsageRow } from './usage.ts';
+import { fmt, localDay, readUsage, summarize, totalTokens, type UsageRow } from './usage.ts';
 
 const HELP = `usage: hx <command> [options]
 
@@ -267,7 +267,7 @@ function usage(args: string[]): number {
   const by = flag(args, '--by') ?? 'issue';
   const recs = readUsage(p.stateDir);
   if (!recs.length) { console.log('no usage recorded yet'); return 0; }
-  const keyOf = by === 'model' ? (r: any) => r.model : by === 'role' ? (r: any) => r.role ?? 'impl' : by === 'day' ? (r: any) => r.ts.slice(0, 10) : (r: any) => `#${r.issue}`;
+  const keyOf = by === 'model' ? (r: any) => r.model : by === 'role' ? (r: any) => r.role ?? 'impl' : by === 'day' ? (r: any) => localDay(r.ts) : (r: any) => `#${r.issue}`;
   const rows = summarize(recs, keyOf);
   const all = summarize(recs, () => 'TOTAL')[0];
   const W = [12, 8, 6, 9, 10, 10, 8, 10];

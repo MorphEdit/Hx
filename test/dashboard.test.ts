@@ -9,6 +9,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+process.env.TZ = 'UTC'; // byDay groups by local date: pin it for the fixture days below
 const here = path.dirname(fileURLToPath(import.meta.url));
 const tmp = mkdtempSync(path.join(os.tmpdir(), 'hx-dash-'));
 const stateFile = path.join(tmp, 'board.json');
@@ -127,15 +128,28 @@ test('/api/state: runner, sessions, gate, usage by role and by PRD, log, outcome
   assert.equal(row(s.usage.byModel, 'claude-opus-5-5').tokens, 357);
 
   assert.deepEqual(s.log, newLog);
-  // outcomes come from run.log only: run.log.1 (#11's impl start and its audit PASS) is not read
-  assert.deepEqual(s.outcomes, parseOutcomes(newLog));
-  assert.equal(s.outcomes.audit.pass, 0);
+  // outcomes come from run.log.1 then run.log: #11's impl start and its audit PASS are only in run.log.1
+  assert.deepEqual(s.outcomes, parseOutcomes([...oldLog, ...newLog]));
+  assert.equal(s.outcomes.audit.pass, 1, 'the audit PASS only in run.log.1 counts');
   assert.equal(s.outcomes.audit.fail, 1);
   assert.equal(s.outcomes.audit.mergedIssues, 1);
-  assert.equal(s.outcomes.issues.done, 0, 'the impl line that starts #11 is in run.log.1');
+  assert.equal(s.outcomes.issues.done, 1, '#11 (impl: in run.log.1, DONE ✓ in run.log) counts once');
+  assert.deepEqual(s.outcomes.issues.medianMs, 31 * 60_000);
   assert.equal(s.outcomes.gate.red, 1);
   assert.deepEqual(s.outcomes.gate.redMs, [10 * 60_000]);
   assert.equal(s.outcomes.gate.recovered, 1);
+});
+
+test('no run.log.1: outcomes come from run.log alone', E2E, async () => {
+  const f = path.join(stateDir, 'run.log.1');
+  rmSync(f);
+  try {
+    const d = await start();
+    const s = JSON.parse((await get(d.port, '/api/state')).body);
+    assert.deepEqual(s.outcomes, parseOutcomes(newLog));
+    assert.equal(s.outcomes.audit.pass, 0);
+    assert.equal(s.outcomes.issues.done, 0);
+  } finally { writeFileSync(f, oldLog.join('\n') + '\n'); }
 });
 
 test('a live.json with a dead pid reads as not running, with no sessions', E2E, async () => {

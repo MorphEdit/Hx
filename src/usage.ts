@@ -34,6 +34,13 @@ export function readUsage(stateDir: string): UsageRecord[] {
   });
 }
 
+/** The local date (machine time zone) of an ISO timestamp, `YYYY-MM-DD`: how usage is grouped by day. */
+export function localDay(iso: string): string {
+  const d = new Date(iso);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
 export const totalTokens = (u: Usage) => u.input + u.cacheWrite + u.cacheRead + u.output;
 
 export function fmt(n: number): string {
