@@ -13,6 +13,7 @@ export interface GateResult {
   command: string;
   output: string; // tail of the test output
   timedOut?: boolean; // the command ran past the timeout: its process tree was killed
+  aborted?: boolean; // the signal fired (Ctrl+C): the tree was killed and the result means nothing
   at: string;
 }
 
@@ -38,12 +39,14 @@ export async function remoteSha(checkout: string, base: string): Promise<string>
   return r.stdout.split(/\s/)[0] ?? '';
 }
 
-/** Run `command` on a fresh checkout of origin/<base>. */
-export async function runGate(checkout: string, root: string, base: string, command: string, timeoutMs = 20 * 60_000): Promise<GateResult> {
+/** Run `command` on a fresh checkout of origin/<base>; `signal` aborts it (the result then has `aborted`). */
+export async function runGate(checkout: string, root: string, base: string, command: string, timeoutMs = 20 * 60_000,
+  signal?: AbortSignal): Promise<GateResult> {
   const wt = await addWorktree(checkout, root, { name: 'gate', branch: 'hx/gate', base, fresh: true });
   try {
     const sha = (await run(process.env.HX_GIT_BIN || 'git', ['-C', wt.dir, 'rev-parse', 'HEAD'])).stdout.trim();
-    const res = await runShell(command, { cwd: wt.dir, timeoutMs });
+    const res = await runShell(command, { cwd: wt.dir, timeoutMs, signal });
+    if (res.aborted) return { sha, ok: false, command, output: res.output.trim().split('\n').slice(-60).join('\n'), aborted: true, at: new Date().toISOString() };
     const note = res.timedOut ? `\ngate: timed out after ${+(timeoutMs / 60_000).toFixed(2)} min — process tree killed` : '';
     return { sha, ok: res.code === 0 && !res.timedOut, command, output: (res.output.trim() + note).trim().split('\n').slice(-60).join('\n'),
       ...(res.timedOut ? { timedOut: true } : {}), at: new Date().toISOString() };

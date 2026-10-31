@@ -214,7 +214,10 @@ export async function runPool(p: Project, o: PoolOptions): Promise<number> {
     gateRunning = (async () => {
       do {
         gateAgain = false;
-        const r = await runGate(p.root, c.worktreeRoot, c.defaultBranch, cmd).catch((e) => ({ sha: '', ok: true, command: cmd, output: String(e.message), at: new Date().toISOString(), error: true }));
+        if (o.signal.aborted) break;
+        // Ctrl+C (o.signal) aborts the gate; `hx pause --now` (stop) does not
+        const r = await runGate(p.root, c.worktreeRoot, c.defaultBranch, cmd, undefined, o.signal).catch((e) => ({ sha: '', ok: true, command: cmd, output: String(e.message), at: new Date().toISOString(), error: true }));
+        if ('aborted' in r && r.aborted) break; // discarded: no log, no gate.json, no fix issue
         if ('error' in r) { log(`gate: could not run (${r.output.slice(0, 160)}) — retried after the next merge`); continue; }
         const wasRed = gateRed();
         gs.last = r;

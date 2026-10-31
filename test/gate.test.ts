@@ -83,3 +83,31 @@ test('a gate command that hangs: killed with its whole tree at the timeout, the 
   const pid = Number(readFileSync(pidFile, 'utf8'));
   assert.ok(pid > 0 && !alive(pid), `the gate's test process ${pid} is not left running`);
 });
+
+test('Ctrl+C while the startup gate runs: runPool returns within 5 s, the gate process is killed and its result discarded', E2E, async () => {
+  writeFileSync(stateFile, JSON.stringify({ comments: [], prs: [], issues: [] }));
+  const pidFile = path.join(tmp, 'gate-abort.pid').replace(/\\/g, '/');
+  const sleeper = `node -e "require('fs').writeFileSync('${pidFile}', String(process.pid)); setTimeout(() => {}, 60e3)"`;
+  const before = readFileSync(path.join(stateDir, 'gate.json'), 'utf8');
+  const lines: string[] = [];
+  const orig = console.log;
+  console.log = (m: string) => { lines.push(m); orig(m); };
+  const ac = new AbortController();
+  let abortedAt = 0;
+  const poll = setInterval(() => {
+    try { readFileSync(pidFile, 'utf8'); } catch { return; }
+    clearInterval(poll); abortedAt = Date.now(); ac.abort();
+  }, 50);
+  const p = { root, stateDir, config: { ...DEFAULTS, repo: 'me/app', defaultBranch: 'main', worktreeRoot: path.join(tmp, 'wt'),
+    claudeBin: path.join(here, 'fakes', 'claude.mjs'), maxIterations: 3, pollSeconds: 1, audit: false, gateCommand: sleeper } };
+  await runPool(p, { workers: 1, watch: true, dryRun: false, signal: ac.signal })
+    .finally(() => { console.log = orig; clearInterval(poll); });
+  assert.ok(abortedAt > 0, 'the gate command started');
+  assert.ok(Date.now() - abortedAt < 5000, `returned ${Date.now() - abortedAt} ms after the abort`);
+  const pid = Number(readFileSync(pidFile, 'utf8'));
+  assert.ok(pid > 0 && !alive(pid), `the gate's process ${pid} is not left running`);
+  assert.equal(readFileSync(path.join(stateDir, 'gate.json'), 'utf8'), before, 'gate.json has no new result');
+  assert.ok(!lines.some((l) => /gate (RED|green)/.test(l)), lines.join('\n'));
+  const s = JSON.parse(readFileSync(stateFile, 'utf8'));
+  assert.equal(s.issues.length, 0, 'no fix issue filed');
+});
