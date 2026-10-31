@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import type { Config } from './config.ts';
 import { render } from './state.ts';
 import { ISSUE_SCRIPT } from './pool.ts';
+import { claude } from './agents/claude.ts';
 
 const PROMPTS = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'prompts');
 
@@ -15,7 +16,7 @@ export const INLINE_PROMPT_MAX = 6000;
  * the worker flags (-p, stream-json, bypassPermissions, the lean set) — the user's own settings and tools apply.
  */
 export function grillArgs(config: Pick<Config, 'model' | 'effort'>, prompt: string): string[] {
-  return ['--model', config.model, ...(config.effort ? ['--effort', config.effort] : []), prompt];
+  return claude.interactiveArgs(config.model, config.effort, prompt);
 }
 
 const pad = (n: number) => String(n).padStart(2, '0');

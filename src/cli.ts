@@ -11,7 +11,8 @@ import { clearPause, nextLine, otherRunner, pidAlive, readLive, readPause, setPa
 import { readGate } from './gate.ts';
 import { DEFAULT_PORT, serveDashboard } from './dashboard.ts';
 import { fileBug, filePrd } from './prd.ts';
-import { grillArgs, ideaFrom, sessionPaths, sessionPrompt } from './grill.ts';
+import { agentFor } from './agents/index.ts';
+import { ideaFrom, sessionPaths, sessionPrompt } from './grill.ts';
 import { formatSkills } from './skills.ts';
 import { addRepo, fleetFile, fleetWorkers, readFleet, removeRepo, sameRoot, writeFleet } from './fleet.ts';
 import { fmt, localDay, readUsage, summarize, totalTokens, type UsageRow } from './usage.ts';
@@ -148,6 +149,7 @@ rtdd is installed but this repo has no .rtdd/config.yaml: run  hx init --rtdd  (
 
 async function runCmd(args: string[]): Promise<number> {
   const p = loadProject();
+  agentFor(p.config.agentCli); // an unknown agentCli stops here, before any board read
   const workers = Number(flag(args, '--workers') ?? p.config.workers);
   if (!Number.isInteger(workers) || workers < 1) throw new Error('--workers must be a positive integer');
   const only = flag(args, '--issue')?.split(',').map((s) => Number(s.replace('#', '')));
@@ -198,6 +200,7 @@ interface Interview {
 async function interview(args: string[], iv: Interview): Promise<number> {
   const p = loadProject();
   const c = p.config;
+  const agent = agentFor(c.agentCli);
   // the session reads issues with scripts/issue.mjs, which needs the trusted set
   let trusted: Set<string>;
   try { trusted = await lookupTrusted(c); } catch (e: any) { console.error(`hx: ${e.message}`); return 2; }
@@ -209,7 +212,7 @@ async function interview(args: string[], iv: Interview): Promise<number> {
   const prompt = sessionPrompt(iv.role, { repo: c.repo, base: c.defaultBranch, idea, output: paths.out }, paths.promptFile);
   // the user talks to this session directly: inherited stdio, no shell
   await new Promise<void>((resolve, reject) => {
-    const child = spawn(...resolveCmd(c.claudeBin, grillArgs(c, prompt)), { cwd: p.root, stdio: 'inherit',
+    const child = spawn(...resolveCmd(agent.bin(c), agent.interactiveArgs(c.model, c.effort, prompt)), { cwd: p.root, stdio: 'inherit',
       env: { ...process.env, ...trustedEnv(trusted) } });
     child.on('error', reject).on('exit', () => resolve());
   });

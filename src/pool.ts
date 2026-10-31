@@ -7,7 +7,8 @@ import * as gh from './github.ts';
 import type { Issue } from './github.ts';
 import { claimable, externalRefs, fenceFindings, isTrusted, issueKey, parseParent, plan, prdKey, refKey, render, TRIAGE_MARKER, triageVerdict, trustedSet, type Action, type Plan } from './state.ts';
 import { addWorktree, auditWorktree, cleanStaleWorktrees, implWorktree, prdWorktree, removeWorktree, repairBrokenRefs, triageWorktree } from './worktree.ts';
-import { rateLimitOf, runGoal, runTurn, type GoalResult, type RateLimit } from './agent.ts';
+import { runGoal, runTurn, type GoalResult, type RateLimit } from './agent.ts';
+import { agentFor, type AgentCli } from './agents/index.ts';
 import { clearLive, otherRunner, readLive, readPause, writeLive, type LiveSession, type LiveState } from './runstate.ts';
 import { fmt, recordUsage, totalTokens } from './usage.ts';
 import { gateIssueBody, gateIssueTitle, readGate, remoteSha, runGate, writeGate, type GateResult } from './gate.ts';
@@ -109,6 +110,7 @@ interface WorkContext {
   merged?: (testCommand?: string) => void; // a PR reached the default branch: the CI gate re-tests it
   trusted: Set<string>; // this run's trusted set: only their comments count in hx's own logic; passed to every session as HX_TRUSTED
   skills?: Record<string, Skill[]>; // role → the skills appended to its prompt, resolved once per run
+  agent?: AgentCli; // the agent CLI sessions run on (config.agentCli), resolved once per run
 }
 
 const sleep = (ms: number, signal?: AbortSignal) => new Promise<void>((r) => {
@@ -171,6 +173,8 @@ export function printPlan(pl: Plan, repo: string): void {
 
 export async function runPool(p: Project, o: PoolOptions): Promise<number> {
   const c = p.config;
+  // an unknown agentCli stops the run before anything reads the board
+  const agent = agentFor(c.agentCli);
   setRunLog(runLogFile(p.stateDir));
   // who may put work on the board: looked up once per run; without it nothing is read or claimed
   let trusted: Set<string>;
@@ -269,6 +273,7 @@ export async function runPool(p: Project, o: PoolOptions): Promise<number> {
     signal: stop.signal,
     trusted,
     skills: skills.byRole,
+    agent,
     started: (s) => { live.sessions.push(s); save(); },
     merged: (testCommand) => {
       if (testCommand && !gs.command) { gs.command = testCommand; writeGate(p.stateDir, gs); }
@@ -496,23 +501,21 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
   const eventLog = path.join(logDir, `${a.kind === 'impl' ? 'issue' : a.kind}-${n}.jsonl`);
   let sessionTokens = 0;
   const env = trustedEnv(ctx.trusted);
+  const agent = ctx.agent ?? agentFor(c.agentCli);
   /** One role session (a fresh Claude session with its Ralph loop), logged and counted. */
   const goal = (role: string, cwd: string, promptFile: string, promise: string, extra: Record<string, string | number> = {}) => {
     const v = { ...vars, ...extra, PROMISE: promise };
     // the role's skills go after the rendered prompt (never rendered themselves); the continue prompt gets none
     const skills = ctx.skills?.[role] ?? [];
     return runGoal({
-      bin: c.claudeBin, cwd, model: c.model, effort: c.effort, extraArgs: workerArgs(c), timeoutMs: c.turnTimeoutMinutes * 60_000,
+      agent, bin: agent.bin(c), cwd, model: c.model, effort: c.effort, extraArgs: workerArgs(c), timeoutMs: c.turnTimeoutMinutes * 60_000,
       stallMs: c.stallMinutes * 60_000,
       prompt: appendSkills(render(readFileSync(path.join(PROMPTS, promptFile), 'utf8'), v), skills, PROMPTS),
       continuePrompt: render(readFileSync(path.join(PROMPTS, 'continue.md'), 'utf8'), v),
       promise, maxIterations: c.maxIterations, signal: ctx.signal,
       env: rtddEnv(env, skills.some((s) => s.name === 'rtdd'), effectiveRtddBin(c)),
-      onEvent: (ev) => {
-        appendFileSync(eventLog, JSON.stringify(ev) + '\n');
-        const rl = rateLimitOf(ev);
-        if (rl) ctx.rateLimit(rl);
-      },
+      onEvent: (ev) => appendFileSync(eventLog, JSON.stringify(ev) + '\n'),
+      onRateLimit: (rl) => ctx.rateLimit(rl),
       onTurn: (i, sessionId, t) => {
         sessionTokens += totalTokens(t.usage);
         ctx.progress(key, i, sessionTokens);
@@ -623,7 +626,7 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
   if (!audited) {
     const r = await goal(a.kind, wt.dir, `${a.kind}.md`, promise);
     const summary = `${r.iterations} turn(s), ${fmt(totalTokens(r.usage))} tokens`;
-    if (r.stopReason === 'aborted' && a.kind === 'impl' && r.iterations > 0) await checkpoint(p, n, r.sessionId, wt.dir, vars, eventLog, env);
+    if (r.stopReason === 'aborted' && a.kind === 'impl' && r.iterations > 0) await checkpoint(p, agent, n, r.sessionId, wt.dir, vars, eventLog, env);
     if (stopped(r)) return handBack(r, summary);
     const why = await verify(p, a, n, ctx.trusted, before);
     if (!why) {
@@ -646,7 +649,7 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
   for (let attempt = 1; ; attempt++) {
     const r = await goal('impl', wt.dir, 'impl.md', promise, extra);
     let summary = `${fmt(sessionTokens)} tokens so far`;
-    if (r.stopReason === 'aborted' && r.iterations > 0) await checkpoint(p, n, r.sessionId, wt.dir, vars, eventLog, env);
+    if (r.stopReason === 'aborted' && r.iterations > 0) await checkpoint(p, agent, n, r.sessionId, wt.dir, vars, eventLog, env);
     if (stopped(r)) return handBack(r, summary);
     const pr = r.done ? await findOpenPr(c.repo, `issue/${n}`) : null;
     if (!pr) return fail(r, r.done ? 'the implementer reported ready but no open PR for its branch exists'
@@ -737,11 +740,11 @@ function mergeAudited(cwd: string): Promise<{ ok: boolean; retry: boolean; code:
  * The run is stopping mid-session: resume the session once more and have it commit and push its
  * WIP and leave a handoff comment, so the next session picks up where this one stopped.
  */
-async function checkpoint(p: Project, n: number, sessionId: string, cwd: string, vars: Record<string, string | number>, eventLog: string,
+async function checkpoint(p: Project, agent: AgentCli, n: number, sessionId: string, cwd: string, vars: Record<string, string | number>, eventLog: string,
   env: Record<string, string>): Promise<void> {
   const c = p.config;
   log('checkpointing: committing WIP and writing a handoff note…', n);
-  const t = await runTurn({ bin: c.claudeBin, cwd, model: c.model, effort: c.effort, extraArgs: workerArgs(c),
+  const t = await runTurn({ agent, bin: agent.bin(c), cwd, model: c.model, effort: c.effort, extraArgs: workerArgs(c),
     timeoutMs: c.checkpointMinutes * 60_000, stallMs: c.stallMinutes * 60_000, sessionId, resume: true, env,
     prompt: render(readFileSync(path.join(PROMPTS, 'checkpoint.md'), 'utf8'), vars),
     onEvent: (ev) => appendFileSync(eventLog, JSON.stringify(ev) + '\n') });

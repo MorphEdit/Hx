@@ -39,7 +39,8 @@ export interface Config {
   stallMinutes: number; // a turn with no stdout for this long is killed (0 = off)
   pollSeconds: number;
   worktreeRoot: string; // keep it short: Windows MAX_PATH
-  claudeBin: string;
+  agentCli: string; // the agent CLI workers and hx grill / hx issue run (src/agents): claude
+  claudeBin: string; // the claude adapter's binary
   claudeArgs: string[]; // extra flags appended to every claude call
   // Lean workers: no MCP servers, skills, slash commands or user-level settings/plugins, and only these
   // built-in tools. A worker's base context drops from ~44K to ~8K tokens per call (measured).
@@ -74,6 +75,7 @@ export const DEFAULTS: Omit<Config, 'repo' | 'defaultBranch' | 'worktreeRoot'> =
   turnTimeoutMinutes: 45,
   stallMinutes: 15,
   pollSeconds: 60,
+  agentCli: 'claude',
   claudeBin: 'claude',
   claudeArgs: [],
   leanWorkers: true,
