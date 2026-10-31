@@ -43,11 +43,12 @@ async function withMode<T>(env: Record<string, string>, f: () => Promise<T>): Pr
 
 test('a turn with no stdout for stallMinutes is killed: stalled, not timedOut, and the process tree is gone', E2E, async () => {
   const before = stallPids().length;
-  const r = await withMode({ FAKE_CLAUDE_MODE: 'stall' }, () => turn({ stallMs: 0.02 * 60_000, timeoutMs: 60_000 }));
+  // the stall timer runs from spawn: a 1.5 s start (node on a loaded machine) must still be inside the window
+  const r = await withMode({ FAKE_CLAUDE_MODE: 'stall', FAKE_CLAUDE_START_MS: '1500' }, () => turn({ stallMs: 0.1 * 60_000, timeoutMs: 60_000 }));
   assert.equal(r.stalled, true);
   assert.ok(!r.timedOut, 'not a timeout');
   assert.equal(r.ok, false);
-  assert.match(r.error ?? '', /stalled: no output for 0\.02 min/);
+  assert.match(r.error ?? '', /stalled: no output for 0\.1 min/);
   assert.ok(r.durationMs < 30_000, `killed early (${r.durationMs} ms)`);
   const pids = stallPids();
   assert.equal(pids.length, before + 1);

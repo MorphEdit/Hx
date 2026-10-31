@@ -17,6 +17,7 @@
 // FAKE_CLAUDE_TIMES=<file>: each turn appends {sid, start, end} (ms) as one line when it exits.
 // FAKE_CLAUDE_MODE=limit / crash for the error paths; =stall prints one event, starts a sleeping child, writes both pids
 // to HX_FAKE_DIR/stall-<pid>.json and sleeps FAKE_CLAUDE_SLEEP_MS (default 10 min), then replies.
+// FAKE_CLAUDE_START_MS delays the stall mode's start, as a slow node startup on a loaded machine does.
 import { spawn, spawnSync } from 'node:child_process';
 import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
@@ -59,10 +60,13 @@ if (process.env.FAKE_CLAUDE_TIMES) {
 }
 process.stdin.on('data', (d) => (prompt += d)).on('end', () => {
   if (mode === 'stall') {
-    out({ type: 'system', subtype: 'init' });
-    const kid = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 600000)'], { stdio: 'ignore' });
-    writeFileSync(path.join(process.env.HX_FAKE_DIR, `stall-${process.pid}.json`), JSON.stringify({ pid: process.pid, child: kid.pid }));
-    setTimeout(() => { kid.kill(); reply('woke up'); }, Number(process.env.FAKE_CLAUDE_SLEEP_MS ?? 600000));
+    // the pids are on disk before the one line that re-arms the stall timer
+    setTimeout(() => {
+      const kid = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 600000)'], { stdio: 'ignore' });
+      writeFileSync(path.join(process.env.HX_FAKE_DIR, `stall-${process.pid}.json`), JSON.stringify({ pid: process.pid, child: kid.pid }));
+      out({ type: 'system', subtype: 'init' });
+      setTimeout(() => { kid.kill(); reply('woke up'); }, Number(process.env.FAKE_CLAUDE_SLEEP_MS ?? 600000));
+    }, Number(process.env.FAKE_CLAUDE_START_MS ?? 0));
     return;
   }
   if (mode === 'crash') { process.stderr.write('boom'); process.exit(3); }
