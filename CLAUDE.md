@@ -8,7 +8,8 @@ roadmap and the agreed order of the next features) before changing anything.
 ## Where things are
 - `src/` — TypeScript run directly by Node ≥ 23.6 (type stripping): no build, no dependencies.
   Erasable syntax only (no enums, no parameter properties); imports end in `.ts`.
-  `state.ts` pure board logic · `pool.ts` runner + sessions · `agent.ts` claude process + Ralph loop ·
+  `state.ts` pure board logic · `pool.ts` runner + sessions · `agent.ts` agent process + Ralph loop ·
+  `agents/` the agent-CLI seam (`AgentCli`, registry by `config.agentCli`; `claude.ts` argv + stream-json) ·
   `runstate.ts` live.json / pause · `github.ts` gh wrapper · `worktree.ts` · `config.ts` · `cli.ts`
   · `dashboard.ts` `hx dashboard` server (localhost, GET only) · `dashboard.html` its page (text only, no `innerHTML`) ·
   `outcomes.ts` run.log → outcome numbers

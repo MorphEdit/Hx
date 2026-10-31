@@ -1,4 +1,4 @@
-// Drives Claude Code headless (`claude -p --output-format stream-json`) — no tmux, no screen scraping.
+// Drives a headless agent CLI (Claude Code by default, see src/agents/) — no tmux, no screen scraping.
 // The Ralph loop lives here: re-prompt the same session with --resume until the reply carries the
 // completion promise or the iteration budget runs out.
 import { spawn } from 'node:child_process';
@@ -6,6 +6,10 @@ import { randomUUID } from 'node:crypto';
 import { createInterface } from 'node:readline';
 import { PROMISE_RE } from './state.ts';
 import { killTree, resolveCmd } from './exec.ts';
+import { claude } from './agents/claude.ts';
+import type { AgentCli } from './agents/types.ts';
+
+export { rateLimitOf } from './agents/claude.ts';
 
 export interface Usage {
   input: number;
@@ -28,10 +32,8 @@ export interface TurnResult {
   stalled?: boolean; // killed after stallMs without a line on stdout
 }
 
-// API statuses that no retry and no other issue can fix: bad request (e.g. model not supported), auth, not found
-const FATAL_STATUS = new Set([400, 401, 403, 404]);
-
 export interface TurnOptions {
+  agent?: AgentCli; // the CLI driven (unset = claude); bin is still the exact binary spawned
   bin: string;
   cwd: string;
   prompt: string;
@@ -42,12 +44,11 @@ export interface TurnOptions {
   extraArgs: string[];
   timeoutMs: number;
   stallMs?: number; // kill the turn after this long without a line on stdout (0 / unset = off)
-  onEvent?: (ev: any) => void; // every raw stream-json line, for the per-issue log
+  onEvent?: (ev: any) => void; // every event the agent parsed (claude: each stream-json line), for the per-issue log
+  onRateLimit?: (rl: RateLimit) => void; // the agent reported its usage window
   signal?: AbortSignal;
   env?: Record<string, string>; // added to this process's env for the session (e.g. HX_TRUSTED)
 }
-
-const LIMIT_TEXT = /usage limit|hit your [a-z]+ limit|limit reached|out of (usage )?credits/i;
 
 export function emptyUsage(): Usage {
   return { input: 0, cacheWrite: 0, cacheRead: 0, output: 0 };
@@ -69,18 +70,10 @@ export interface RateLimit {
   type?: string; // five_hour, seven_day, ...
 }
 
-/** The rate-limit info of a stream-json event, or null. Utilization is normalised to 0..1. */
-export function rateLimitOf(ev: any): RateLimit | null {
-  const i = ev?.type === 'rate_limit_event' ? ev.rate_limit_info : null;
-  if (!i) return null;
-  let u = typeof i.utilization === 'number' ? i.utilization : undefined;
-  if (u !== undefined && u > 1) u /= 100;
-  return { status: String(i.status ?? ''), utilization: u, resetsAt: i.resetsAt, type: i.rateLimitType };
-}
-
 export function runTurn(o: TurnOptions): Promise<TurnResult> {
-  const args = ['-p', '--output-format', 'stream-json', '--verbose', '--permission-mode', 'bypassPermissions',
-    '--model', o.model, ...(o.effort ? ['--effort', o.effort] : []), ...(o.resume ? ['--resume', o.sessionId] : ['--session-id', o.sessionId]), ...o.extraArgs];
+  const agent = o.agent ?? claude;
+  const args = agent.args(o);
+  const turn = agent.turn(o);
   const started = Date.now();
   return new Promise((resolve) => {
     const [cmd, argv] = resolveCmd(o.bin, args);
@@ -88,10 +81,7 @@ export function runTurn(o: TurnOptions): Promise<TurnResult> {
       detached: process.platform !== 'win32', ...(o.env ? { env: { ...process.env, ...o.env } } : {}) });
     if (child.pid) live.add(child.pid);
     const res: TurnResult = { ok: false, text: '', usage: emptyUsage(), costUsd: 0, durationMs: 0, numTurns: 0 };
-    const texts: string[] = [];
     let stderr = '';
-    let gotResult = false;
-    let rejectedLimit: { resetsAt?: number } | undefined;
 
     const timer = setTimeout(() => { res.timedOut = true; killTree(child.pid); }, o.timeoutMs);
     // a turn that stops printing (a stuck background command, a poll loop) is killed long before the timeout
@@ -107,27 +97,10 @@ export function runTurn(o: TurnOptions): Promise<TurnResult> {
 
     createInterface({ input: child.stdout! }).on('line', (line) => {
       armStall();
-      let ev: any;
-      try { ev = JSON.parse(line); } catch { return; }
-      o.onEvent?.(ev);
-      if (ev.type === 'assistant') {
-        for (const c of ev.message?.content ?? []) if (c.type === 'text' && c.text) texts.push(c.text);
-      } else if (rateLimitOf(ev)?.status === 'rejected') {
-        rejectedLimit = { resetsAt: rateLimitOf(ev)!.resetsAt };
-      } else if (ev.type === 'result') {
-        gotResult = true;
-        const u = ev.usage ?? {};
-        res.usage = { input: u.input_tokens ?? 0, cacheWrite: u.cache_creation_input_tokens ?? 0,
-          cacheRead: u.cache_read_input_tokens ?? 0, output: u.output_tokens ?? 0 };
-        res.costUsd = ev.total_cost_usd ?? 0;
-        res.numTurns = ev.num_turns ?? 0;
-        res.ok = !ev.is_error && ev.subtype === 'success';
-        if (!res.ok) {
-          res.error = `${ev.api_error_status ? `API ${ev.api_error_status}` : ev.subtype}: ${String(ev.result ?? '').slice(0, 500)}`;
-          if (FATAL_STATUS.has(Number(ev.api_error_status))) res.fatal = true;
-        }
-        if (typeof ev.result === 'string' && ev.result && !texts.includes(ev.result)) texts.push(ev.result);
-      }
+      const out = turn.line(line, res);
+      if (!out) return;
+      if (out.event !== undefined) o.onEvent?.(out.event);
+      if (out.rateLimit) o.onRateLimit?.(out.rateLimit);
     });
     child.stderr!.on('data', (d) => { stderr += d; if (stderr.length > 20000) stderr = stderr.slice(-20000); });
     child.on('error', (e) => { stderr += String(e); });
@@ -137,14 +110,7 @@ export function runTurn(o: TurnOptions): Promise<TurnResult> {
       clearTimeout(stall);
       o.signal?.removeEventListener('abort', onAbort);
       res.durationMs = Date.now() - started;
-      res.text = texts.join('\n');
-      if (!gotResult) {
-        res.ok = false;
-        res.error = res.stalled ? `stalled: no output for ${o.stallMs! / 60000} min`
-          : res.timedOut ? `turn timed out after ${Math.round(o.timeoutMs / 60000)} min`
-          : `claude exited ${code} with no result: ${stderr.trim().slice(-500)}`;
-      }
-      if (rejectedLimit || (!res.ok && LIMIT_TEXT.test(`${res.error ?? ''}\n${stderr}`))) res.limited = rejectedLimit ?? {};
+      turn.finish(res, code, stderr);
       resolve(res);
     });
     child.stdin!.end(o.prompt); // prompt via stdin: no Windows command-line length or quoting limits
