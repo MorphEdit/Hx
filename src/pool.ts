@@ -313,8 +313,10 @@ export async function runPool(p: Project, o: PoolOptions): Promise<number> {
           for (const r of [...pl.prds, ...pl.board])
             if (r.status === 'untrusted' && !r.untrustedPrd && !skipped.has(r.number)) { skipped.add(r.number); log(skipLine(r)); }
           stuck = pl.board.filter((r) => r.status === 'working' && !inFlight.has(issueKey(r.number))).map((r) => r.number);
-          // someone may have fixed the base by hand: re-test when it moved
-          if (gateRed() && !gateRunning && gs.last && (await remoteSha(p.root, c.defaultBranch)) !== gs.last.sha) void gateCheck();
+          // someone may have fixed the base by hand: re-test when it moved. Not while the fix session runs: its
+          // merge moves the base too, and it re-tests once the session hands back (green only after its DONE)
+          const fixing = gs.fixIssue !== undefined && inFlight.has(issueKey(gs.fixIssue));
+          if (gateRed() && !gateRunning && !fixing && gs.last && (await remoteSha(p.root, c.defaultBranch)) !== gs.last.sha) void gateCheck();
           actions = claimable(pl.actions, { only: o.only, gateRed: gateRed(), fixIssue: gs.fixIssue });
         } catch (e: any) {
           log(`board read failed, retrying next poll: ${e.message}`);

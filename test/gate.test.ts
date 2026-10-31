@@ -136,3 +136,32 @@ test('Ctrl+C while the gate runs: runGate does not wait on a worktree Windows st
     clearInterval(poll); release(); worktreeFs.removeDir = removeDir;
   }
 });
+
+test('main moves while the fix session is still finishing: the gate waits for that session, not the next poll (#106)', E2E, async () => {
+  // main is red again
+  git(root, 'pull', '-q', 'origin', 'main');
+  writeFileSync(path.join(root, 'BROKEN'), 'again\n');
+  git(root, 'add', '-A');
+  git(root, ...gitId, 'commit', '-q', '-m', 'oops again');
+  git(root, 'push', '-q', 'origin', 'HEAD:main');
+  // the fix session has pushed main, but hx takes seconds to confirm it closed its issue (a loaded machine)
+  writeFileSync(stateFile, JSON.stringify({ comments: [], prs: [], issues: [], slowClosedState: 6000 }));
+  const lines: string[] = [];
+  const orig = console.log;
+  console.log = (m: string) => { lines.push(m); orig(m); };
+  const p = { root, stateDir, config: { ...DEFAULTS, repo: 'me/app', defaultBranch: 'main', worktreeRoot: path.join(tmp, 'wt'),
+    claudeBin: path.join(here, 'fakes', 'claude.mjs'), maxIterations: 3, pollSeconds: 1, audit: false, gateCommand: GATE } };
+  const rc = await pooled((signal) => runPool(p, { workers: 2, watch: false, dryRun: false, signal }))
+    .finally(() => { console.log = orig; });
+  assert.equal(rc, 0, lines.join('\n'));
+
+  const s = JSON.parse(readFileSync(stateFile, 'utf8'));
+  const fix = s.issues.find((i: any) => /^Default branch is red/.test(i.title));
+  assert.ok(fix, 'hx filed a fix issue');
+  assert.equal(fix.state, 'CLOSED');
+  const at = (re: RegExp) => lines.findIndex((l) => re.test(l));
+  const done = at(new RegExp(`\\[#${fix.number}\\] impl DONE`));
+  assert.ok(done >= 0, lines.join('\n'));
+  assert.ok(at(/gate green ✓ again/) > done, 'green only after the fix session handed back:\n' + lines.join('\n'));
+  assert.equal(readGate(stateDir).last?.ok, true);
+});
