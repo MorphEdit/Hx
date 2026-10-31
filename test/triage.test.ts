@@ -57,7 +57,7 @@ async function run(extra = {}) {
   } finally { console.log = orig; }
 }
 
-test('triageWorktree: t<n> on hx/triage-<n>, fresh from the base', () => {
+test('triageWorktree: t<n> on hx/triage-<n>, fresh from the base', E2E, () => {
   assert.deepEqual(triageWorktree(7, 'main'), { name: 't7', branch: 'hx/triage-7', base: 'main', fresh: true });
 });
 
