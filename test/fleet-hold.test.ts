@@ -108,13 +108,16 @@ test('a rate-limit event in repo A writes hold.json; repo B copies the hold and 
   assert.deepEqual(closed(a.board), [1], resA.out);
   assert.deepEqual(closed(b.board), [1], resB.out);
   assert.ok(seen, `B's live.json never showed a hold\n${resB.out}`);
-  assert.equal(seen.pausedUntil, hold.until);
+  // each of A's turns reports the rate again, so A may have pushed `until` later while B was holding
+  const last = onDisk(fleet);
+  assert.equal(last.repo, 'me/a'); // B never rewrote it
+  assert.match(last.reason, /usage 95%/);
+  assert.ok(seen.pausedUntil! >= hold.until && seen.pausedUntil! <= last.until, `${seen.pausedUntil} outside ${hold.until}..${last.until}`);
   assert.ok(seen.pauseReason!.startsWith('shared hold from me/a'), seen.pauseReason);
   assert.match(resB.out, /shared hold from me\/a: usage 95%/);
   // B's first session started only once the hold had expired
   const starts = readFileSync(timesB, 'utf8').trim().split('\n').map((l) => JSON.parse(l).start);
-  assert.ok(Math.min(...starts) >= hold.until, `B claimed during the hold: ${Math.min(...starts)} < ${hold.until}`);
-  assert.deepEqual(onDisk(fleet), hold); // B never rewrote it
+  assert.ok(Math.min(...starts) >= last.until, `B claimed during the hold: ${Math.min(...starts)} < ${last.until}`);
 });
 
 test('hx run without HX_FLEET_DIR creates no hold.json, even after a usage hold of its own', E2E, async () => {
