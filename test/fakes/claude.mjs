@@ -50,9 +50,10 @@ if (/^Role: grill/m.test(grillPrompt)) {
 let prompt = '';
 process.stdin.on('data', (d) => (prompt += d)).on('end', () => {
   if (mode === 'stall') {
-    out({ type: 'system', subtype: 'init' });
+    // record the pids before the first event: on a loaded machine the stall kill can follow it at once
     const kid = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 600000)'], { stdio: 'ignore' });
     writeFileSync(path.join(process.env.HX_FAKE_DIR, `stall-${process.pid}.json`), JSON.stringify({ pid: process.pid, child: kid.pid }));
+    out({ type: 'system', subtype: 'init' });
     setTimeout(() => { kid.kill(); reply('woke up'); }, Number(process.env.FAKE_CLAUDE_SLEEP_MS ?? 600000));
     return;
   }
