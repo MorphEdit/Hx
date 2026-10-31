@@ -37,6 +37,9 @@ const fixture = [
   '2026-10-31T14:00:00.000Z [#20] security DONE ✓ (10m, 5k tokens)',
   '2026-10-31T14:10:00.000Z [#20] security (round 2): PRD',
   '2026-10-31T14:20:00.000Z [#20] security DONE ✓ (10m, 5k tokens)',
+  '2026-10-31T14:21:00.000Z [#20] security (round 3): PRD',
+  '2026-10-31T14:22:00.000Z [#20] security pass filed #61, #62 — removed prd-reviewed',
+  '2026-10-31T14:23:00.000Z [#20] security DONE ✓ (10m, 5k tokens)',
   '2026-10-31T14:30:00.000Z gate RED ✗ — `npm test` fails on main at 9999999; claiming only its fix',
   'not a log line',
   '',
@@ -46,7 +49,7 @@ test('parseOutcomes(fixture in the §1 format): every §5a count', () => {
   assert.deepEqual(parseOutcomes(fixture), {
     audit: { pass: 3, fail: 2, mergedIssues: 3, avgRounds: 5 / 3 },
     gauntlet: { rounds: 2, pass: 1, fail: 1 },
-    security: { passes: 2, filed: 1 },
+    security: { passes: 3, filed: 2 },
     gate: { red: 2, recovered: 1, openRed: true, redMs: [15 * min], avgRedMs: 15 * min },
     // #1 30m, #2 10m, #3 60m (audited), #4 20m (unaudited) → (20+30)/2; review/security DONE are not issue ends
     issues: { done: 4, medianMs: 25 * min },

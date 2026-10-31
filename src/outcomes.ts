@@ -38,7 +38,7 @@ export function parseOutcomes(lines: string[]): Outcomes {
     else if (msg.startsWith('audit FAIL ✗')) fail++;
     else if ((k = /^gauntlet round \d+\/\d+: (PASS ✓|FAIL ✗)/.exec(msg))) { if (k[1].startsWith('PASS')) gPass++; else gFail++; }
     else if (msg.startsWith('security DONE ✓')) secPasses++;
-    else if (msg.startsWith('security pass filed issue(s)')) filed++;
+    else if (msg.startsWith('security pass filed ')) filed++;
     else if (msg.startsWith('impl: ') || msg.startsWith('impl (round ')) { if (n !== null && !started.has(n)) started.set(n, t); }
     else if ((k = /^DONE ✓ audited and merged(?: \((\d+) round\(s\))?/.exec(msg)) || msg.startsWith('impl DONE ✓')) {
       if (k?.[1] !== undefined) rounds.push(Number(k[1]));
