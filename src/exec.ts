@@ -45,28 +45,38 @@ export interface ShellResult {
   code: number;
   output: string; // stdout then stderr, the last 1 MB of each
   timedOut: boolean;
+  aborted?: boolean; // opts.signal fired: the process tree was killed
   pid?: number;
 }
 
-/** Run a shell command line; after `timeoutMs` the whole process tree is killed and `timedOut` is set. */
-export function runShell(command: string, opts: { cwd?: string; timeoutMs: number }): Promise<ShellResult> {
+/** Run a shell command line; after `timeoutMs`, or when `signal` aborts, the whole process tree is killed
+ *  and `timedOut` / `aborted` is set. */
+export function runShell(command: string, opts: { cwd?: string; timeoutMs: number; signal?: AbortSignal }): Promise<ShellResult> {
   return new Promise((resolve) => {
     const child = spawn(command, [], { cwd: opts.cwd, shell: true, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'],
       detached: process.platform !== 'win32' }); // its own process group, so the tree can be killed elsewhere
     const keep = (s: string, d: Buffer) => (s + d.toString()).slice(-1024 * 1024);
-    let out = '', err = '', timedOut = false, settled = false;
+    let out = '', err = '', timedOut = false, aborted = false, settled = false;
     child.stdout.on('data', (d: Buffer) => { out = keep(out, d); });
     child.stderr.on('data', (d: Buffer) => { err = keep(err, d); });
     const done = (code: number) => {
       if (settled) return;
-      settled = true; clearTimeout(timer);
-      resolve({ code: timedOut ? 124 : code, output: `${out}\n${err}`, timedOut, pid: child.pid });
+      settled = true; clearTimeout(timer); opts.signal?.removeEventListener('abort', onAbort);
+      resolve({ code: aborted ? 130 : timedOut ? 124 : code, output: `${out}\n${err}`, timedOut, ...(aborted ? { aborted } : {}), pid: child.pid });
     };
     const timer = setTimeout(() => {
       timedOut = true;
       killTree(child.pid, true);
       setTimeout(() => done(124), 5000).unref(); // a stray grandchild may still hold the pipes open
     }, opts.timeoutMs);
+    const onAbort = () => {
+      if (settled || aborted) return;
+      aborted = true; clearTimeout(timer);
+      killTree(child.pid, true);
+      setTimeout(() => done(130), 1000).unref(); // do not wait on a grandchild holding the pipes open
+    };
+    if (opts.signal?.aborted) onAbort();
+    else opts.signal?.addEventListener('abort', onAbort, { once: true });
     child.on('error', (e) => { err += String(e.message); done(1); });
     child.on('close', (code) => done(code ?? 1));
   });
