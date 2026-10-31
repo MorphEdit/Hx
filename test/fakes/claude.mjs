@@ -14,10 +14,11 @@
 //              names (FAKE_GRILL_NOWRITE=1: writes nothing, =blank: whitespace only) and exits
 //   issue:     the same for `hx issue`: writes a small issue to its output path (same FAKE_GRILL_NOWRITE)
 // FAKE_CLAUDE_PAUSE=<file>: an implement session writes `drain` there as it closes its issue
+// FAKE_CLAUDE_TIMES=<file>: each turn appends {sid, start, end} (ms) as one line when it exits.
 // FAKE_CLAUDE_MODE=limit / crash for the error paths; =stall prints one event, starts a sleeping child, writes both pids
 // to HX_FAKE_DIR/stall-<pid>.json and sleeps FAKE_CLAUDE_SLEEP_MS (default 10 min), then replies.
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { loadJson, locked, saveJson } from './lock.mjs';
 
@@ -52,6 +53,10 @@ if (session) {
 }
 
 let prompt = '';
+if (process.env.FAKE_CLAUDE_TIMES) {
+  const start = Date.now();
+  process.on('exit', () => appendFileSync(process.env.FAKE_CLAUDE_TIMES, JSON.stringify({ sid, start, end: Date.now() }) + '\n'));
+}
 process.stdin.on('data', (d) => (prompt += d)).on('end', () => {
   if (mode === 'stall') {
     out({ type: 'system', subtype: 'init' });
