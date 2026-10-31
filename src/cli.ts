@@ -14,7 +14,7 @@ import { fileBug, filePrd } from './prd.ts';
 import { agentFor } from './agents/index.ts';
 import { ideaFrom, sessionPaths, sessionPrompt } from './grill.ts';
 import { formatSkills } from './skills.ts';
-import { addRepo, type Fleet, fleetDir, fleetFile, fleetWorkers, readFleet, readHold, removeRepo, sameRoot, slotsInUse, writeFleet } from './fleet.ts';
+import { addRepo, type Fleet, fleetDir, fleetFile, fleetWorkers, readFleet, readHold, removeRepo, sameRoot, slotsInUse, startFleetRun, writeFleet } from './fleet.ts';
 import { fmt, localDay, readUsage, summarize, totalTokens, type UsageRow } from './usage.ts';
 
 const HELP = `usage: hx <command> [options]
@@ -51,6 +51,9 @@ const HELP = `usage: hx <command> [options]
   fleet list               the fleet's repos: root, repo and whether the root still exists
   fleet workers <n>        the fleet's worker cap (default 2), read by the next hx fleet run
   fleet status             hx status for every repo in the fleet, then the slots in use and the shared hold
+  fleet run [--workers N] [--watch]
+                           one hx run per fleet repo (output prefixed [owner/name]), sharing one worker
+                           cap (--workers, else fleet workers); Ctrl+C asks every repo to checkpoint
   help
 
 Ctrl+C in hx run = pause --now for that run; Ctrl+C again force-quits (sessions are killed).
@@ -88,7 +91,7 @@ export async function main(argv: string[]): Promise<number> {
     case 'resume': return resume();
     case 'usage': return usage(args);
     case 'dashboard': return dashboard(args);
-    case 'fleet': return fleet(args);
+    case 'fleet': return args[0] === 'run' ? fleetRun(args.slice(1)) : fleet(args);
     case undefined: case 'help': case '-h': case '--help': console.log(HELP); return 0;
     default: console.error(`unknown command: ${cmd}\n\n${HELP}`); return 2;
   }
@@ -147,10 +150,17 @@ async function runCmd(args: string[]): Promise<number> {
 
   const ac = new AbortController();
   let presses = 0;
-  process.on('SIGINT', () => {
+  const press = () => {
     if (++presses === 1) { log('Ctrl+C — checkpointing running sessions and handing their issues back (Ctrl+C again to force quit)'); ac.abort(); }
     else { log('force quit — killing sessions; their worktrees keep the work'); killAllSessions(); process.exit(130); }
-  });
+  };
+  process.on('SIGINT', press);
+  // started by hx fleet run: its Ctrl+C arrives as an IPC message; the channel never keeps us alive, and the fleet dying does not stop us
+  if (process.send) {
+    process.on('message', (m: any) => { if (m?.type === 'interrupt') press(); });
+    process.on('disconnect', () => {});
+    (process.channel as any)?.unref?.();
+  }
   return runPool(p, { workers, only, watch: args.includes('--watch'), dryRun: args.includes('--dry-run'), signal: ac.signal });
 }
 
@@ -401,8 +411,17 @@ async function fleet(args: string[]): Promise<number> {
       return 0;
     }
     case 'status': return fleetStatus(f);
-    default: console.error('usage: hx fleet add [<path>] | remove <path> | list | workers <n> | status'); return 2;
+    default: console.error('usage: hx fleet add [<path>] | remove <path> | list | workers <n> | status | run [--workers N] [--watch]'); return 2;
   }
+}
+
+async function fleetRun(args: string[]): Promise<number> {
+  const w = flag(args, '--workers');
+  const workers = w === undefined ? undefined : Number(w);
+  if (workers !== undefined && (!Number.isInteger(workers) || workers < 1)) throw new Error('--workers must be a positive integer');
+  const run = startFleetRun({ workers, watch: args.includes('--watch') });
+  process.on('SIGINT', () => run.interrupt());
+  return await run.done;
 }
 
 async function dashboard(args: string[]): Promise<number> {
