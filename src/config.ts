@@ -15,6 +15,25 @@ export interface Labels {
   triaged: string; // a triage session reproduced the bug
 }
 
+export interface LabelSpec { name: string; color: string; description: string }
+
+/** Every label hx may add, with the colour and description `hx init` and `hx run` create it with. */
+export function labelSpecs(L: Labels): LabelSpec[] {
+  return [
+    { name: L.ready, color: '0e8a16', description: 'hx: an agent may pick this up' },
+    { name: L.working, color: 'fbca04', description: 'hx: an agent is working on this' },
+    { name: L.blocked, color: 'd93f0b', description: 'hx: needs a human' },
+    { name: L.prd, color: '5319e7', description: 'hx: a PRD, decomposed into child issues' },
+    { name: L.reviewed, color: '1d76db', description: 'hx: PRD reviewed and signed off' },
+    { name: L.hardened, color: 'c5def5', description: 'hx: PRD passed the gauntlet (critique and revision) and may be decomposed' },
+    { name: L.secured, color: '0052cc', description: "hx: the security pass found nothing in the PRD's merged work" },
+    { name: L.security, color: 'e99695', description: 'hx: a security issue filed by the security pass' },
+    { name: L.gateFix, color: 'b60205', description: 'hx: fixes a red default branch (the only work claimed while it is red)' },
+    { name: L.bug, color: 'd73a4a', description: 'hx: a bug, triaged (reproduced) before it is built, then built first' },
+    { name: L.triaged, color: 'f9d0c4', description: 'hx: a triage session reproduced the bug: it may be built' },
+  ];
+}
+
 export interface Config {
   repo: string; // owner/name
   defaultBranch: string;

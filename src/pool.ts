@@ -2,7 +2,7 @@ import { execFile } from 'node:child_process';
 import { appendFileSync, mkdirSync, readFileSync, renameSync, statSync, unwatchFile, watchFile, type Stats } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { effectiveRtddBin, workerArgs, type Project } from './config.ts';
+import { effectiveRtddBin, labelSpecs, workerArgs, type LabelSpec, type Project } from './config.ts';
 import * as gh from './github.ts';
 import type { Issue } from './github.ts';
 import { claimable, externalRefs, fenceFindings, isTrusted, issueKey, parseParent, plan, prdKey, refKey, render, TRIAGE_MARKER, triageVerdict, trustedSet, type Action, type Plan } from './state.ts';
@@ -70,14 +70,57 @@ export function log(msg: string, issue?: number): void {
 
 const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+// the colour and description of each label hx adds, set by ensureBoardLabels (a label relabel creates)
+const labelSpecByName = new Map<string, LabelSpec>();
+
+/** The labels of `add` that gh's error names as not found ("'bug-triaged' not found"). */
+export function missingLabels(error: string, add: string[]): string[] {
+  return add.filter((l) => error.includes(`'${l}' not found`));
+}
+
+/**
+ * Make sure every label hx may add exists in the repo, creating the missing ones (a repo set up by an older
+ * `hx init`). Idempotent: an existing label is left alone. A failed lookup is logged, never fatal.
+ */
+export async function ensureBoardLabels(c: Project['config']): Promise<string[]> {
+  const specs = labelSpecs(c.labels);
+  for (const s of specs) labelSpecByName.set(s.name, s);
+  let have: Set<string>;
+  try { have = await gh.listLabels(c.repo); } catch (e: any) {
+    log(`could not list the labels of ${c.repo}: ${String(e?.message ?? e).trim().slice(0, 200)}`);
+    return [];
+  }
+  const created: string[] = [];
+  for (const s of specs) {
+    if (have.has(s.name)) continue;
+    await gh.ensureLabel(c.repo, s.name, s.color, s.description);
+    created.push(s.name);
+  }
+  if (created.length) log(`created missing labels: ${created.join(', ')}`);
+  return created;
+}
+
 /**
  * Swap labels on an issue (usually agent-working for another), retried: a failed edit that is swallowed
  * leaves the issue agent-working, and hx never claims it again. Still failing → a warning naming the issue.
  */
 export async function relabel(repo: string, n: number, add: string[], remove: string[] = [], attempts = 3): Promise<boolean> {
   const wait = Number(process.env.HX_LABEL_RETRY_MS ?? 2000);
+  let created = false;
   for (let i = 1; ; i++) {
     try { await gh.editLabels(repo, n, add, remove); return true; } catch (e: any) {
+      // a label missing from the repo fails every try: create it and retry once, right away
+      const missing = created ? [] : missingLabels(String(e?.message ?? e), add);
+      if (missing.length) {
+        created = true;
+        for (const name of missing) {
+          const spec = labelSpecByName.get(name) ?? { name, color: 'ededed', description: 'hx' };
+          await gh.ensureLabel(repo, name, spec.color, spec.description);
+          log(`created the missing label ${name}`, n);
+        }
+        i--;
+        continue;
+      }
       if (i >= attempts) {
         const what = [...add.map((l) => `+${l}`), ...remove.map((l) => `-${l}`)].join(' ');
         log(`WARNING: could not change the labels of #${n} (${what}) after ${attempts} tries: ${String(e?.message ?? e).trim().slice(0, 200)} — fix them by hand`, n);
@@ -204,6 +247,7 @@ export async function runPool(p: Project, o: PoolOptions): Promise<number> {
   const save = () => { try { writeLive(p.stateDir, live); } catch {} };
   // a crash mid-write can leave an hx branch ref full of NUL bytes: repair it before anything uses the branch
   await repairBrokenRefs(p.root, c.worktreeRoot, (m) => log(m)).catch((e) => log(`could not check branch refs: ${e.message}`));
+  await ensureBoardLabels(c);
   await recoverStaleClaims(p);
   // a removal that failed last run (a file held open on Windows) left its directory behind; no session runs yet
   for (const d of await cleanStaleWorktrees(p.root, c.worktreeRoot).catch(() => [])) log(`removed leftover directory ${d}`);

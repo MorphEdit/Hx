@@ -20,8 +20,9 @@ Object.assign(process.env, {
 });
 mkdirSync(fakeDir);
 
-const { runPool, relabel, findOpenPr } = await import('../src/pool.ts');
-const { DEFAULTS } = await import('../src/config.ts');
+const mod = await import('../src/pool.ts');
+const { runPool, relabel, findOpenPr, ensureBoardLabels } = mod;
+const { DEFAULTS, labelSpecs } = await import('../src/config.ts');
 
 const L = DEFAULTS.labels;
 const gitId = ['-c', 'user.email=t@t', '-c', 'user.name=t'];
@@ -125,4 +126,43 @@ test('relabel: succeeds without a warning when the edit works', E2E, async () =>
   board([issue(9, '', [L.ready, L.working])]);
   assert.equal(await relabel('me/app', 9, [L.blocked], [L.working]), true);
   assert.deepEqual(read().issues[0].labels, [L.ready, L.blocked]);
+});
+
+// #121: a repo set up by an older hx init lacks bug-triaged; adding it failed every try and triage GAVE UP
+test('hx run creates every label it may add that the repo lacks, and a second run creates none', E2E, async () => {
+  board([], { labels: [L.ready, L.working], strictLabels: true });
+  assert.equal((await run([])).rc, 0);
+  const want = labelSpecs(L).map((l) => l.name);
+  assert.ok(want.includes('bug-triaged'));
+  assert.deepEqual([...read().labels].sort(), [...want].sort());
+  assert.ok(!ghCalls().some((l) => new RegExp(`^label create (${L.ready}|${L.working}) `).test(l)), 'existing labels are left alone');
+  writeFileSync(ghLog, '');
+  assert.equal((await run([])).rc, 0);
+  assert.equal(ghCalls().filter((l) => l.startsWith('label create')).length, 0, 'idempotent');
+});
+
+test('ensureBoardLabels: a configured label name is the one created', E2E, async () => {
+  board([], { labels: [] });
+  const created = await ensureBoardLabels({ ...project().config, labels: { ...L, triaged: 'reproduced' } });
+  assert.ok(created.includes('reproduced') && !created.includes('bug-triaged'), created.join(', '));
+  assert.ok(ghCalls().some((l) => /^label create reproduced -R me\/app --color f9d0c4 /.test(l)), ghCalls().join('\n'));
+});
+
+test('relabel: a label missing from the repo is created and the edit retried once, not given up', E2E, async () => {
+  board([issue(10, '', [L.bug, L.working])], { labels: [L.ready, L.working, L.bug], strictLabels: true });
+  const lines: string[] = [];
+  const orig = console.log;
+  console.log = (m: string) => { lines.push(m); };
+  try { assert.equal(await relabel('me/app', 10, [L.triaged, L.ready], [L.working]), true); } finally { console.log = orig; }
+  const s = read();
+  assert.ok(s.labels.includes(L.triaged));
+  assert.deepEqual([...s.issues[0].labels].sort(), [L.bug, L.triaged, L.ready].sort());
+  assert.equal(ghCalls().filter((l) => /^issue edit 10 /.test(l)).length, 2, 'one failed edit, one retry');
+  assert.ok(!lines.some((l) => /WARNING/.test(l)), lines.join('\n'));
+});
+
+test('missingLabels: only the added labels gh names as not found', () => {
+  const { missingLabels } = mod;
+  assert.deepEqual(missingLabels("failed to update https://github.com/o/r/issues/71: 'bug-triaged' not found", ['bug-triaged', 'ready-for-agent']), ['bug-triaged']);
+  assert.deepEqual(missingLabels('HTTP 502: Bad Gateway', ['bug-triaged']), []);
 });

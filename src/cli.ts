@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { createInterface } from 'node:readline';
-import { DEFAULTS, defaultWorktreeRoot, effectiveRtddBin, findProjectRoot, loadProject, saveConfig, STATE_DIR, type Config } from './config.ts';
+import { DEFAULTS, defaultWorktreeRoot, effectiveRtddBin, findProjectRoot, labelSpecs, loadProject, saveConfig, STATE_DIR, type Config } from './config.ts';
 import * as gh from './github.ts';
 import { resolveCmd, run, runOk } from './exec.ts';
 import { log, lookupTrusted, printPlan, readPlan, runPool, trustedEnv } from './pool.ts';
@@ -109,17 +109,7 @@ async function init(args: string[]): Promise<number> {
 
   const login = await gh.ghLogin().catch((e) => `?? (${e.message})`);
   const L = config.labels;
-  await gh.ensureLabel(config.repo, L.ready, '0e8a16', 'hx: an agent may pick this up');
-  await gh.ensureLabel(config.repo, L.working, 'fbca04', 'hx: an agent is working on this');
-  await gh.ensureLabel(config.repo, L.blocked, 'd93f0b', 'hx: needs a human');
-  await gh.ensureLabel(config.repo, L.prd, '5319e7', 'hx: a PRD, decomposed into child issues');
-  await gh.ensureLabel(config.repo, L.reviewed, '1d76db', 'hx: PRD reviewed and signed off');
-  await gh.ensureLabel(config.repo, L.hardened, 'c5def5', 'hx: PRD passed the gauntlet (critique and revision) and may be decomposed');
-  await gh.ensureLabel(config.repo, L.secured, '0052cc', "hx: the security pass found nothing in the PRD's merged work");
-  await gh.ensureLabel(config.repo, L.security, 'e99695', 'hx: a security issue filed by the security pass');
-  await gh.ensureLabel(config.repo, L.gateFix, 'b60205', 'hx: fixes a red default branch (the only work claimed while it is red)');
-  await gh.ensureLabel(config.repo, L.bug, 'd73a4a', 'hx: a bug, triaged (reproduced) before it is built, then built first');
-  await gh.ensureLabel(config.repo, L.triaged, 'f9d0c4', 'hx: a triage session reproduced the bug: it may be built');
+  for (const l of labelSpecs(L)) await gh.ensureLabel(config.repo, l.name, l.color, l.description);
 
   console.log(`${existing ? 'updated' : 'created'} ${path.join(root, STATE_DIR, 'config.json')}
   repo        ${config.repo} (base ${config.defaultBranch})
