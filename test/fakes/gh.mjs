@@ -86,6 +86,8 @@ if (a[0] === 'issue' && a[1] === 'list') {
   if (one) {
     const i = find(s, one[1]);
     if (!i) { process.stderr.write('HTTP 404: Not Found'); process.exit(1); }
+    // state.slowClosedState = ms: reading a closed issue's state takes ms (hx checking a finished session on a loaded machine)
+    if (s.slowClosedState && i.state === 'CLOSED') Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, s.slowClosedState);
     process.stdout.write(i.state.toLowerCase() + '\n');
   } else {
     process.stdout.write(s.issues.map((i) => `${i.number}\t${i.state.toLowerCase()}\n`).join(''));
