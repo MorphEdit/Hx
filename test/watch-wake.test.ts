@@ -18,7 +18,7 @@ process.env.HX_FAKE_STATE = stateFile;
 process.env.HX_FAKE_DIR = path.join(tmp, 'sessions');
 mkdirSync(process.env.HX_FAKE_DIR);
 
-const { runPool } = await import('../src/pool.ts');
+const { runPool, waitAny } = await import('../src/pool.ts');
 const { DEFAULTS } = await import('../src/config.ts');
 const { loadJson, locked, saveJson } = await import('./fakes/lock.mjs');
 
@@ -59,6 +59,7 @@ function start() {
   run.then((r) => { rc = r; }, () => {});
   return { lines, run, returned: () => rc !== undefined, stop: async () => { ac.abort(); return run; } };
 }
+const timers = () => process.getActiveResourcesInfo().filter((x) => x === 'Timeout').length;
 const idle = (lines: string[]) => lines.some((l) => /board empty — watching/.test(l));
 
 test('a write to .hx/wake wakes an idle --watch run within seconds; no wake file, or a deleted one, is no error', E2E, async () => {
@@ -99,9 +100,10 @@ test('a wake that lands while the loop reads the board is latched: the board is 
   }
 });
 
-test('with .hx/pause present, a wake claims nothing', E2E, async () => {
+test('with .hx/pause present, a wake claims nothing; the drained run leaves no 600 s poll timer behind', E2E, async () => {
   rmSync(wakeFile, { force: true });
   writeFileSync(stateFile, JSON.stringify({ comments: [], prs: [], issues: [] }));
+  const before = timers();
   const r = start();
   try {
     assert.ok(await until(() => idle(r.lines), 30_000), r.lines.join('\n'));
@@ -115,4 +117,19 @@ test('with .hx/pause present, a wake claims nothing', E2E, async () => {
     await r.stop();
     rmSync(path.join(stateDir, 'pause'), { force: true });
   }
+});
+
+test('waitAny clears its timer when another promise, or a stop, ends the wait first', async () => {
+  const before = timers();
+  await waitAny(600_000, new AbortController().signal, [Promise.resolve()]);
+  assert.equal(timers(), before, 'woken: the 600 s timer is cleared');
+  const ac = new AbortController();
+  const w = waitAny(600_000, ac.signal, [new Promise(() => {})]);
+  ac.abort();
+  await w;
+  assert.equal(timers(), before, 'stopped: the 600 s timer is cleared');
+  const t = Date.now();
+  await waitAny(50, new AbortController().signal, [new Promise(() => {})]);
+  assert.ok(Date.now() - t >= 40, 'the timer still ends the wait');
+  assert.equal(timers(), before);
 });

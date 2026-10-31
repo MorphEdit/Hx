@@ -116,6 +116,15 @@ const sleep = (ms: number, signal?: AbortSignal) => new Promise<void>((r) => {
   signal?.addEventListener('abort', () => { clearTimeout(t); r(); }, { once: true });
 });
 
+/** Wait for `ms`, a stop, or the first of `others` — whichever comes first. The timer never outlives the wait:
+ *  a 600 s poll left pending after a wake would keep the process alive after the pool returns. */
+export async function waitAny(ms: number, signal: AbortSignal, others: Promise<unknown>[]): Promise<void> {
+  const done = new AbortController();
+  const stopped = () => done.abort();
+  signal.addEventListener('abort', stopped, { once: true });
+  try { await Promise.race([sleep(ms, done.signal), ...others]); } finally { signal.removeEventListener('abort', stopped); done.abort(); }
+}
+
 /** The trusted set for this run: the gh login + config.trustedAuthors. Throws if gh cannot tell the login. */
 export async function lookupTrusted(c: Project['config']): Promise<Set<string>> {
   return trustedSet(await gh.ghLogin(), c.trustedAuthors ?? []);
@@ -349,7 +358,7 @@ export async function runPool(p: Project, o: PoolOptions): Promise<number> {
       if (wakePending) { wakePending = false; continue; } // woken while not waiting: re-read the board now
       const holdLeft = (live.pausedUntil ?? 0) - Date.now();
       const waitMs = holdLeft > 0 ? Math.max(1000, Math.min(c.pollSeconds * 1000, holdLeft)) : c.pollSeconds * 1000;
-      await Promise.race([sleep(waitMs, stop.signal), new Promise<void>((r) => { wake = r; }), ...inFlight.values()]);
+      await waitAny(waitMs, stop.signal, [new Promise<void>((r) => { wake = r; }), ...inFlight.values()]);
     }
     if (inFlight.size) { log(`stopping — waiting for ${inFlight.size} session(s) to hand back their issues…`); await Promise.allSettled(inFlight.values()); }
   } finally {
