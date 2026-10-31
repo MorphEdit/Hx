@@ -131,6 +131,7 @@ test('the page script renders hostile strings as text, links issues by integer, 
   assert.ok(text(log).includes(`[#7] impl: ${XSS}`));
   assert.match(text(p.ids.get('status')!), /last updated \d\d:\d\d:\d\d/);
   assert.match(text(st), /0 PASS/);
+  assert.ok(text(st).includes('0 REPRODUCED · 0 NEEDS-INFO · 0 FAILED · 0 GAVE UP'), 'triage from the served payload');
   assert.equal(state.usage.byPrd, null, '/api/state came before any /api/board');
   assert.ok(text(st).includes('waiting for the board'));
   const pb = page({ ...state, usage: { ...state.usage, byPrd: [{ key: '8', tokens: 1234, turns: 2, sessions: 1, durationMs: 0 }] } }, board);
@@ -149,7 +150,7 @@ test('the page script renders hostile strings as text, links issues by integer, 
     usage: { ...state.usage, byPrd: null, byDay: [{ key: '2026-10-01', tokens: 300 }, { key: '2026-10-02', tokens: 57 }] },
     outcomes: { audit: { pass: 3, fail: 1, mergedIssues: 2, avgRounds: 1.5 }, gauntlet: { rounds: 4, pass: 3, fail: 1 },
       security: { passes: 2, filed: 1 }, gate: { red: 2, recovered: 1, openRed: true, redMs: [600_000], avgRedMs: 600_000 },
-      issues: { done: 2, medianMs: 3_900_000 } } };
+      issues: { done: 2, medianMs: 3_900_000 }, triage: { reproduced: 2, needsInfo: 1, failed: 0, gaveUp: 0 } } };
   const p2 = page(s2, { ...board, prds: [], board: [], error: `HTTP 502 ${XSS}` });
   await p2.flush();
   const now2 = p2.ids.get('now-body')!, st2 = p2.ids.get('stats-body')!, bd2 = p2.ids.get('board-body')!;
@@ -159,7 +160,7 @@ test('the page script renders hostile strings as text, links issues by integer, 
   assert.ok(links(now2).every((h) => /^https:\/\/github\.com\/me\/app\/issues\/\d+$/.test(h!)), String(links(now2)));
   assert.equal(text(bd2), `board unavailable: HTTP 502 ${XSS}`);
   for (const w of ['3 PASS', '1 FAIL', 'avg rounds 1.5', '4 rounds', '2 passes · 1 filed issues', '2 RED', 'avg RED → green 10m 00s', 'RED now',
-    'median wall time 1h 05m', 'waiting for the board']) assert.ok(text(st2).includes(w), w);
+    'median wall time 1h 05m', 'waiting for the board', '2 REPRODUCED · 1 NEEDS-INFO · 0 FAILED · 0 GAVE UP']) assert.ok(text(st2).includes(w), w);
   const svg = st2.all().find((e) => e.tag === 'svg')!;
   assert.equal(svg.ns, 'http://www.w3.org/2000/svg');
   assert.equal(svg.all().filter((e) => e.tag === 'rect').length, 2);
@@ -169,6 +170,15 @@ test('the page script renders hostile strings as text, links issues by integer, 
   (el.attrs as Map<string, string>).set('data-since', new Date(Date.now() - 65_000).toISOString());
   p2.tick();
   assert.equal(text(el), '1m 05s');
+
+  // an older payload without outcomes.triage still renders the row; a board row in status `triage` shows
+  const { triage: _t, ...oldOutcomes } = s2.outcomes;
+  const p4 = page({ ...s2, outcomes: oldOutcomes }, { ...board, board: [{ number: 21, title: 'a bug', status: 'triage', waitingOn: [] }] });
+  await p4.flush();
+  assert.ok(text(p4.ids.get('stats-body')!).includes('0 REPRODUCED · 0 NEEDS-INFO · 0 FAILED · 0 GAVE UP'));
+  assert.ok(text(p4.ids.get('stats-body')!).includes('3 PASS'));
+  assert.ok(text(p4.ids.get('board-body')!).includes('triage'));
+  assert.ok(links(p4.ids.get('board-body')!).includes('https://github.com/me/app/issues/21'));
 
   // a repo that is not owner/name gives no links at all
   const p3 = page({ ...state, repo: 'javascript:alert(1)//x/y' }, { ...board, repo: 'javascript:alert(1)//x/y' });

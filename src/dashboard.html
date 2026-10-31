@@ -198,7 +198,7 @@ function renderStats(s) {
   const body = $('stats-body');
   body.className = '';
   const u = s.usage || {}, o = s.outcomes || {};
-  const a = o.audit || {}, ga = o.gauntlet || {}, se = o.security || {}, gt = o.gate || {}, is = o.issues || {};
+  const a = o.audit || {}, ga = o.gauntlet || {}, se = o.security || {}, gt = o.gate || {}, is = o.issues || {}, tr = o.triage || {};
   fill(body,
     el('div', { class: 'kv' }, el('span', {}, 'total ', el('b', {}, num(u.total?.tokens ?? 0)), ' tokens'),
       el('span', {}, el('b', {}, num(u.total?.sessions ?? 0)), ' sessions'), el('span', {}, el('b', {}, dur(u.total?.durationMs ?? 0)), ' session time')),
@@ -208,6 +208,7 @@ function renderStats(s) {
     table(['', ''], [
       ['audit', (a.pass ?? 0) + ' PASS · ' + (a.fail ?? 0) + ' FAIL · avg rounds ' + (a.avgRounds === null || a.avgRounds === undefined ? '–' : Number(a.avgRounds).toFixed(1))],
       ['gauntlet', (ga.rounds ?? 0) + ' rounds · ' + (ga.fail ?? 0) + ' FAIL'],
+      ['triage', (tr.reproduced ?? 0) + ' REPRODUCED · ' + (tr.needsInfo ?? 0) + ' NEEDS-INFO · ' + (tr.failed ?? 0) + ' FAILED · ' + (tr.gaveUp ?? 0) + ' GAVE UP'],
       ['security', (se.passes ?? 0) + ' passes · ' + (se.filed ?? 0) + ' filed issues'],
       ['gate', (gt.red ?? 0) + ' RED · avg RED → green ' + dur(gt.avgRedMs) + (gt.openRed ? ' · RED now' : '')],
       ['issues', (is.done ?? 0) + ' done · median wall time ' + dur(is.medianMs)],

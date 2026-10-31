@@ -53,6 +53,7 @@ test('parseOutcomes(fixture in the §1 format): every §5a count', () => {
     gate: { red: 2, recovered: 1, openRed: true, redMs: [15 * min], avgRedMs: 15 * min },
     // #1 30m, #2 10m, #3 60m (audited), #4 20m (unaudited) → (20+30)/2; review/security DONE are not issue ends
     issues: { done: 4, medianMs: 25 * min },
+    triage: { reproduced: 0, needsInfo: 0, failed: 0, gaveUp: 0 },
   });
 });
 
@@ -69,6 +70,7 @@ test('empty input: zeros and nulls, no throw', () => {
     security: { passes: 0, filed: 0 },
     gate: { red: 0, recovered: 0, openRed: false, redMs: [], avgRedMs: null },
     issues: { done: 0, medianMs: null },
+    triage: { reproduced: 0, needsInfo: 0, failed: 0, gaveUp: 0 },
   };
   assert.deepEqual(parseOutcomes([]), empty);
   assert.deepEqual(parseOutcomes(['garbage', 'more', '2026-10-31 not iso [#1] audit PASS ✓']), empty);
@@ -96,4 +98,20 @@ test('median of an odd count; a DONE with no impl start and a first green are no
   ]);
   assert.deepEqual(o.issues, { done: 3, medianMs: 5 * min });
   assert.deepEqual(o.gate, { red: 0, recovered: 0, openRed: false, redMs: [], avgRedMs: null });
+});
+
+test('triage: the four outcome lines are counted, with or without [#n]; round cap reached is not a give-up', () => {
+  const o = parseOutcomes([
+    '2026-01-01T00:00:00.000Z [#5] triage: REPRODUCED ✓',
+    '2026-01-01T00:01:00.000Z triage: REPRODUCED ✓',
+    '2026-01-01T00:02:00.000Z [#6] triage: NEEDS-INFO — waiting for the reporter',
+    '2026-01-01T00:03:00.000Z [#7] triage: FAILED',
+    '2026-01-01T00:04:00.000Z [#8] triage: GAVE UP after 3 rounds',
+    '2026-01-01T00:05:00.000Z triage: GAVE UP after 2 rounds',
+    '2026-01-01T00:06:00.000Z [#9] triage: round cap reached — labelled agent-blocked',
+    '2026-01-01T00:07:00.000Z [#9] triage: started',
+    '2026-01-01T00:08:00.000Z [#9] impl: x',
+    'triage: REPRODUCED ✓',                                   // no timestamp: skipped
+  ]);
+  assert.deepEqual(o.triage, { reproduced: 2, needsInfo: 1, failed: 1, gaveUp: 2 });
 });
