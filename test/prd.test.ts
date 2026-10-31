@@ -13,7 +13,7 @@ const stateFile = path.join(tmp, 'board.json');
 process.env.HX_GH_BIN = path.join(here, 'fakes', 'gh.mjs');
 process.env.HX_FAKE_STATE = stateFile;
 
-const { filePrd } = await import('../src/prd.ts');
+const { bugTitle, fileBug, filePrd } = await import('../src/prd.ts');
 const { DEFAULTS } = await import('../src/config.ts');
 
 const config = { ...DEFAULTS, repo: 'me/app', defaultBranch: 'main' };
@@ -45,4 +45,25 @@ test('no "# " line and no title: throws, nothing filed', E2E, async () => {
   reset();
   await assert.rejects(filePrd(config, md('c.md', 'just text\n## not h1\n')), /no title: pass --title/);
   assert.equal(board().issues.length, 0);
+});
+
+test('bugTitle: --title, else the "# " line, else the first non-empty line, cut to 80', E2E, () => {
+  assert.equal(bugTitle('# Head\nx', 'T'), 'T');
+  assert.equal(bugTitle('intro\n# Head\n'), 'Head');
+  assert.equal(bugTitle('\n  first  \nsecond'), 'first');
+  assert.equal(bugTitle('y'.repeat(81)), 'y'.repeat(80));
+  assert.throws(() => bugTitle('  \n'), /no title/);
+});
+
+test('fileBug: a file is read, other text is the body; label bug only', E2E, async () => {
+  reset();
+  await fileBug(config, md('bug.md', '# Broken\n\nsteps\n'));
+  await fileBug(config, 'not a file\nmore', 'Given');
+  const { issues } = board();
+  assert.equal(issues[0].title, 'Broken');
+  assert.equal(issues[0].body, '# Broken\n\nsteps\n');
+  assert.deepEqual(issues[0].labels, [DEFAULTS.labels.bug]);
+  assert.equal(issues[1].title, 'Given');
+  assert.equal(issues[1].body, 'not a file\nmore');
+  assert.deepEqual(issues[1].labels, [DEFAULTS.labels.bug]);
 });

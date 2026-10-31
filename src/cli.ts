@@ -10,7 +10,7 @@ import { killAllSessions } from './agent.ts';
 import { clearPause, otherRunner, pidAlive, readLive, readPause, setPause } from './runstate.ts';
 import { readGate } from './gate.ts';
 import { DEFAULT_PORT, serveDashboard } from './dashboard.ts';
-import { filePrd } from './prd.ts';
+import { fileBug, filePrd } from './prd.ts';
 import { grillArgs, grillPaths, grillPrompt, ideaFrom } from './grill.ts';
 import { formatSkills } from './skills.ts';
 import { fmt, localDay, readUsage, summarize, totalTokens, type UsageRow } from './usage.ts';
@@ -20,6 +20,8 @@ const HELP = `usage: hx <command> [options]
   init [--rtdd]            set up hx in the current repo (.hx/config.json + GitHub labels); --rtdd also
                            runs rtdd init in the repo root (commit .rtdd/ yourself)
   prd <file.md> [--title T] file a PRD issue from a markdown file (title: --title or its first '# ' line)
+  bug <file.md | "text"> [--title T]
+                           file a bug issue (label bug); hx run triages it
   grill [<idea.md> | "idea"] [--yes]
                            an interactive claude session interviews you into a PRD; on confirm
                            (or --yes) it is filed like hx prd
@@ -64,6 +66,7 @@ export async function main(argv: string[]): Promise<number> {
   switch (cmd) {
     case 'init': return init(args);
     case 'prd': return prd(args);
+    case 'bug': return bug(args);
     case 'grill': return grill(args);
     case 'run': return runCmd(args);
     case 'status': return status();
@@ -151,6 +154,16 @@ async function prd(args: string[]): Promise<number> {
   if (!file) throw new Error('usage: hx prd <file.md> [--title "..."]');
   const url = await filePrd(p.config, file, flag(args, '--title'));
   console.log(`filed ${url}\nhx run will decompose it into issues.`);
+  return 0;
+}
+
+async function bug(args: string[]): Promise<number> {
+  const p = loadProject();
+  const arg = args.find((a, i) => !a.startsWith('--') && args[i - 1] !== '--title');
+  if (!arg) throw new Error('usage: hx bug <file.md | "text"> [--title "..."]');
+  const url = await fileBug(p.config, arg, flag(args, '--title'));
+  console.log(`${url}
+hx run will triage it.`);
   return 0;
 }
 
