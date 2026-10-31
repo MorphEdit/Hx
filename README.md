@@ -325,6 +325,8 @@ The full suite stays the final word: `ship.mjs` runs it before every PR, and the
 | `reviewRounds` | 3 | PRD reviews before a human has to look |
 | `security` | `true` | a security pass checks a reviewed PRD's merged work before the PRD closes |
 | `securityRounds` | 2 | security passes that file issues before a human has to look |
+| `bugTriage` | `true` | a `bug` issue (not a PRD's child) is triaged before it may be claimed; until `bug-triaged` it shows as `triage` |
+| `triageRounds` | 2 | triage sessions on a bug before a human has to look |
 | `audit` | `true` | an independent auditor checks every implementation PR before hx merges it |
 | `auditRounds` | 3 | implement → audit attempts before the issue goes to a human |
 | `gate` | `true` | test the default branch after every merge; while red, claim only its fix |
@@ -338,7 +340,7 @@ The full suite stays the final word: `ship.mjs` runs it before every PR, and the
 | `claudeArgs` | `[]` | extra flags for every `claude` call |
 | `leanWorkers` | `true` | workers start without MCP servers, skills, slash commands or user-level settings and plugins (~8K instead of ~44K tokens of base context per call) |
 | `workerTools` | `Bash Read Edit Write Glob Grep` | the only built-in tools a lean worker gets; add e.g. `Agent` or `WebFetch` if your issues need them |
-| `labels` | `ready-for-agent`, `agent-working`, `agent-blocked`, `prd`, `prd-hardened`, `prd-reviewed`, `security-reviewed`, `security` | |
+| `labels` | `ready-for-agent`, `agent-working`, `agent-blocked`, `prd`, `prd-hardened`, `prd-reviewed`, `security-reviewed`, `security`, `bug`, `bug-triaged` | |
 
 ## ⚠️ Safety
 

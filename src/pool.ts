@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { effectiveRtddBin, workerArgs, type Project } from './config.ts';
 import * as gh from './github.ts';
 import type { Issue } from './github.ts';
-import { externalRefs, fenceFindings, isTrusted, issueKey, parseParent, plan, prdKey, refKey, render, trustedSet, type Action, type Plan } from './state.ts';
+import { claimable, externalRefs, fenceFindings, isTrusted, issueKey, parseParent, plan, prdKey, refKey, render, trustedSet, type Action, type Plan } from './state.ts';
 import { addWorktree, auditWorktree, cleanStaleWorktrees, implWorktree, prdWorktree, removeWorktree, repairBrokenRefs } from './worktree.ts';
 import { rateLimitOf, runGoal, runTurn, type GoalResult, type RateLimit } from './agent.ts';
 import { clearLive, otherRunner, readLive, readPause, writeLive, type LiveSession, type LiveState } from './runstate.ts';
@@ -292,13 +292,10 @@ export async function runPool(p: Project, o: PoolOptions): Promise<number> {
           const pl = await readPlan(p, trusted, new Set(inFlight.keys()));
           for (const r of [...pl.prds, ...pl.board])
             if (r.status === 'untrusted' && !r.untrustedPrd && !skipped.has(r.number)) { skipped.add(r.number); log(skipLine(r)); }
-          actions = pl.actions.filter((a) => !o.only || o.only.includes(target(a)));
           stuck = pl.board.filter((r) => r.status === 'working' && !inFlight.has(issueKey(r.number))).map((r) => r.number);
-          if (gateRed()) {
-            // someone may have fixed the base by hand: re-test when it moved
-            if (!gateRunning && gs.last && (await remoteSha(p.root, c.defaultBranch)) !== gs.last.sha) void gateCheck();
-            actions = actions.filter((a) => a.kind === 'impl' && a.issue === gs.fixIssue);
-          }
+          // someone may have fixed the base by hand: re-test when it moved
+          if (gateRed() && !gateRunning && gs.last && (await remoteSha(p.root, c.defaultBranch)) !== gs.last.sha) void gateCheck();
+          actions = claimable(pl.actions, { only: o.only, gateRed: gateRed(), fixIssue: gs.fixIssue });
         } catch (e: any) {
           log(`board read failed, retrying next poll: ${e.message}`);
         }

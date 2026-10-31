@@ -11,6 +11,8 @@ export interface Labels {
   secured: string; // the security pass found nothing in a reviewed PRD's merged work: it may close
   security: string; // an issue the security pass filed
   gateFix: string;
+  bug: string; // a bug report: triaged (reproduced) before it is built, and built before other work
+  triaged: string; // a triage session reproduced the bug
 }
 
 export interface Config {
@@ -25,6 +27,8 @@ export interface Config {
   reviewRounds: number; // PRD reviews (each may file gap issues) before a human has to look
   security: boolean; // a security pass checks a reviewed PRD's merged work before the PRD closes
   securityRounds: number; // security passes (each may file security issues) before a human has to look
+  bugTriage: boolean; // a bug issue is triaged (reproduced) before it may be claimed
+  triageRounds: number; // triage sessions on a bug before a human has to look
   audit: boolean; // an independent auditor session checks every implementation PR before hx merges it
   auditRounds: number; // implement → audit attempts before the issue goes to a human
   gate: boolean; // test the default branch after every merge; while red, claim only the fix
@@ -59,6 +63,8 @@ export const DEFAULTS: Omit<Config, 'repo' | 'defaultBranch' | 'worktreeRoot'> =
   reviewRounds: 3,
   security: true,
   securityRounds: 2,
+  bugTriage: true,
+  triageRounds: 2,
   audit: true,
   auditRounds: 3,
   gate: true,
@@ -76,7 +82,7 @@ export const DEFAULTS: Omit<Config, 'repo' | 'defaultBranch' | 'worktreeRoot'> =
   roleSkills: { impl: ['rtdd'], audit: ['rtdd'] },
   skillMaxChars: 12000,
   rtddBin: 'rtdd',
-  labels: { ready: 'ready-for-agent', working: 'agent-working', blocked: 'agent-blocked', prd: 'prd', reviewed: 'prd-reviewed', hardened: 'prd-hardened', secured: 'security-reviewed', security: 'security', gateFix: 'hx-gate-fix' },
+  labels: { ready: 'ready-for-agent', working: 'agent-working', blocked: 'agent-blocked', prd: 'prd', reviewed: 'prd-reviewed', hardened: 'prd-hardened', secured: 'security-reviewed', security: 'security', gateFix: 'hx-gate-fix', bug: 'bug', triaged: 'bug-triaged' },
 };
 
 export interface Project {
