@@ -86,6 +86,16 @@ export async function openPrFor(repo: string, branch: string): Promise<number | 
   } catch { return null; }
 }
 
+/** The open PR `gh pr view <branch>` finds, or null: the fallback when `gh pr list --head` does not list a fresh PR yet. */
+export async function viewOpenPr(repo: string, branch: string): Promise<number | null> {
+  const r = await run(GH, ['pr', 'view', branch, '-R', repo, '--json', 'number,state']);
+  if (r.code !== 0) return null;
+  try {
+    const pr = JSON.parse(r.stdout) as { number: number; state: string };
+    return String(pr.state).toUpperCase() === 'OPEN' && typeof pr.number === 'number' ? pr.number : null;
+  } catch { return null; }
+}
+
 export async function closeIssue(repo: string, n: number, commentBody: string): Promise<void> {
   await runOk(GH, ['issue', 'close', String(n), '-R', repo, '--comment', commentBody]);
 }

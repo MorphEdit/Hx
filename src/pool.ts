@@ -66,6 +66,40 @@ export function log(msg: string, issue?: number): void {
   } catch {}
 }
 
+const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Swap labels on an issue (usually agent-working for another), retried: a failed edit that is swallowed
+ * leaves the issue agent-working, and hx never claims it again. Still failing → a warning naming the issue.
+ */
+export async function relabel(repo: string, n: number, add: string[], remove: string[] = [], attempts = 3): Promise<boolean> {
+  const wait = Number(process.env.HX_LABEL_RETRY_MS ?? 2000);
+  for (let i = 1; ; i++) {
+    try { await gh.editLabels(repo, n, add, remove); return true; } catch (e: any) {
+      if (i >= attempts) {
+        const what = [...add.map((l) => `+${l}`), ...remove.map((l) => `-${l}`)].join(' ');
+        log(`WARNING: could not change the labels of #${n} (${what}) after ${attempts} tries: ${String(e?.message ?? e).trim().slice(0, 200)} — fix them by hand`, n);
+        return false;
+      }
+      await pause(wait * i);
+    }
+  }
+}
+
+/**
+ * The open PR for `branch`. A PR created moments ago can be missing from `gh pr list --head` for a while, so
+ * the list is asked again with backoff (about 30 s in all), then `gh pr view <branch>` is the last try.
+ */
+export async function findOpenPr(repo: string, branch: string): Promise<number | null> {
+  const unit = Number(process.env.HX_PR_RETRY_MS ?? 2000);
+  for (const w of [1, 2, 4, 8]) {
+    const pr = await gh.openPrFor(repo, branch);
+    if (pr) return pr;
+    await pause(w * unit);
+  }
+  return (await gh.openPrFor(repo, branch)) ?? (await gh.viewOpenPr(repo, branch));
+}
+
 /** How a session reports back to the pool while it runs. */
 interface WorkContext {
   signal: AbortSignal; // aborted = stop now (Ctrl+C, pause --now): checkpoint and hand back
@@ -245,6 +279,7 @@ export async function runPool(p: Project, o: PoolOptions): Promise<number> {
   try {
     while (!stop.signal.aborted && !fatal) {
       let actions: Action[] = [];
+      let stuck: number[] = []; // labelled agent-working with no live session: hx never claims them again
       const finishedBefore = finished;
       const held = Date.now() < (live.pausedUntil ?? 0);
       if (!held && !live.draining) {
@@ -253,6 +288,7 @@ export async function runPool(p: Project, o: PoolOptions): Promise<number> {
           for (const r of [...pl.prds, ...pl.board])
             if (r.status === 'untrusted' && !r.untrustedPrd && !skipped.has(r.number)) { skipped.add(r.number); log(skipLine(r)); }
           actions = pl.actions.filter((a) => !o.only || o.only.includes(target(a)));
+          stuck = pl.board.filter((r) => r.status === 'working' && !inFlight.has(issueKey(r.number))).map((r) => r.number);
           if (gateRed()) {
             // someone may have fixed the base by hand: re-test when it moved
             if (!gateRunning && gs.last && (await remoteSha(p.root, c.defaultBranch)) !== gs.last.sha) void gateCheck();
@@ -288,7 +324,11 @@ export async function runPool(p: Project, o: PoolOptions): Promise<number> {
         // an engine step (PRD closed, child labelled) may have unlocked work: re-read before giving up
         const engineOnly = actions.length > 0 && actions.every((a) => a.kind === 'close-prd' || a.kind === 'label-ready');
         engineRetries = engineOnly ? engineRetries + 1 : 0;
-        if (!o.watch && !limited && (!engineOnly || engineRetries > 3)) { log('nothing left to do — done'); break; }
+        if (!o.watch && !limited && (!engineOnly || engineRetries > 3)) {
+          log('nothing left to do — done');
+          if (stuck.length) log(`WARNING: still labelled ${c.labels.working} with no session running: ${stuck.map((n) => `#${n}`).join(', ')} — remove the label to let hx pick ${stuck.length > 1 ? 'them' : 'it'} up again`);
+          break;
+        }
         if (engineOnly) { await sleep(2000, stop.signal); continue; }
         if (!idleLogged) { log(limited ? 'waiting for the usage limit to reset…' : 'board empty — watching for new issues'); idleLogged = true; }
       }
@@ -319,7 +359,7 @@ async function recoverStaleClaims(p: Project): Promise<void> {
   const prev = readLive(p.stateDir);
   if (!prev?.sessions?.length) return;
   for (const s of prev.sessions) {
-    await gh.editLabels(p.config.repo, s.number, [], [p.config.labels.working]).catch(() => {});
+    await relabel(p.config.repo, s.number, [], [p.config.labels.working]);
     log(`recovered from a run that stopped unexpectedly (pid ${prev.pid}): released ${s.kind}`, s.number);
   }
 }
@@ -375,7 +415,7 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
   try {
     wt = await addWorktree(p.root, c.worktreeRoot, a.kind === 'impl' ? implWorktree(n, c.defaultBranch) : prdWorktree(n, c.defaultBranch));
   } catch (e: any) {
-    await gh.editLabels(c.repo, n, [], [c.labels.working]).catch(() => {});
+    await relabel(c.repo, n, [], [c.labels.working]);
     throw e;
   }
   const key = keyOf(a);
@@ -443,7 +483,7 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
   const keepOnStop = a.kind === 'impl'; // only an implementation worktree can hold unpushed work
   const handBack = async (r: GoalResult, summary: string) => {
     // not a failure of the issue: hand it back untouched
-    await gh.editLabels(c.repo, n, [], [L.working]).catch(() => {});
+    await relabel(c.repo, n, [], [L.working]);
     if (!keepOnStop) await removeWorktree(p.root, wt.dir);
     const what = { aborted: 'stopped', limited: 'paused by usage limit', fatal: `stopped by a setup error (${r.last?.error?.slice(0, 200)})` }[r.stopReason as 'aborted'];
     log(`${what} — released (${summary})${keepOnStop ? '; worktree kept' : ''}`, n);
@@ -451,9 +491,9 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
   };
   const fail = async (r: GoalResult, reason: string, summary: string) => {
     await gh.comment(c.repo, n, `**hx:** ${a.kind} stopped — ${reason} (${summary}).\n\nLast reply:\n\n${(r.last?.text ?? '').slice(-1500).replace(/^/gm, '> ')}\n\n${a.kind === 'impl' ? `Work is on branch \`issue/${n}\` if it was pushed. ` : ''}Remove the \`${L.blocked}\` label to let hx try again.`).catch(() => {});
-    await gh.editLabels(c.repo, n, [L.blocked], [L.working]).catch(() => {});
+    const labelled = await relabel(c.repo, n, [L.blocked], [L.working]);
     if (!keepOnStop) await removeWorktree(p.root, wt.dir);
-    log(`${a.kind} FAILED ✗ — ${reason} (${summary}); labelled ${L.blocked}${keepOnStop ? ', worktree kept' : ''}`, n);
+    log(`${a.kind} FAILED ✗ — ${reason} (${summary}); ${labelled ? `labelled ${L.blocked}` : `NOT labelled ${L.blocked}`}${keepOnStop ? ', worktree kept' : ''}`, n);
     return { ...r, done: false };
   };
   const stopped = (r: GoalResult) => r.stopReason === 'aborted' || r.stopReason === 'limited' || r.stopReason === 'fatal';
@@ -473,7 +513,7 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
         : cr.stopReason === 'max-iterations' ? `no completion after ${cr.iterations} turns` : `agent error: ${cr.last?.error ?? 'unknown'}`, summary);
       if (v.pass) {
         await gh.comment(c.repo, n, `${GAUNTLET_MARKER}\n**hx gauntlet round ${round}/${N}: PASS ✓**\n\n${v.findings}`).catch(() => {});
-        await gh.editLabels(c.repo, n, [L.hardened], [L.working]);
+        await relabel(c.repo, n, [L.hardened], [L.working]);
         log(`gauntlet round ${round}/${N}: PASS ✓ — labelled ${L.hardened} (${summary})`, n);
         return { ...cr, done: true };
       }
@@ -495,12 +535,12 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
       const note = !rr.done ? '\n\n_The reviser did not complete._' : unchanged ? '\n\n_The reviser left the body unchanged._' : '';
       await gh.comment(c.repo, n, `${GAUNTLET_MARKER}\n**hx gauntlet round ${round}/${N}: FAIL ✗ → revised**\n\n${v.findings}${note}`);
       const last = round >= N;
-      await gh.editLabels(c.repo, n, last ? [L.hardened] : [], [L.working]);
+      await relabel(c.repo, n, last ? [L.hardened] : [], [L.working]);
       log(`gauntlet round ${round}/${N} done${last ? ` — round cap reached, labelled ${L.hardened}` : ''} (${summary})`, n);
       return { ...rr, done: true };
     } catch (e) {
       // every path ends with the claim released and no worktree left behind
-      await gh.editLabels(c.repo, n, [], [L.working]).catch(() => {});
+      await relabel(c.repo, n, [], [L.working]);
       await removeWorktree(p.root, wt.dir);
       if (reviseDir) await removeWorktree(p.root, reviseDir);
       throw e;
@@ -517,7 +557,7 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
       // the pass filed security issues: once they are fixed the PRD is reviewed, then checked, again
       const filed = a.kind === 'security' && [...(await securitySnapshot(p, n, ctx.trusted)).issues].some((k) => !before?.issues.has(k));
       const drop = filed ? [L.reviewed, ...((await gh.issueLabels(c.repo, n)).includes(L.secured) ? [L.secured] : [])] : [];
-      await gh.editLabels(c.repo, n, [], [L.working, ...drop]).catch(() => {});
+      await relabel(c.repo, n, [], [L.working, ...drop]);
       if (filed) log(`security pass filed issue(s) — removed ${L.reviewed}`, n);
       await removeWorktree(p.root, wt.dir);
       log(`${a.kind} DONE ✓ (${summary})`, n);
@@ -534,7 +574,7 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
     let summary = `${fmt(sessionTokens)} tokens so far`;
     if (r.stopReason === 'aborted' && r.iterations > 0) await checkpoint(p, n, r.sessionId, wt.dir, vars, eventLog, env);
     if (stopped(r)) return handBack(r, summary);
-    const pr = r.done ? await gh.openPrFor(c.repo, `issue/${n}`) : null;
+    const pr = r.done ? await findOpenPr(c.repo, `issue/${n}`) : null;
     if (!pr) return fail(r, r.done ? 'the implementer reported ready but no open PR for its branch exists'
       : r.stopReason === 'max-iterations' ? `no completion after ${r.iterations} turns` : `agent error: ${r.last?.error ?? 'unknown'}`, summary);
 
@@ -557,7 +597,7 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
       if (!m.ok && /AUTO-MERGE set/.test(m.output)) m.ok = await waitClosed(c.repo, n, 10 * 60_000);
       if (m.ok && (await gh.issueState(c.repo, n)) === 'CLOSED') {
         const shipped = await shipInfo(wt.dir);
-        await gh.editLabels(c.repo, n, [], [L.working]).catch(() => {});
+        await relabel(c.repo, n, [], [L.working]);
         await removeWorktree(p.root, wt.dir);
         log(`DONE ✓ audited and merged (${attempt} round(s), ${summary})`, n);
         ctx.merged?.(shipped?.test);

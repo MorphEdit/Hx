@@ -27,17 +27,24 @@ if (a[0] === 'issue' && a[1] === 'list') {
   process.stdout.write(JSON.stringify(out));
 } else if (a[0] === 'pr' && a[1] === 'list') {
   // like gh, --head matches the branch name only: a PR from a fork (`fork: true`) with that name matches too
-  const prs = (s.prs ?? []).filter((p) => p.head === opt('--head') && p.state === 'OPEN');
+  // state.prListLag = k: a new PR is missing from the next k lists (GitHub's delay, see #65)
+  const hidden = mutate((cur) => (cur.prs ?? []).filter((p) => p.head === opt('--head') && p.state === 'OPEN' && p.hide > 0)
+    .map((p) => { p.hide--; return p.number; }));
+  const prs = (s.prs ?? []).filter((p) => p.head === opt('--head') && p.state === 'OPEN' && !hidden.includes(p.number));
   if (opt('-q')) process.stdout.write(prs[0] ? `${prs[0].number}\n` : '\n');
   else process.stdout.write(JSON.stringify(prs.map((p) => ({ number: p.number, isCrossRepository: !!p.fork }))));
 } else if (a[0] === 'pr' && a[1] === 'create') {
   const number = mutate((cur) => {
     cur.prs ??= [];
     const n = 100 + cur.prs.length;
-    cur.prs.push({ number: n, head: opt('--head'), base: opt('--base'), title: opt('--title'), state: 'OPEN' });
+    cur.prs.push({ number: n, head: opt('--head'), base: opt('--base'), title: opt('--title'), state: 'OPEN', hide: cur.prListLag ?? 0 });
     return n;
   });
   process.stdout.write(`https://github.com/me/app/pull/${number}\n`);
+} else if (a[0] === 'pr' && a[1] === 'view') {
+  const pr = [...(s.prs ?? [])].reverse().find((p) => p.head === a[2] && !p.fork);
+  if (!pr) { process.stderr.write(`no pull requests found for branch "${a[2]}"`); process.exit(1); }
+  process.stdout.write(JSON.stringify({ number: pr.number, state: pr.state }));
 } else if (a[0] === 'pr' && a[1] === 'merge') {
   // HX_FAKE_AUTOMERGE: the repo only accepts auto-merge, which lands (and closes the issue) at once
   if (process.env.HX_FAKE_AUTOMERGE && !a.includes('--auto')) { process.stderr.write('Pull request is not mergeable'); process.exit(1); }
@@ -80,6 +87,10 @@ if (a[0] === 'issue' && a[1] === 'list') {
     process.stdout.write(s.issues.map((i) => `${i.number}\t${i.state.toLowerCase()}\n`).join(''));
   }
 } else if (a[0] === 'issue' && a[1] === 'edit') {
+  // state.labelFails = k: the next k edits that remove a label fail (-1: every one)
+  if (all('--remove-label').length && mutate((cur) => { if (!cur.labelFails) return false; if (cur.labelFails > 0) cur.labelFails--; return true; })) {
+    process.stderr.write('HTTP 502: Bad Gateway'); process.exit(1);
+  }
   const edit = (body) => mutate((cur) => {
     const i = find(cur, a[2]);
     i.labels = [...new Set([...i.labels, ...all('--add-label')])].filter((l) => !all('--remove-label').includes(l));
