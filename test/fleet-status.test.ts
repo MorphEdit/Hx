@@ -42,10 +42,8 @@ function hx(s: ReturnType<typeof setup>, args: string[], cwd = tmp) {
     env: { ...process.env, HX_HOME: s.home, HX_GH_BIN: path.join(here, 'fakes', 'gh.mjs'), HX_FAKE_STATE: s.board } });
   return { code: r.status, out: r.stdout, err: r.stderr };
 }
-function deadPid(): number {
-  const r = spawnSync(process.execPath, ['-e', 'process.stdout.write(String(process.pid))'], { encoding: 'utf8' });
-  return Number(r.stdout);
-}
+// a pid no process has (a just-exited child's pid can be reused at once on a busy machine)
+const DEAD_PID = 2147483644;
 
 test('hx fleet status prints each repo under its header, followed by that repo\'s hx status', E2E, () => {
   const s = setup();
@@ -102,7 +100,7 @@ test('a missing root prints its header and missing', E2E, () => {
 test('the fleet line counts live slot files only, and shows a future hold but not an expired one', E2E, () => {
   const s = setup();
   writeFileSync(path.join(s.slots, '0.json'), JSON.stringify({ pid: process.pid, repo: 'me/alpha', issue: 1 }));
-  writeFileSync(path.join(s.slots, '1.json'), JSON.stringify({ pid: deadPid(), repo: 'me/beta', issue: 2 }));
+  writeFileSync(path.join(s.slots, '1.json'), JSON.stringify({ pid: DEAD_PID, repo: 'me/beta', issue: 2 }));
   writeFileSync(path.join(s.slots, '2.json'), '{"pid":');
   assert.equal(slotsInUse(s.fleetDir), 1);
   const until = Date.now() + 3_600_000;
