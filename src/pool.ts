@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { appendFileSync, mkdirSync, readFileSync, renameSync, statSync } from 'node:fs';
+import { appendFileSync, mkdirSync, readFileSync, renameSync, statSync, unwatchFile, watchFile, type Stats } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { effectiveRtddBin, workerArgs, type Project } from './config.ts';
@@ -274,11 +274,22 @@ export async function runPool(p: Project, o: PoolOptions): Promise<number> {
           `usage ${rl.utilization !== undefined ? Math.round(rl.utilization * 100) + '%' : 'warning'} on the ${rl.type ?? 'current'} window`);
     },
   };
-  const watcher = setInterval(() => {
+  const checkPause = () => {
     const m = readPause(p.stateDir);
     if (m && !live.draining) { live.draining = true; save(); log(m === 'now' ? 'pause --now: checkpointing running sessions…' : 'pause: finishing running sessions, claiming nothing new'); wake(); }
     if (m === 'now' && !stop.signal.aborted) stop.abort();
-  }, 1000);
+  };
+  const watcher = setInterval(checkPause, 1000);
+  // a filing command (hx bug, …) touches .hx/wake: re-read the board now instead of after pollSeconds.
+  // Latched: a wake that lands while the loop is not waiting (reading the board, claiming) is not lost.
+  const wakeFile = path.join(p.stateDir, 'wake');
+  let wakePending = false;
+  const onWake = (cur: Stats, prev: Stats) => {
+    if (cur.mtimeMs === prev.mtimeMs || !cur.mtimeMs) return; // unchanged, or deleted: nothing to read
+    try { checkPause(); } catch {} // a pause written with the wake wins: no claim
+    wakePending = true; wake();
+  };
+  try { watchFile(wakeFile, { interval: 2000, persistent: false }, onWake); } catch {}
 
   log(`hx pool up — ${c.repo} · ${o.workers} worker(s) · model ${c.model}${c.effort ? ` (${c.effort} effort)` : ''} · max ${c.maxIterations} iterations/session`);
   try {
@@ -335,6 +346,7 @@ export async function runPool(p: Project, o: PoolOptions): Promise<number> {
         if (!idleLogged) { log(limited ? 'waiting for the usage limit to reset…' : 'board empty — watching for new issues'); idleLogged = true; }
       }
       // wake on the first finished task, a pause, or after a poll interval (new / unblocked issues, a limit reset)
+      if (wakePending) { wakePending = false; continue; } // woken while not waiting: re-read the board now
       const holdLeft = (live.pausedUntil ?? 0) - Date.now();
       const waitMs = holdLeft > 0 ? Math.max(1000, Math.min(c.pollSeconds * 1000, holdLeft)) : c.pollSeconds * 1000;
       await Promise.race([sleep(waitMs, stop.signal), new Promise<void>((r) => { wake = r; }), ...inFlight.values()]);
@@ -342,6 +354,7 @@ export async function runPool(p: Project, o: PoolOptions): Promise<number> {
     if (inFlight.size) { log(`stopping — waiting for ${inFlight.size} session(s) to hand back their issues…`); await Promise.allSettled(inFlight.values()); }
   } finally {
     clearInterval(watcher);
+    unwatchFile(wakeFile, onWake);
     clearLive(p.stateDir);
   }
   if (fatal) {
