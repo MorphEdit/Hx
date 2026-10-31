@@ -13,6 +13,7 @@ import { clearLive, otherRunner, readLive, readPause, writeLive, type LiveSessio
 import { fmt, recordUsage, totalTokens } from './usage.ts';
 import { gateIssueBody, gateIssueTitle, readGate, remoteSha, runGate, writeGate, type GateResult } from './gate.ts';
 import { run as runCmd } from './exec.ts';
+import { acquireSlot, DEFAULT_FLEET_WORKERS, releaseSlot } from './fleet.ts';
 import { appendSkills, resolveSkills, rtddCheck, rtddEnv, SKILL_CHECKS, skillNames, skillsLogLine, type Skill } from './skills.ts';
 
 const PROMPTS = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'prompts');
@@ -258,6 +259,9 @@ export async function runPool(p: Project, o: PoolOptions): Promise<number> {
   await gateCheck();
 
   const inFlight = new Map<string, Promise<void>>();
+  // HX_FLEET_DIR: every session also holds one of HX_FLEET_WORKERS file slots shared with the other runners
+  const fleetDir = process.env.HX_FLEET_DIR || undefined;
+  const fleetCap = Number(process.env.HX_FLEET_WORKERS) || DEFAULT_FLEET_WORKERS;
   let idleLogged = false;
   const skipped = new Set<number>(); // untrusted issues / PRDs already logged this run
   let failures = 0;
@@ -313,6 +317,7 @@ export async function runPool(p: Project, o: PoolOptions): Promise<number> {
       const finishedBefore = finished;
       checkPause(); // the 1 s watcher may not have seen a pause written as a session ended: it must win over the next claim
       const held = Date.now() < (live.pausedUntil ?? 0);
+      let slotBlocked = false; // no fleet slot free: no more sessions this pass, look again within 5 s
       if (!held && !live.draining) {
         try {
           const pl = await readPlan(p, trusted, new Set(inFlight.keys()));
@@ -332,7 +337,9 @@ export async function runPool(p: Project, o: PoolOptions): Promise<number> {
       for (const a of actions) {
         if (stop.signal.aborted || fatal || live.draining || Date.now() < (live.pausedUntil ?? 0)) break; // fatal may land during readPlan
         if (a.kind === 'close-prd' || a.kind === 'label-ready') { await engineStep(p, a).catch((e) => log(`${a.kind} failed: ${e.message}`, target(a))); continue; }
-        if (inFlight.size >= o.workers) continue; // engine steps further down still run
+        if (inFlight.size >= o.workers || slotBlocked) continue; // engine steps further down still run
+        const slot = fleetDir ? acquireSlot(fleetDir, fleetCap, { pid: process.pid, repo: c.repo, issue: target(a) }) : null;
+        if (fleetDir && slot === null) { slotBlocked = true; continue; }
         idleLogged = false;
         const key = keyOf(a);
         const task = work(p, a, ctx).then((r) => {
@@ -342,12 +349,12 @@ export async function runPool(p: Project, o: PoolOptions): Promise<number> {
             fatal = r.last?.error ?? 'unknown setup error';
           } else if (r && !r.done && r.stopReason !== 'aborted') failures++;
         }).catch((e) => { failures++; log(`crashed: ${e.message}`, target(a)); })
-          .finally(() => { inFlight.delete(key); live.sessions = live.sessions.filter((s) => s.key !== key); save(); finished++; });
+          .finally(() => { if (fleetDir && slot !== null) releaseSlot(fleetDir, slot); inFlight.delete(key); live.sessions = live.sessions.filter((s) => s.key !== key); save(); finished++; });
         inFlight.set(key, task);
       }
 
       if (!inFlight.size && gateRunning) { await gateRunning; continue; } // its result decides what may run
-      if (!inFlight.size) {
+      if (!inFlight.size && !slotBlocked) {
         if (live.draining) { log('paused — every session has finished'); break; }
         if (finished !== finishedBefore) continue; // the plan predates a session ending: read it again
         const limited = Date.now() < (live.pausedUntil ?? 0);
@@ -365,7 +372,8 @@ export async function runPool(p: Project, o: PoolOptions): Promise<number> {
       // wake on the first finished task, a pause, or after a poll interval (new / unblocked issues, a limit reset)
       if (wakePending) { wakePending = false; continue; } // woken while not waiting: re-read the board now
       const holdLeft = (live.pausedUntil ?? 0) - Date.now();
-      const waitMs = holdLeft > 0 ? Math.max(1000, Math.min(c.pollSeconds * 1000, holdLeft)) : c.pollSeconds * 1000;
+      const pollMs = holdLeft > 0 ? Math.max(1000, Math.min(c.pollSeconds * 1000, holdLeft)) : c.pollSeconds * 1000;
+      const waitMs = slotBlocked ? Math.min(pollMs, 5000) : pollMs;
       await waitAny(waitMs, stop.signal, [new Promise<void>((r) => { wake = r; }), ...inFlight.values()]);
     }
     if (inFlight.size) { log(`stopping — waiting for ${inFlight.size} session(s) to hand back their issues…`); await Promise.allSettled(inFlight.values()); }
