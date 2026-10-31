@@ -119,7 +119,7 @@ test('with .hx/pause present, a wake claims nothing; the drained run leaves no 6
   }
 });
 
-test('waitAny clears its timer when another promise, or a stop, ends the wait first', async () => {
+test('waitAny clears its timer when another promise, or a stop, ends the wait first', E2E, async () => {
   const before = timers();
   await waitAny(600_000, new AbortController().signal, [Promise.resolve()]);
   assert.equal(timers(), before, 'woken: the 600 s timer is cleared');
