@@ -154,14 +154,16 @@ test('a verdict comment from an untrusted account is not acted on and is no roun
 });
 
 test('a stale triage claim from a crashed run is released and triaged again', E2E, async () => {
-  board([bug(5, 'TRIAGEREPRO', [L.working])]);
+  board([bug(5, 'TRIAGEINFO', [L.working])]);
   writeLive(stateDir, { pid: deadPid(), startedAt: new Date().toISOString(), repo: 'me/app', workers: 1,
     sessions: [{ key: 'issue:5', number: 5, kind: 'triage', title: 'bug 5', since: new Date().toISOString(), turn: 1, tokens: 0 }] });
   const { rc, lines } = await run();
   assert.equal(rc, 0, lines.join('\n'));
-  assert.ok(lines.some((l) => /\[#5\] recovered .* released triage/.test(l)), lines.join('\n'));
-  assert.ok(lines.some((l) => /\[#5\] triage: REPRODUCED ✓/.test(l)));
-  assert.equal(byNum(5).state, 'CLOSED');
+  const at = (re: RegExp) => lines.findIndex((l) => re.test(l));
+  const released = at(/\[#5\] recovered .* released triage/), again = at(/\[#5\] triage \(round 1\)/);
+  assert.ok(released >= 0 && again > released, lines.join('\n'));
+  assert.ok(lines.some((l) => /\[#5\] triage: NEEDS-INFO/.test(l)));
+  assert.ok(!byNum(5).labels.includes(L.working));
 });
 
 test('a stopped triage session is handed back: no marker, no round, worktree removed', E2E, async () => {
