@@ -32,6 +32,7 @@ export interface Config {
   usagePauseAt: number; // 0..1: claim nothing new once a usage window is this full, until it resets
   checkpointMinutes: number; // time a stopped session gets to commit, push and write its handoff
   turnTimeoutMinutes: number;
+  stallMinutes: number; // a turn with no stdout for this long is killed (0 = off)
   pollSeconds: number;
   worktreeRoot: string; // keep it short: Windows MAX_PATH
   claudeBin: string;
@@ -65,6 +66,7 @@ export const DEFAULTS: Omit<Config, 'repo' | 'defaultBranch' | 'worktreeRoot'> =
   usagePauseAt: 0.9,
   checkpointMinutes: 10,
   turnTimeoutMinutes: 45,
+  stallMinutes: 15,
   pollSeconds: 60,
   claudeBin: 'claude',
   claudeArgs: [],

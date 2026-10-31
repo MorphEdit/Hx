@@ -460,6 +460,7 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
     const skills = ctx.skills?.[role] ?? [];
     return runGoal({
       bin: c.claudeBin, cwd, model: c.model, effort: c.effort, extraArgs: workerArgs(c), timeoutMs: c.turnTimeoutMinutes * 60_000,
+      stallMs: c.stallMinutes * 60_000,
       prompt: appendSkills(render(readFileSync(path.join(PROMPTS, promptFile), 'utf8'), v), skills, PROMPTS),
       continuePrompt: render(readFileSync(path.join(PROMPTS, 'continue.md'), 'utf8'), v),
       promise, maxIterations: c.maxIterations, signal: ctx.signal,
@@ -663,7 +664,7 @@ async function checkpoint(p: Project, n: number, sessionId: string, cwd: string,
   const c = p.config;
   log('checkpointing: committing WIP and writing a handoff note…', n);
   const t = await runTurn({ bin: c.claudeBin, cwd, model: c.model, effort: c.effort, extraArgs: workerArgs(c),
-    timeoutMs: c.checkpointMinutes * 60_000, sessionId, resume: true, env,
+    timeoutMs: c.checkpointMinutes * 60_000, stallMs: c.stallMinutes * 60_000, sessionId, resume: true, env,
     prompt: render(readFileSync(path.join(PROMPTS, 'checkpoint.md'), 'utf8'), vars),
     onEvent: (ev) => appendFileSync(eventLog, JSON.stringify(ev) + '\n') });
   recordUsage(p.stateDir, { ts: new Date().toISOString(), issue: n, role: 'checkpoint', sessionId, iteration: 0, model: c.model,

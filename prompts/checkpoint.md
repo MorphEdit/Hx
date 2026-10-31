@@ -7,5 +7,7 @@ next session, which starts fresh and only sees what you leave in git and on the 
    what is done, what is left, the exact next step, and anything the next session must know
    (failing tests, decisions made, traps). Use `gh issue comment {{ISSUE}} -R {{REPO}} --body-file <file>`.
 
+Run every command in the foreground and wait for it. Never start a command in the background, and never poll for a background command's output in a loop.
+
 Then output exactly:
 <promise>CHECKPOINT {{ISSUE}} DONE</promise>

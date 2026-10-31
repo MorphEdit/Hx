@@ -25,6 +25,7 @@ export interface TurnResult {
   limited?: { resetsAt?: number }; // usage limit hit — the pool should stop claiming
   fatal?: boolean; // the setup is wrong (unknown model, auth): every session would fail the same way
   timedOut?: boolean;
+  stalled?: boolean; // killed after stallMs without a line on stdout
 }
 
 // API statuses that no retry and no other issue can fix: bad request (e.g. model not supported), auth, not found
@@ -40,6 +41,7 @@ export interface TurnOptions {
   effort?: string;
   extraArgs: string[];
   timeoutMs: number;
+  stallMs?: number; // kill the turn after this long without a line on stdout (0 / unset = off)
   onEvent?: (ev: any) => void; // every raw stream-json line, for the per-issue log
   signal?: AbortSignal;
   env?: Record<string, string>; // added to this process's env for the session (e.g. HX_TRUSTED)
@@ -92,10 +94,19 @@ export function runTurn(o: TurnOptions): Promise<TurnResult> {
     let rejectedLimit: { resetsAt?: number } | undefined;
 
     const timer = setTimeout(() => { res.timedOut = true; killTree(child.pid); }, o.timeoutMs);
+    // a turn that stops printing (a stuck background command, a poll loop) is killed long before the timeout
+    let stall: ReturnType<typeof setTimeout> | undefined;
+    const armStall = () => {
+      if (!o.stallMs) return;
+      clearTimeout(stall);
+      stall = setTimeout(() => { res.stalled = true; killTree(child.pid); }, o.stallMs);
+    };
+    armStall();
     const onAbort = () => killTree(child.pid);
     o.signal?.addEventListener('abort', onAbort, { once: true });
 
     createInterface({ input: child.stdout! }).on('line', (line) => {
+      armStall();
       let ev: any;
       try { ev = JSON.parse(line); } catch { return; }
       o.onEvent?.(ev);
@@ -123,12 +134,14 @@ export function runTurn(o: TurnOptions): Promise<TurnResult> {
     child.on('close', (code) => {
       if (child.pid) live.delete(child.pid);
       clearTimeout(timer);
+      clearTimeout(stall);
       o.signal?.removeEventListener('abort', onAbort);
       res.durationMs = Date.now() - started;
       res.text = texts.join('\n');
       if (!gotResult) {
         res.ok = false;
-        res.error = res.timedOut ? `turn timed out after ${Math.round(o.timeoutMs / 60000)} min`
+        res.error = res.stalled ? `stalled: no output for ${o.stallMs! / 60000} min`
+          : res.timedOut ? `turn timed out after ${Math.round(o.timeoutMs / 60000)} min`
           : `claude exited ${code} with no result: ${stderr.trim().slice(-500)}`;
       }
       if (rejectedLimit || (!res.ok && LIMIT_TEXT.test(`${res.error ?? ''}\n${stderr}`))) res.limited = rejectedLimit ?? {};
