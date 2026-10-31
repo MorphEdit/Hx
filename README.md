@@ -137,6 +137,7 @@ hx pause [--now]        # from another terminal: stop a running hx run (see belo
 hx resume               # clear a pause
 hx usage --by role      # recorded token usage (by issue | role | model | day)
 hx dashboard [--open]   # a read-only page on http://127.0.0.1:4777/ (localhost only; --port N)
+hx fleet run --watch    # one hx run per repo in the fleet, sharing one worker cap (see Several repos)
 ```
 
 ## Adding work to a running fleet
@@ -194,6 +195,42 @@ Safety: the server binds **127.0.0.1 only**, answers only a `Host` of `127.0.0.1
 it only reads. The page is one self-contained file under a strict CSP (no external scripts, styles or
 fonts), and every title, label, error and log line is rendered as **escaped text** (`textContent`,
 never `innerHTML`), so an issue titled `<img src=x onerror=…>` shows as that text.
+
+## Several repos
+
+One `hx fleet run` works several repos at once, under one shared worker cap. The fleet is a list of
+repo roots in `~/.hx/fleet.json`; each repo keeps its own `.hx/` (config, logs, pause, wake).
+
+```bash
+hx fleet add [<path>]     # add the hx repo containing <path> (default: here); it needs a .hx/config.json
+hx fleet remove <path>    # drop it from the fleet (its .hx/ is untouched)
+hx fleet list             # the repos, and whether each root still exists
+hx fleet workers 3        # the cap shared by every repo (default 2), read by the next hx fleet run
+hx fleet run [--workers N] [--watch]
+hx fleet status           # hx status for every repo, then the slots in use and the shared hold
+```
+
+- `hx fleet run` starts one `hx run` per repo as a child process and prints its output prefixed
+  `[owner/name]`. A repo whose root is missing, has no config, or already has an `hx run` is skipped
+  with one line.
+- **Shared worker cap.** Every session takes one of N file slots in `~/.hx/fleet/slots` before it
+  starts and gives it back when it ends, so all repos together run at most N sessions (`--workers`,
+  else `hx fleet workers`). A slot left by a runner that died is taken over.
+- **Shared usage hold.** A usage limit is per account, not per repo: when one runner hits it (or its
+  usage window passes `usagePauseAt`), it writes `~/.hx/fleet/hold.json` and every other runner stops
+  claiming until the same time. `hx fleet status` shows the hold.
+- **Ctrl+C** in `hx fleet run` asks every repo to checkpoint, exactly like Ctrl+C in `hx run`; twice
+  force-quits them all. `hx pause` / `hx resume` still work per repo.
+- **Dashboards.** `hx dashboard` shows one repo: run one per repo, on different ports
+  (`hx dashboard --port 4778` in the second repo; without `--port` the next free port is taken).
+
+## Agent CLIs
+
+Everything hx knows about the agent CLI it drives — the argv of one headless turn, parsing its output
+(result, tokens, usage-limit events) and the interactive argv for `hx grill` / `hx issue` — sits behind
+one interface, `AgentCli`, in `src/agents/`. The `agentCli` config key picks the adapter by name.
+`claude` (`src/agents/claude.ts`) is the only adapter today; another CLI is a new file there plus one
+`registerAgent` call in `src/agents/index.ts`.
 
 ## Stopping and resuming
 
@@ -375,6 +412,7 @@ The full suite stays the final word: `ship.mjs` runs it before every PR, and the
 | `workers` | 2 | sessions running in parallel |
 | `model` | `claude-opus-5-5` | model for every session; prefer a full id — the `opus` alias may resolve to an older Opus |
 | `effort` | `medium` | `claude --effort`: `low`, `medium`, `high`, `xhigh`, `max`, or `""` for the CLI default |
+| `agentCli` | `"claude"` | the agent CLI that workers, `hx grill` and `hx issue` run (an adapter in `src/agents/`); `claude` is the only one |
 | `maxIterations` | 8 | turns per session before giving up |
 | `gauntlet` | `true` | critique and revise a PRD in rounds before it is decomposed |
 | `gauntletRounds` | 2 | critic → reviser rounds before the PRD is decomposed anyway |
