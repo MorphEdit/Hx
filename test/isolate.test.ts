@@ -79,3 +79,14 @@ test('passes', E2E, async () => {
   assert.match(out, /PASSING ABORTED false/, out);
   assert.match(out, /ℹ pass 3/, out);
 });
+
+test('deadPid is a pid no process can have, not an exited one Windows may already have handed out again', () => {
+  const code = `const { deadPid } = await import(${JSON.stringify(pathToFileURL(path.join(here, 'isolate.ts')).href)});
+    const p = deadPid(); let alive = true; try { process.kill(p, 0); } catch (e) { alive = e.code === 'EPERM'; }
+    console.log(JSON.stringify({ p, alive }));`;
+  const r = spawnSync(process.execPath, ['--disable-warning=ExperimentalWarning', '--input-type=module', '-e', code], { encoding: 'utf8' });
+  const { p, alive } = JSON.parse(r.stdout.trim().split('\n').pop()!);
+  assert.equal(alive, false);
+  assert.ok(p > 2 ** 22, `pid ${p} is in the range the OS hands out`);
+  assert.equal(p % 4, 0, 'Windows ignores the low two bits of a pid');
+});
