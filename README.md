@@ -326,8 +326,8 @@ The full suite stays the final word: `ship.mjs` runs it before every PR, and the
 | `reviewRounds` | 3 | PRD reviews before a human has to look |
 | `security` | `true` | a security pass checks a reviewed PRD's merged work before the PRD closes |
 | `securityRounds` | 2 | security passes that file issues before a human has to look |
-| `bugTriage` | `true` | a `bug` issue (not a PRD's child) is triaged before it may be claimed; until `bug-triaged` it shows as `triage` |
-| `triageRounds` | 2 | triage sessions on a bug before a human has to look |
+| `bugTriage` | `true` | a `bug` issue (not a PRD's child) is triaged before it may be claimed; until `bug-triaged` it shows as `triage`, and a triage session (`prompts/triage.md`, worktree `t<n>`) reproduces it and posts a `VERDICT: REPRODUCED` (→ `bug-triaged` + `ready-for-agent`) or `NEEDS-INFO` (→ `agent-blocked`) comment |
+| `triageRounds` | 2 | triage sessions on a bug before a human has to look: a session without a verdict gets hx's `VERDICT: FAILED` marker and counts as a round; at the cap hx labels `agent-blocked` and comments once |
 | `audit` | `true` | an independent auditor checks every implementation PR before hx merges it |
 | `auditRounds` | 3 | implement → audit attempts before the issue goes to a human |
 | `gate` | `true` | test the default branch after every merge; while red, claim only its fix |

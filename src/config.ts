@@ -46,7 +46,7 @@ export interface Config {
   leanWorkers: boolean;
   workerTools: string[];
   trustedAuthors: string[]; // accounts besides the gh login whose issues and PRDs hx works on
-  // role (impl, audit, decompose, review, critic, revise, security) → skills appended to its prompt; {} = none
+  // role (impl, audit, decompose, review, critic, revise, security, triage) → skills appended to its prompt; {} = none
   roleSkills: Record<string, string[]>;
   skillMaxChars: number; // a skill whose stripped SKILL.md body is longer is skipped
   rtddBin: string; // HX_RTDD_BIN overrides it (see effectiveRtddBin)

@@ -90,14 +90,14 @@ test('bugTriage false: a bug with ready-for-agent is claimable at once and still
   assert.deepEqual(keys(pl.actions), ['impl:5', 'gauntlet:2', 'impl:1']);
 });
 
-test('claimable: triage is never started; a red gate starts only its fix; --issue narrows', () => {
+test('claimable: triage is started first; a red gate starts only its fix (no triage); --issue narrows', () => {
   const pl = run([i(1, [L.ready]), i(2, [L.prd]), i(5, [L.bug]), i(9, [L.ready])]);
   assert.deepEqual(keys(pl.actions), ['triage:5', 'gauntlet:2', 'impl:1', 'impl:9']);
-  assert.deepEqual(keys(claimable(pl.actions)), ['gauntlet:2', 'impl:1', 'impl:9']);
+  assert.deepEqual(keys(claimable(pl.actions)), ['triage:5', 'gauntlet:2', 'impl:1', 'impl:9']);
   assert.deepEqual(keys(claimable(pl.actions, { gateRed: true, fixIssue: 9 })), ['impl:9']);
   assert.deepEqual(keys(claimable(pl.actions, { gateRed: true, fixIssue: 5 })), [], 'a red gate starts no triage');
   assert.deepEqual(keys(claimable(pl.actions, { gateRed: true })), []);
-  assert.deepEqual(keys(claimable(pl.actions, { only: [5, 2] })), ['gauntlet:2']);
+  assert.deepEqual(keys(claimable(pl.actions, { only: [5, 2] })), ['triage:5', 'gauntlet:2']);
 });
 
 test('triageVerdict: marker on line 1, verdict on the next non-empty line', () => {
