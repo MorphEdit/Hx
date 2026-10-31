@@ -1,5 +1,5 @@
 // Fake `gh` for tests: the board lives in the JSON file named by HX_FAKE_STATE.
-import { appendFileSync, readFileSync } from 'node:fs';
+import { appendFileSync, readFileSync, writeFileSync } from 'node:fs';
 import { loadJson, locked, saveJson } from './lock.mjs';
 
 const file = process.env.HX_FAKE_STATE;
@@ -24,6 +24,10 @@ if (a[0] === 'issue' && a[1] === 'list') {
   if (s.listFails) { process.stderr.write('HTTP 502: Bad Gateway'); process.exit(1); }
   const state = opt('--state') ?? 'open';
   const out = s.issues.filter((i) => state === 'all' || i.state === state.toUpperCase()).map((i) => ({ ...i, labels: ghLabels(i), author: author(i) }));
+  // state.slowList = { add, wake, ms }: a slow read — once the list is taken, `add` joins the board and `wake` is
+  // written, then the answer (without it) comes ms later (a wake that lands while hx reads the board)
+  const slow = s.slowList && mutate((cur) => { const x = cur.slowList; delete cur.slowList; if (x) cur.issues.push(x.add); return x; });
+  if (slow) { writeFileSync(slow.wake, 'x'); Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, slow.ms); }
   process.stdout.write(JSON.stringify(out));
 } else if (a[0] === 'pr' && a[1] === 'list') {
   // like gh, --head matches the branch name only: a PR from a fork (`fork: true`) with that name matches too
