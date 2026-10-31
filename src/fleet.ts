@@ -152,3 +152,18 @@ export function writeHold(dir: string, h: Hold): boolean {
   try { renameSync(tmp, holdFile(dir)); } catch { try { unlinkSync(tmp); } catch {} return false; }
   return true;
 }
+
+/** Slot files whose pid is alive (stale or unparsable files are not counted). */
+export function slotsInUse(dir: string): number {
+  let names: string[];
+  try { names = readdirSync(slotsDir(dir)); } catch { return 0; }
+  let n = 0;
+  for (const name of names) {
+    if (!/^\d+\.json$/.test(name)) continue;
+    try {
+      const pid = JSON.parse(readFileSync(path.join(slotsDir(dir), name), 'utf8')).pid;
+      if (typeof pid === 'number' && Number.isInteger(pid) && pid > 0 && pidAlive(pid)) n++;
+    } catch {}
+  }
+  return n;
+}

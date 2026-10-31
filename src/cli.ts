@@ -14,7 +14,7 @@ import { fileBug, filePrd } from './prd.ts';
 import { agentFor } from './agents/index.ts';
 import { ideaFrom, sessionPaths, sessionPrompt } from './grill.ts';
 import { formatSkills } from './skills.ts';
-import { addRepo, fleetFile, fleetWorkers, readFleet, removeRepo, sameRoot, writeFleet } from './fleet.ts';
+import { addRepo, type Fleet, fleetDir, fleetFile, fleetWorkers, readFleet, readHold, removeRepo, sameRoot, slotsInUse, writeFleet } from './fleet.ts';
 import { fmt, localDay, readUsage, summarize, totalTokens, type UsageRow } from './usage.ts';
 
 const HELP = `usage: hx <command> [options]
@@ -50,6 +50,7 @@ const HELP = `usage: hx <command> [options]
   fleet remove <path>      remove that repo from the fleet (its .hx/ is untouched)
   fleet list               the fleet's repos: root, repo and whether the root still exists
   fleet workers <n>        the fleet's worker cap (default 2), read by the next hx fleet run
+  fleet status             hx status for every repo in the fleet, then the slots in use and the shared hold
   help
 
 Ctrl+C in hx run = pause --now for that run; Ctrl+C again force-quits (sessions are killed).
@@ -293,8 +294,7 @@ const ago = (iso: string) => {
   return s < 60 ? `${s}s` : s < 3600 ? `${Math.floor(s / 60)}m${String(s % 60).padStart(2, '0')}s` : `${Math.floor(s / 3600)}h${String(Math.floor(s / 60) % 60).padStart(2, '0')}m`;
 };
 
-async function status(): Promise<number> {
-  const p = loadProject();
+async function status(p = loadProject()): Promise<number> {
   const c = p.config;
 
   // the runner
@@ -353,7 +353,23 @@ function usage(args: string[]): number {
   return 0;
 }
 
-function fleet(args: string[]): number {
+async function fleetStatus(f: Fleet): Promise<number> {
+  let rc = 0;
+  for (const r of f.repos) {
+    let p: ReturnType<typeof loadProject> | undefined;
+    try { p = loadProject(r.root); } catch { /* missing root or no config */ }
+    console.log(`== ${p?.config.repo || '?'} (${r.root})`);
+    if (!existsSync(r.root) || !p) { console.log('missing'); console.log(''); rc ||= 1; continue; }
+    try { rc = (await status(p)) || rc; } catch (e: any) { console.error(`hx: ${e.message}`); rc ||= 1; }
+    console.log('');
+  }
+  const hold = readHold(fleetDir());
+  console.log(`fleet    ${slotsInUse(fleetDir())}/${fleetWorkers(f)} slot(s) in use`
+    + (hold ? ` · hold until ${new Date(hold.until).toLocaleString()} (${hold.reason}, ${hold.repo})` : ''));
+  return rc;
+}
+
+async function fleet(args: string[]): Promise<number> {
   const [sub, arg] = args;
   const f = readFleet();
   switch (sub) {
@@ -394,7 +410,8 @@ function fleet(args: string[]): number {
       console.log(`fleet workers: ${n} (read by the next hx fleet run)`);
       return 0;
     }
-    default: console.error('usage: hx fleet add [<path>] | remove <path> | list | workers <n>'); return 2;
+    case 'status': return fleetStatus(f);
+    default: console.error('usage: hx fleet add [<path>] | remove <path> | list | workers <n> | status'); return 2;
   }
 }
 

@@ -21,9 +21,10 @@ if (process.env.HX_FAKE_GH_LOG) appendFileSync(process.env.HX_FAKE_GH_LOG, a.joi
 const LOGIN = s.login ?? 'me';
 const author = (x) => ({ login: x.author ?? LOGIN });
 if (a[0] === 'issue' && a[1] === 'list') {
-  if (s.listFails) { process.stderr.write('HTTP 502: Bad Gateway'); process.exit(1); }
+  // state.listFails: true, or the one repo (-R) whose list fails; an issue with a `repo` is listed only for that repo
+  if (s.listFails === true || (s.listFails && s.listFails === opt('-R'))) { process.stderr.write('HTTP 502: Bad Gateway'); process.exit(1); }
   const state = opt('--state') ?? 'open';
-  const out = s.issues.filter((i) => state === 'all' || i.state === state.toUpperCase()).map((i) => ({ ...i, labels: ghLabels(i), author: author(i) }));
+  const out = s.issues.filter((i) => (state === 'all' || i.state === state.toUpperCase()) && (!i.repo || i.repo === opt('-R'))).map((i) => ({ ...i, labels: ghLabels(i), author: author(i) }));
   // state.slowList = { add, wake, ms }: a slow read — once the list is taken, `add` joins the board and `wake` is
   // written, then the answer (without it) comes ms later (a wake that lands while hx reads the board)
   const slow = s.slowList && mutate((cur) => { const x = cur.slowList; delete cur.slowList; if (x) cur.issues.push(x.add); return x; });
