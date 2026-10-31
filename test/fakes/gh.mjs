@@ -98,6 +98,9 @@ if (a[0] === 'issue' && a[1] === 'list') {
   if (all('--remove-label').length && mutate((cur) => { if (!cur.labelFails) return false; if (cur.labelFails > 0) cur.labelFails--; return true; })) {
     process.stderr.write('HTTP 502: Bad Gateway'); process.exit(1);
   }
+  // state.strictLabels: adding a label missing from state.labels fails like GitHub does
+  const unknown = s.strictLabels ? all('--add-label').find((l) => !(s.labels ?? []).includes(l)) : undefined;
+  if (unknown) { process.stderr.write(`failed to update https://github.com/me/app/issues/${a[2]}: '${unknown}' not found\n`); process.exit(1); }
   const edit = (body) => mutate((cur) => {
     const i = find(cur, a[2]);
     i.labels = [...new Set([...i.labels, ...all('--add-label')])].filter((l) => !all('--remove-label').includes(l));
@@ -106,6 +109,8 @@ if (a[0] === 'issue' && a[1] === 'list') {
   const bf = opt('--body-file');
   if (bf === '-') withStdin(edit);
   else edit(bf === undefined ? undefined : readFileSync(bf, 'utf8'));
+} else if (a[0] === 'label' && a[1] === 'list') {
+  process.stdout.write((s.labels ?? []).map((l) => l + '\n').join(''));
 } else if (a[0] === 'label' && a[1] === 'create') {
   mutate((cur) => { cur.labels = [...new Set([...(cur.labels ?? []), a[2]])]; });
 } else if (a[0] === 'repo' && a[1] === 'view') {

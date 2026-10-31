@@ -396,7 +396,7 @@ The full suite stays the final word: `ship.mjs` runs it before every PR, and the
 | `claudeArgs` | `[]` | extra flags for every `claude` call |
 | `leanWorkers` | `true` | workers start without MCP servers, skills, slash commands or user-level settings and plugins (~8K instead of ~44K tokens of base context per call) |
 | `workerTools` | `Bash Read Edit Write Glob Grep` | the only built-in tools a lean worker gets; add e.g. `Agent` or `WebFetch` if your issues need them |
-| `labels` | `ready-for-agent`, `agent-working`, `agent-blocked`, `prd`, `prd-hardened`, `prd-reviewed`, `security-reviewed`, `security`, `bug`, `bug-triaged` | |
+| `labels` | `ready-for-agent`, `agent-working`, `agent-blocked`, `prd`, `prd-hardened`, `prd-reviewed`, `security-reviewed`, `security`, `hx-gate-fix`, `bug`, `bug-triaged` (keys `ready`, `working`, `blocked`, `prd`, `hardened`, `reviewed`, `secured`, `security`, `gateFix`, `bug`, `triaged`) | `hx init` creates them all; `hx run` creates any missing at start, and a label edit that fails because a label is missing creates it and retries once |
 
 ## ⚠️ Safety
 

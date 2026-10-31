@@ -130,6 +130,12 @@ export async function comment(repo: string, n: number, body: string): Promise<vo
   await runOk(GH, ['issue', 'comment', String(n), '-R', repo, '--body-file', '-'], { input: body });
 }
 
+/** The names of every label in the repo. */
+export async function listLabels(repo: string): Promise<Set<string>> {
+  const out = await runOk(GH, ['label', 'list', '-R', repo, '--limit', '1000', '--json', 'name', '-q', '.[].name']);
+  return new Set(out.split('\n').map((l) => l.trim()).filter(Boolean));
+}
+
 export async function ensureLabel(repo: string, name: string, color: string, description: string): Promise<void> {
   await run(GH, ['label', 'create', name, '-R', repo, '--color', color, '--description', description, '--force']);
 }
