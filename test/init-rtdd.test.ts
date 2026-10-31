@@ -97,6 +97,14 @@ test('hx init uses config.rtddBin of an existing .hx/config.json when HX_RTDD_BI
   assert.deepEqual(calls(), [['--version'], ['init']]);
 });
 
+test('hx init creates the bug lane labels bug and bug-triaged', E2E, () => {
+  const { hx } = setup();
+  const r = hx([]);
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  const labels: string[] = JSON.parse(readFileSync(stateFile, 'utf8')).labels ?? [];
+  for (const l of ['bug', 'bug-triaged']) assert.ok(labels.includes(l), `${l} in ${labels.join(', ')}`);
+});
+
 test('hx help mentions --rtdd on the init line', E2E, () => {
   const r = spawnSync(process.execPath, [path.join(here, '..', 'bin', 'hx.mjs'), 'help'], { encoding: 'utf8' });
   assert.match(r.stdout, /^\s+init \[--rtdd\]/m);

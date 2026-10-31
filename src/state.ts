@@ -34,7 +34,7 @@ export const refKey = (r: Ref) => `${r.repo.toLowerCase()}#${r.number}`;
 export interface BoardRow {
   number: number;
   title: string;
-  status: 'claimable' | 'working' | 'blocked-label' | 'waiting' | 'untrusted';
+  status: 'triage' | 'claimable' | 'working' | 'blocked-label' | 'waiting' | 'untrusted';
   waitingOn: Ref[]; // open blockers, for status === 'waiting'
   author?: string; // status 'untrusted' through its own author ('' = a deleted account)
   untrustedPrd?: { number: number; author: string }; // status 'untrusted' through its PRD's author
@@ -51,17 +51,26 @@ export function trustedSet(login: string, extra: string[] = []): Set<string> {
   return new Set([login, ...extra].map((l) => l.trim().toLowerCase()).filter(Boolean));
 }
 
+/** The bug lane as board() sees it. */
+export interface BugLane {
+  triage: boolean; // config.bugTriage
+  prdChildren: Set<number>; // issues whose parent is a PRD (open or closed): classified as normal children
+}
+
 /**
- * Classify every open ready issue. `states` maps refKey → state for every ref we could resolve;
- * an unresolvable ref counts as open (never start work on a dependency we cannot see).
- * Claimable rows come first, oldest issue first.
+ * Classify every open ready issue and, with `bug.triage`, every open untriaged `bug` issue that is not a
+ * PRD's child: it gets status `triage` instead of `claimable` (ready-for-agent or not). `states` maps
+ * refKey → state for every ref we could resolve; an unresolvable ref counts as open (never start work on
+ * a dependency we cannot see). Triage rows come first, then claimable rows, oldest issue first.
  */
 export function board(issues: Issue[], repo: string, labels: Labels, states: Map<string, 'OPEN' | 'CLOSED'>,
   inFlight: Set<number> = new Set(), inherited: Map<number, Ref[]> = new Map(), trusted?: Set<string>,
-  untrustedPrd: Map<number, { number: number; author: string }> = new Map()): BoardRow[] {
+  untrustedPrd: Map<number, { number: number; author: string }> = new Map(), bug?: BugLane): BoardRow[] {
   const rows: BoardRow[] = [];
   for (const i of issues) {
-    if (i.state !== 'OPEN' || !i.labels.includes(labels.ready) || i.labels.includes(labels.prd)) continue;
+    if (i.state !== 'OPEN' || i.labels.includes(labels.prd)) continue;
+    const triage = !!bug?.triage && i.labels.includes(labels.bug) && !i.labels.includes(labels.triaged) && !bug.prdChildren.has(i.number);
+    if (!triage && !i.labels.includes(labels.ready)) continue;
     let status: BoardRow['status'];
     let waitingOn: Ref[] = [];
     if (!isTrusted(i, trusted)) {
@@ -76,11 +85,11 @@ export function board(issues: Issue[], repo: string, labels: Labels, states: Map
     else if (i.labels.includes(labels.blocked)) status = 'blocked-label';
     else {
       waitingOn = openBlockers(i, repo, states).concat(inherited.get(i.number) ?? []);
-      status = waitingOn.length ? 'waiting' : 'claimable';
+      status = waitingOn.length ? 'waiting' : triage ? 'triage' : 'claimable';
     }
     rows.push({ number: i.number, title: i.title, status, waitingOn });
   }
-  const rank = { claimable: 0, working: 1, waiting: 2, 'blocked-label': 3, untrusted: 4 } as const;
+  const rank = { triage: 0, claimable: 1, working: 2, waiting: 3, 'blocked-label': 4, untrusted: 5 } as const;
   return rows.sort((a, b) => rank[a.status] - rank[b.status] || a.number - b.number);
 }
 
@@ -123,7 +132,8 @@ export type Action =
   | { kind: 'security'; prd: number; title: string; children: Issue[] }
   | { kind: 'close-prd'; prd: number; secured?: boolean } // secured: the security pass signed it off
   | { kind: 'label-ready'; issue: number; prd: number }
-  | { kind: 'impl'; issue: number; title: string };
+  | { kind: 'impl'; issue: number; title: string }
+  | { kind: 'triage'; issue: number; title: string };
 
 export interface PrdRow {
   number: number;
@@ -136,7 +146,7 @@ export interface PrdRow {
 }
 
 export interface Plan {
-  actions: Action[]; // in priority order: PRD sessions, engine-only steps, then implementation
+  actions: Action[]; // in priority order: triage, bug implementation, PRD sessions, engine-only steps, then implementation
   prds: PrdRow[];
   board: BoardRow[];
   parents: Record<number, number>; // issue → its PRD (closed PRDs too), from the issue's `## Parent`
@@ -161,22 +171,26 @@ export const issueKey = (n: number) => `issue:${n}`;
  * `opts.trusted` (lowercased logins): a PRD opened by anyone else is `untrusted` and nothing of it runs —
  * its children are not claimed either; an issue opened by anyone else is never claimed and never counts
  * as a PRD's child (it neither holds a PRD in building nor reaches a session's prompt).
+ * The bug lane: an open `bug` issue that is not a PRD's child is triaged first (`opts.bugTriage`, default
+ * true: status `triage`, never claimable before `bug-triaged`); once claimable it is built before anything else.
  */
 export function plan(all: Issue[], repo: string, labels: Labels, states: Map<string, 'OPEN' | 'CLOSED'>,
-  busy: Set<string> = new Set(), opts: { gauntlet?: boolean; security?: boolean; trusted?: Set<string> } = {}): Plan {
+  busy: Set<string> = new Set(), opts: { gauntlet?: boolean; security?: boolean; bugTriage?: boolean; trusted?: Set<string> } = {}): Plan {
   const gauntlet = opts.gauntlet ?? true;
   const security = opts.security ?? true;
   const prdIssues = all.filter((i) => i.labels.includes(labels.prd)).sort((a, b) => a.number - b.number);
   const prdNums = new Set(prdIssues.map((p) => p.number));
   const children = new Map<number, Issue[]>(prdIssues.map((p) => [p.number, []]));
   const parentOf = new Map<number, number>();
+  const prdChildren = new Set<number>(); // trusted or not: a PRD's child never enters the bug lane
   for (const i of all) {
-    if (prdNums.has(i.number) || !isTrusted(i, opts.trusted)) continue;
+    if (prdNums.has(i.number)) continue;
     const p = parseParent(i.body, repo);
-    if (p && p.repo.toLowerCase() === repo.toLowerCase() && prdNums.has(p.number)) {
-      children.get(p.number)!.push(i);
-      parentOf.set(i.number, p.number);
-    }
+    if (!p || p.repo.toLowerCase() !== repo.toLowerCase() || !prdNums.has(p.number)) continue;
+    prdChildren.add(i.number);
+    if (!isTrusted(i, opts.trusted)) continue;
+    children.get(p.number)!.push(i);
+    parentOf.set(i.number, p.number);
   }
 
   const actions: Action[] = [];
@@ -222,10 +236,14 @@ export function plan(all: Issue[], repo: string, labels: Labels, states: Map<str
   }
 
   const inFlight = new Set([...busy].filter((k) => k.startsWith('issue:')).map((k) => Number(k.slice(6))));
-  const rows = board(all, repo, labels, states, inFlight, inherited, opts.trusted, untrustedPrd);
-  for (const r of rows) if (r.status === 'claimable') actions.push({ kind: 'impl', issue: r.number, title: r.title });
-  return { actions: [...actions.filter((a) => a.kind !== 'impl'), ...engine, ...actions.filter((a) => a.kind === 'impl')], prds, board: rows,
-    parents: Object.fromEntries(parentOf) };
+  const rows = board(all, repo, labels, states, inFlight, inherited, opts.trusted, untrustedPrd,
+    { triage: opts.bugTriage ?? true, prdChildren });
+  const bugs = new Set(all.filter((i) => i.labels.includes(labels.bug) && !prdChildren.has(i.number)).map((i) => i.number));
+  const triage: Action[] = [], bugImpl: Action[] = [], impl: Action[] = [];
+  for (const r of rows)
+    if (r.status === 'triage') triage.push({ kind: 'triage', issue: r.number, title: r.title });
+    else if (r.status === 'claimable') (bugs.has(r.number) ? bugImpl : impl).push({ kind: 'impl', issue: r.number, title: r.title });
+  return { actions: [...triage, ...bugImpl, ...actions, ...engine, ...impl], prds, board: rows, parents: Object.fromEntries(parentOf) };
 }
 
 /** Every ref the ready issues depend on that lives in another repo (resolved one by one). */
@@ -235,6 +253,27 @@ export function externalRefs(issues: Issue[], repo: string): Ref[] {
     for (const r of parseBlockedBy(i.body, repo))
       if (r.repo.toLowerCase() !== repo.toLowerCase()) seen.set(refKey(r), r);
   return [...seen.values()];
+}
+
+/** First line of a triage session's verdict comment. */
+export const TRIAGE_MARKER = '<!-- hx:triage -->';
+
+/** A triage comment's verdict: the marker on line 1, then exactly `VERDICT: REPRODUCED` or `VERDICT: NEEDS-INFO`,
+ *  or `VERDICT: FAILED…`, on the first non-empty line after it. Anything else is null. */
+export function triageVerdict(body: string): 'REPRODUCED' | 'NEEDS-INFO' | 'FAILED' | null {
+  const lines = (body ?? '').trimStart().split(/\r?\n/);
+  if (lines[0].trim() !== TRIAGE_MARKER) return null;
+  const v = lines.slice(1).map((l) => l.trim()).find((l) => l !== '');
+  if (v === 'VERDICT: REPRODUCED' || v === 'VERDICT: NEEDS-INFO') return v.slice(9) as 'REPRODUCED' | 'NEEDS-INFO';
+  return v?.startsWith('VERDICT: FAILED') ? 'FAILED' : null;
+}
+
+/** The plan's actions the pool may start: never `triage` (no triage session exists yet), only the
+ *  `--issue` targets, and while the gate is red only its fix issue. */
+export function claimable(actions: Action[], o: { only?: number[]; gateRed?: boolean; fixIssue?: number } = {}): Action[] {
+  return actions.filter((a) => a.kind !== 'triage'
+    && (!o.only || o.only.includes('issue' in a ? a.issue : a.prd))
+    && (!o.gateRed || (a.kind === 'impl' && a.issue === o.fixIssue)));
 }
 
 export const PROMISE_RE = (promise: string) =>
