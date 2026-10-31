@@ -179,6 +179,11 @@ While paused, `hx run` refuses to start until `hx resume`. Only one `hx run` per
 **A crashed run** (terminal closed, machine rebooted, process killed) leaves `agent-working` on its
 issues. The next `hx run` sees that the previous runner is gone and hands those issues back first.
 
+**Broken branch refs:** a crash mid-write can leave a loose `issue/N`, `hx/prd-N` or `hx/audit-N` ref
+that is not a sha (NUL bytes). At startup `hx run` deletes it and recreates the branch at
+`origin/<branch>` (as last fetched); with no remote branch it removes the branch's worktree and warns
+that unpushed work may be lost (`git fsck --lost-found`). Packed refs and `hx/gate` are never touched.
+
 **Usage limits:** Hx reads Claude's usage-window events. Once a window is `usagePauseAt` full (90% by
 default), it claims nothing new until the window resets; running sessions carry on. If a session hits
 the limit anyway, its issue is handed back and picked up again after the reset.

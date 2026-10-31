@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readdirSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, unlinkSync } from 'node:fs';
 import path from 'node:path';
 import { run, runOk } from './exec.ts';
 
@@ -102,5 +102,59 @@ export function cleanStaleWorktrees(checkout: string, root: string, owned: Itera
       try { rmSync(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 200 }); removed.push(dir); } catch (err) { warnStuck(dir, err); }
     }
     return removed;
+  });
+}
+
+/** hx's branches whose loose ref is checked at startup, with the worktree name each one uses. */
+export function hxBranch(branch: string): string | null {
+  let m = /^issue\/(\d+)$/.exec(branch);
+  if (m) return `i${m[1]}`;
+  m = /^hx\/(prd|audit)-(\d+)$/.exec(branch);
+  return m ? `${m[1] === 'prd' ? 'p' : 'a'}${m[2]}` : null;
+}
+
+export interface RefRepair { branch: string; repaired: boolean }
+
+/**
+ * On start: a loose ref of an hx branch (issue/N, hx/prd-N, hx/audit-N) that is not a sha (a crash
+ * mid-write leaves NUL bytes) breaks every git command on it. Delete it; recreate it at origin/<branch>
+ * as last fetched, else remove its worktree (nothing left to resume). Packed refs and hx/gate are never
+ * touched. Never throws: each failure is logged.
+ */
+export function repairBrokenRefs(checkout: string, root: string, log: (msg: string) => void = console.log): Promise<RefRepair[]> {
+  return serial(async () => {
+    const out: RefRepair[] = [];
+    let heads: string;
+    try {
+      const common = await runOk(GIT, ['-C', checkout, 'rev-parse', '--git-common-dir']);
+      heads = path.join(path.resolve(checkout, common.trim()), 'refs', 'heads');
+    } catch (e: any) { log(`could not check branch refs: ${e?.message ?? e}`); return out; }
+    const loose: string[] = [];
+    for (const dir of ['issue', 'hx']) {
+      try {
+        for (const e of readdirSync(path.join(heads, dir), { withFileTypes: true }))
+          if (e.isFile() && hxBranch(`${dir}/${e.name}`)) loose.push(`${dir}/${e.name}`);
+      } catch {} // no such directory: nothing to check
+    }
+    for (const branch of loose) {
+      try {
+        const file = path.join(heads, ...branch.split('/'));
+        if (/^[0-9a-f]{40}\n?$/.test(readFileSync(file, 'latin1'))) continue;
+        unlinkSync(file);
+        const remote = await run(GIT, ['-C', checkout, 'rev-parse', '-q', '--verify', `refs/remotes/origin/${branch}^{commit}`]);
+        const sha = remote.code === 0 ? remote.stdout.trim() : '';
+        if (sha) {
+          await runOk(GIT, ['-C', checkout, 'update-ref', `refs/heads/${branch}`, sha]);
+          log(`repaired broken ref ${branch} from origin/${branch}`);
+        } else {
+          log(`removed broken ref ${branch} — its unpushed work may be lost (see git fsck --lost-found)`);
+          const dir = path.join(root, hxBranch(branch)!);
+          if (existsSync(dir)) await removeWorktreeNow(checkout, dir);
+        }
+        out.push({ branch, repaired: !!sha });
+        await run(GIT, ['-C', checkout, 'worktree', 'prune']);
+      } catch (e: any) { log(`could not repair broken ref ${branch}: ${e?.message ?? e}`); }
+    }
+    return out;
   });
 }
