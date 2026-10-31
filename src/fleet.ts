@@ -1,9 +1,10 @@
 // The fleet: the repos one `hx fleet run` works, listed in <hx home>/.hx/fleet.json.
+import { spawn, type ChildProcess } from 'node:child_process';
 import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync, writeSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { STATE_DIR } from './config.ts';
-import { pidAlive } from './runstate.ts';
+import { loadProject, STATE_DIR } from './config.ts';
+import { otherRunner, pidAlive } from './runstate.ts';
 
 export interface FleetRepo { root: string }
 export interface Fleet { repos: FleetRepo[]; workers?: number }
@@ -166,4 +167,64 @@ export function slotsInUse(dir: string): number {
     } catch {}
   }
   return n;
+}
+
+// hx fleet run: one `hx run` child per repo, sharing the cap through fleetDir() slots. Ctrl+C reaches the children
+// only over IPC: a child is detached (its own console), and child.kill('SIGINT') would kill it outright on Windows.
+export interface FleetRunOptions {
+  workers?: number;                 // --workers N; else fleet.json workers, else 2
+  watch?: boolean;
+  entry?: string;                   // the cli script the children run (default: the one this process runs)
+  env?: Record<string, string>;     // added to the children's environment
+  print?: (line: string) => void;
+}
+export interface FleetRun { interrupt(): void; done: Promise<number> }
+
+/** Print every line of a stream as `<prefix><line>`; a trailing partial line is printed when the stream ends. */
+function pipeLines(stream: NodeJS.ReadableStream, prefix: string, print: (l: string) => void): Promise<void> {
+  let buf = '';
+  stream.setEncoding('utf8');
+  stream.on('data', (s: string) => {
+    buf += s;
+    const lines = buf.split('\n');
+    buf = lines.pop()!;
+    for (const l of lines) print(prefix + l.replace(/\r$/, ''));
+  });
+  return new Promise((resolve) => stream.on('close', () => { if (buf) print(prefix + buf.replace(/\r$/, '')); buf = ''; resolve(); }));
+}
+
+export function startFleetRun(o: FleetRunOptions = {}): FleetRun {
+  const print = o.print ?? ((l: string) => console.log(l));
+  const fleet = readFleet();
+  const cap = o.workers ?? fleetWorkers(fleet);
+  const entry = o.entry ?? process.argv[1];
+  const kids: ChildProcess[] = [];
+  const exits: Promise<number>[] = [];
+  for (const r of fleet.repos) {
+    if (!existsSync(r.root)) { print(`[${r.root}] skipped: missing`); continue; }
+    let p: ReturnType<typeof loadProject>;
+    try { p = loadProject(r.root); } catch { print(`[${r.root}] skipped: no .hx/config.json`); continue; }
+    const name = p.config.repo || r.root;
+    const other = otherRunner(p.stateDir);
+    if (other) { print(`[${name}] skipped: hx is already running (pid ${other.pid})`); continue; }
+    const child = spawn(process.execPath, [entry, 'run', '--workers', String(cap), ...(o.watch ? ['--watch'] : [])], {
+      cwd: p.root, detached: true, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
+      env: { ...process.env, ...o.env, HX_FLEET_DIR: fleetDir(), HX_FLEET_WORKERS: String(cap) },
+    });
+    kids.push(child);
+    const streams = Promise.all([pipeLines(child.stdout!, `[${name}] `, print), pipeLines(child.stderr!, `[${name}] `, print)]);
+    const exited = new Promise<number>((resolve) => {
+      child.on('error', (e) => { print(`[${name}] could not start: ${e.message}`); resolve(1); });
+      child.on('exit', (code, signal) => resolve(code ?? (signal ? 1 : 0)));
+    });
+    exits.push(Promise.all([exited, streams]).then(([c]) => c));
+  }
+  let presses = 0;
+  return {
+    interrupt() {
+      print(++presses === 1 ? 'Ctrl+C — asking every repo to checkpoint' : 'Ctrl+C again — force quit sent to every repo');
+      for (const k of kids) if (k.exitCode === null && k.signalCode === null && k.connected) k.send({ type: 'interrupt' }, () => {});
+    },
+    done: Promise.all(exits).then((codes) => Math.max(0, ...codes)),
+  };
 }
