@@ -12,7 +12,7 @@ roadmap and the agreed order of the next features) before changing anything.
   `runstate.ts` live.json / pause · `github.ts` gh wrapper · `worktree.ts` · `config.ts` · `cli.ts`
   · `dashboard.ts` `hx dashboard` server (localhost, GET only) · `dashboard.html` its page (text only, no `innerHTML`) ·
   `outcomes.ts` run.log → outcome numbers
-- `prompts/` — one per role (`impl`, `decompose`, `review`, `continue`, `checkpoint`, `grill`, `audit`, `critic`, `revise`, `security`, `triage`), `{{VAR}}` placeholders; `skills` holds the note appended after a skill (`prompts/skills/<name>.md`, inserted verbatim, never rendered)
+- `prompts/` — one per role (`impl`, `decompose`, `review`, `continue`, `checkpoint`, `grill`, `issue`, `audit`, `critic`, `revise`, `security`, `triage`), `{{VAR}}` placeholders; `skills` holds the note appended after a skill (`prompts/skills/<name>.md`, inserted verbatim, never rendered)
 - `scripts/issue.mjs` — prints an issue with comments from untrusted accounts removed (`HX_TRUSTED`); the only way agents read issues
 - `scripts/ship.mjs` — the one-call commit → rebase → test → push → PR → merge → close routine workers use
 - `test/` — `npm test`. End-to-end tests use real git (local bare origin) with fake `gh` and `claude`
@@ -27,7 +27,7 @@ roadmap and the agreed order of the next features) before changing anything.
   and figures are regenerated from the new results — never edited by hand.
 - Defaults: model `claude-opus-5-5` (full id; the `opus` alias resolved to an older Opus), effort `medium`.
 - Windows: keep paths short (worktrees), spawn without a shell, pass prompts and bodies via stdin.
-- Role prompts (all but `grill`) tell workers to run every command in the foreground and wait for it: never start a command
+- Role prompts (all but `grill` and `issue`) tell workers to run every command in the foreground and wait for it: never start a command
   in the background, never poll for its output in a loop. A turn with no stdout for `stallMinutes` is killed.
 - Workers run with bypassPermissions. Anything that lets text from GitHub reach a prompt is a security
   question first. Agents read issues only through `scripts/issue.mjs` (never `gh issue view --comments`);

@@ -2,7 +2,7 @@
 //   .hx/live.json — the runner's pid and its sessions; a live.json whose pid is dead marks a crashed
 //                   run, and its sessions are claims to hand back
 //   .hx/pause     — "drain" (finish running sessions, claim nothing) or "now" (checkpoint and stop)
-//   .hx/wake      — the ISO time a filing command (hx prd, hx bug, hx grill) last filed an issue
+//   .hx/wake      — the ISO time a filing command (hx prd, hx bug, hx grill, hx issue) last filed an issue
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import type { RateLimit } from './agent.ts';
@@ -80,8 +80,8 @@ export function writeWake(stateDir: string): void {
 }
 
 /** The closing line of a filing command: what happens to the new issue next, and whether a runner will do it. */
-export function nextLine(stateDir: string, lane: 'decompose' | 'triage'): string {
-  const head = lane === 'triage' ? 'It will be triaged. ' : 'It will be decomposed into issues. ';
+export function nextLine(stateDir: string, lane: 'decompose' | 'triage' | 'issue'): string {
+  const head = lane === 'triage' ? 'It will be triaged. ' : lane === 'decompose' ? 'It will be decomposed into issues. ' : '';
   const live = readLive(stateDir);
   const up = live && typeof live.pid === 'number' && pidAlive(live.pid) ? live : null;
   const paused = readPause(stateDir) !== null || !!up?.draining;

@@ -4,7 +4,7 @@ import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { DEFAULTS, workerArgs } from '../src/config.ts';
-import { grillArgs, grillPaths, grillPrompt, ideaFrom, INLINE_PROMPT_MAX } from '../src/grill.ts';
+import { grillArgs, grillPaths, grillPrompt, ideaFrom, INLINE_PROMPT_MAX, issuePaths, sessionPrompt } from '../src/grill.ts';
 
 const tmp = () => mkdtempSync(path.join(tmpdir(), 'hx-grill-'));
 
@@ -76,4 +76,37 @@ test('prompts/grill.md: interview rules, things to settle, output placeholder, f
   assert.match(t, /\/exit/);
   assert.match(t, /if the idea above is empty/i);
   assert.match(t, /challenge vague answers/i);
+});
+
+test('issuePaths: local-time stamp under <stateDir>/issues', () => {
+  const p = issuePaths(path.join('r', '.hx'), new Date(2026, 0, 5, 7, 3, 9));
+  assert.equal(p.out, path.join('r', '.hx', 'issues', '20260105-070309-issue.md'));
+  assert.equal(p.promptFile, path.join('r', '.hx', 'issues', '20260105-070309-issue.prompt.md'));
+});
+
+test('sessionPrompt issue: issue.md rendered with repo, base, idea, output and the issue script; long → prompt file', () => {
+  const dir = tmp();
+  const promptFile = path.join(dir, 'issues', 'x.prompt.md');
+  const out = sessionPrompt('issue', { repo: 'me/app', base: 'dev', idea: 'fix it', output: 'C:/o/issue.md' }, promptFile);
+  assert.match(out, /^Role: issue/);
+  for (const s of ['me/app', '`dev`', 'fix it', 'C:/o/issue.md', 'scripts/issue.mjs']) assert.ok(out.includes(s), s);
+  assert.ok(!/\{\{\w+\}\}/.test(out), 'no placeholder left');
+  assert.ok(!existsSync(promptFile));
+  const long = sessionPrompt('issue', { repo: 'me/app', base: 'dev', idea: 'x. '.repeat(3000), output: 'o.md' }, promptFile);
+  assert.match(long, /^Role: issue\nRead .+ first/);
+  assert.match(readFileSync(promptFile, 'utf8'), /^Role: issue/);
+});
+
+test('prompts/issue.md: placeholders, shape, one question at a time, issue script only, files nothing itself', () => {
+  const t = readFileSync(new URL('../prompts/issue.md', import.meta.url), 'utf8');
+  assert.match(t, /^Role: issue/);
+  for (const v of ['{{REPO}}', '{{BASE}}', '{{IDEA}}', '{{OUTPUT}}', '{{ISSUE_SCRIPT}}']) assert.ok(t.includes(v), v);
+  assert.ok(!t.includes('gh issue view') && !t.includes('--comments'), 'reads issues only through the script');
+  assert.match(t, /never file, comment, commit or push/i);
+  assert.match(t, /one question at a time/i);
+  assert.match(t, /recommended\s+answer/i);
+  assert.match(t, /acceptance criteria a test can check/i);
+  assert.match(t, /bigger than one issue[\s\S]*hx grill/);
+  assert.match(t, /never edit any file other\s+than `\{\{OUTPUT\}\}`/);
+  for (const s of ['# <title>', '## What to do', '## Acceptance criteria', '## Edge cases', '## Blocked by']) assert.ok(t.includes(s), s);
 });

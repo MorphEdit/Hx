@@ -79,3 +79,8 @@ test('writeWake writes <stateDir>/wake with the current ISO time; a second write
   writeWake(d);
   assert.match(readFileSync(path.join(d, 'wake'), 'utf8').trim(), ISO);
 });
+
+test('nextLine: the issue lane has no head', () => {
+  assert.equal(nextLine(dir({}), 'issue'), PICK);
+  assert.equal(nextLine(dir(), 'issue'), NONE);
+});

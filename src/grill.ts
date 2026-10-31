@@ -3,6 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Config } from './config.ts';
 import { render } from './state.ts';
+import { ISSUE_SCRIPT } from './pool.ts';
 
 const PROMPTS = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'prompts');
 
@@ -19,29 +20,46 @@ export function grillArgs(config: Pick<Config, 'model' | 'effort'>, prompt: stri
 
 const pad = (n: number) => String(n).padStart(2, '0');
 
-/** <stateDir>/prds/<yyyymmdd-hhmmss>-grill.md and its .prompt.md, stamped in local time. */
-export function grillPaths(stateDir: string, now: Date = new Date()): { prd: string; promptFile: string } {
+/** <stateDir>/<dir>/<yyyymmdd-hhmmss>-<suffix>.md and its .prompt.md, stamped in local time. */
+export function sessionPaths(stateDir: string, dir: string, suffix: string, now: Date = new Date()): { out: string; promptFile: string } {
   const stamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-`
     + `${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
-  const dir = path.join(stateDir, 'prds');
-  return { prd: path.join(dir, `${stamp}-grill.md`), promptFile: path.join(dir, `${stamp}-grill.prompt.md`) };
+  const d = path.join(stateDir, dir);
+  return { out: path.join(d, `${stamp}-${suffix}.md`), promptFile: path.join(d, `${stamp}-${suffix}.prompt.md`) };
+}
+
+/** <stateDir>/prds/<yyyymmdd-hhmmss>-grill.md and its .prompt.md, stamped in local time. */
+export function grillPaths(stateDir: string, now: Date = new Date()): { prd: string; promptFile: string } {
+  const p = sessionPaths(stateDir, 'prds', 'grill', now);
+  return { prd: p.out, promptFile: p.promptFile };
+}
+
+/** <stateDir>/issues/<yyyymmdd-hhmmss>-issue.md and its .prompt.md, stamped in local time. */
+export function issuePaths(stateDir: string, now: Date = new Date()): { out: string; promptFile: string } {
+  return sessionPaths(stateDir, 'issues', 'issue', now);
 }
 
 export interface GrillVars {
   repo: string;
   base: string;
   idea: string;
-  output: string; // where Claude writes the PRD
+  output: string; // where Claude writes the PRD (or the issue)
 }
 
-/** The prompt to pass: the rendered grill.md inline, or — when too long — a pointer to it written to promptFile. */
-export function grillPrompt(vars: GrillVars, promptFile: string): string {
-  const text = render(readFileSync(path.join(PROMPTS, 'grill.md'), 'utf8'),
-    { REPO: vars.repo, BASE: vars.base, IDEA: vars.idea, OUTPUT: vars.output });
+/** An interactive session's prompt (`grill` or `issue`): the rendered prompts/<name>.md inline, or — when too long — a pointer to it written to promptFile. */
+export function sessionPrompt(name: 'grill' | 'issue', vars: GrillVars, promptFile: string): string {
+  const text = render(readFileSync(path.join(PROMPTS, `${name}.md`), 'utf8'),
+    { REPO: vars.repo, BASE: vars.base, IDEA: vars.idea, OUTPUT: vars.output, ISSUE_SCRIPT });
   if (text.length <= INLINE_PROMPT_MAX) return text;
   mkdirSync(path.dirname(promptFile), { recursive: true });
   writeFileSync(promptFile, text);
-  return `Role: grill\nRead ${promptFile} first and follow it: it holds your full instructions and the idea.`;
+  return `Role: ${name}
+Read ${promptFile} first and follow it: it holds your full instructions and the idea.`;
+}
+
+/** The grill session's prompt: see sessionPrompt. */
+export function grillPrompt(vars: GrillVars, promptFile: string): string {
+  return sessionPrompt('grill', vars, promptFile);
 }
 
 /** `hx grill [idea]`: a path to an existing file → its content; other text → the text; none → ''. */

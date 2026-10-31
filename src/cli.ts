@@ -11,7 +11,7 @@ import { clearPause, nextLine, otherRunner, pidAlive, readLive, readPause, setPa
 import { readGate } from './gate.ts';
 import { DEFAULT_PORT, serveDashboard } from './dashboard.ts';
 import { fileBug, filePrd } from './prd.ts';
-import { grillArgs, grillPaths, grillPrompt, ideaFrom } from './grill.ts';
+import { grillArgs, ideaFrom, sessionPaths, sessionPrompt } from './grill.ts';
 import { formatSkills } from './skills.ts';
 import { fmt, localDay, readUsage, summarize, totalTokens, type UsageRow } from './usage.ts';
 
@@ -25,6 +25,11 @@ const HELP = `usage: hx <command> [options]
   grill [<idea.md> | "idea"] [--yes]
                            an interactive claude session interviews you into a PRD; on confirm
                            (or --yes) it is filed like hx prd
+  issue [<idea.md> | "idea"] [--bug] [--yes] [--title T]
+                           a shorter interactive session grills one small task into one issue; on
+                           confirm (or --yes) it is filed ready-for-agent (--bug: label bug only)
+  issue --file <file.md> [--bug] [--title T]
+                           file an existing issue file the same way, without a session
   run [options]            work the board until nothing is left, then exit
       --watch              keep running and pick up new / unblocked work
       --workers N          parallel sessions (default: config.workers)
@@ -68,6 +73,7 @@ export async function main(argv: string[]): Promise<number> {
     case 'prd': return prd(args);
     case 'bug': return bug(args);
     case 'grill': return grill(args);
+    case 'issue': return issue(args);
     case 'run': return runCmd(args);
     case 'status': return status();
     case 'pause': return pause(args);
@@ -168,35 +174,75 @@ async function bug(args: string[]): Promise<number> {
   return 0;
 }
 
-async function grill(args: string[]): Promise<number> {
+/** What `hx grill` and `hx issue` differ in. */
+interface Interview {
+  role: 'grill' | 'issue';
+  dir: string;      // under the state dir
+  noun: string;     // 'PRD' / 'issue'
+  later: string;    // how to file it later
+  file: (c: Config, out: string) => Promise<string>;
+  lane: 'decompose' | 'triage' | 'issue';
+}
+
+/**
+ * Run an interactive session that writes one markdown file, show it, ask, and file it.
+ * Shared by `hx grill` and `hx issue`.
+ */
+async function interview(args: string[], iv: Interview): Promise<number> {
   const p = loadProject();
   const c = p.config;
   // the session reads issues with scripts/issue.mjs, which needs the trusted set
   let trusted: Set<string>;
   try { trusted = await lookupTrusted(c); } catch (e: any) { console.error(`hx: ${e.message}`); return 2; }
-  // a fresh name: a PRD left from an earlier session in the same second must not be taken for this one's
-  let t = Date.now(), paths = grillPaths(p.stateDir, new Date(t));
-  while (existsSync(paths.prd) || existsSync(paths.promptFile)) paths = grillPaths(p.stateDir, new Date(t += 1000));
-  mkdirSync(path.dirname(paths.prd), { recursive: true });
-  const prompt = grillPrompt({ repo: c.repo, base: c.defaultBranch, idea: ideaFrom(args.find((a) => !a.startsWith('--'))), output: paths.prd },
-    paths.promptFile);
+  // a fresh name: a file left from an earlier session in the same second must not be taken for this one's
+  let t = Date.now(), paths = sessionPaths(p.stateDir, iv.dir, iv.role, new Date(t));
+  while (existsSync(paths.out) || existsSync(paths.promptFile)) paths = sessionPaths(p.stateDir, iv.dir, iv.role, new Date(t += 1000));
+  mkdirSync(path.dirname(paths.out), { recursive: true });
+  const idea = ideaFrom(args.find((a, i) => !a.startsWith('--') && args[i - 1] !== '--title'));
+  const prompt = sessionPrompt(iv.role, { repo: c.repo, base: c.defaultBranch, idea, output: paths.out }, paths.promptFile);
   // the user talks to this session directly: inherited stdio, no shell
   await new Promise<void>((resolve, reject) => {
     const child = spawn(...resolveCmd(c.claudeBin, grillArgs(c, prompt)), { cwd: p.root, stdio: 'inherit',
       env: { ...process.env, ...trustedEnv(trusted) } });
     child.on('error', reject).on('exit', () => resolve());
   });
-  const text = existsSync(paths.prd) ? readFileSync(paths.prd, 'utf8') : '';
-  if (!text.trim()) { console.log('no PRD written — nothing filed'); return 1; }
-  console.log(`\n${text.trimEnd()}\n`);
-  if (!args.includes('--yes') && !/^y(es)?$/i.test((await ask(`File this PRD on ${c.repo}? [y/N] `)).trim())) {
-    console.log(`not filed. The PRD is in ${paths.prd} — edit it if you like and file it later with  hx prd <file>`);
+  const text = existsSync(paths.out) ? readFileSync(paths.out, 'utf8') : '';
+  if (!text.trim()) { console.log(`no ${iv.noun} written — nothing filed`); return 1; }
+  console.log(`
+${text.trimEnd()}
+`);
+  if (!args.includes('--yes') && !/^y(es)?$/i.test((await ask(`File this ${iv.noun} on ${c.repo}? [y/N] `)).trim())) {
+    console.log(`not filed. The ${iv.noun} is in ${paths.out} — edit it if you like and file it later with  ${iv.later}`);
     return 0;
   }
-  const url = await filePrd(c, paths.prd);
+  const url = await iv.file(c, paths.out);
   writeWake(p.stateDir);
-  console.log(`filed ${url}\n${nextLine(p.stateDir, 'decompose')}`);
+  console.log(`filed ${url}
+${nextLine(p.stateDir, iv.lane)}`);
   return 0;
+}
+
+function grill(args: string[]): Promise<number> {
+  return interview(args, { role: 'grill', dir: 'prds', noun: 'PRD', later: 'hx prd <file>', lane: 'decompose',
+    file: (c, out) => filePrd(c, out) });
+}
+
+/** `hx issue`: grill one small task into one issue (or `--file` an existing one) and file it ready-for-agent, or with --bug as a bug. */
+async function issue(args: string[]): Promise<number> {
+  const bugLane = args.includes('--bug');
+  const title = flag(args, '--title');
+  const file = (c: Config, f: string) => filePrd(c, f, title, [bugLane ? c.labels.bug : c.labels.ready]);
+  const lane = bugLane ? 'triage' : 'issue';
+  const existing = flag(args, '--file');
+  if (existing !== undefined) {
+    const p = loadProject();
+    const url = await file(p.config, existing);
+    writeWake(p.stateDir);
+    console.log(`filed ${url}
+${nextLine(p.stateDir, lane)}`);
+    return 0;
+  }
+  return interview(args, { role: 'issue', dir: 'issues', noun: 'issue', later: `hx issue --file <file>${bugLane ? ' --bug' : ''}`, lane, file });
 }
 
 /** One line from stdin ('' when stdin closes first). */
