@@ -10,8 +10,9 @@
 //   revise:    appends its marker to the body with `gh issue edit --body-file` (REVISENOOP in the body: changes nothing)
 //   grill:     interactive (prompt as the last argument, not stdin): writes a PRD to the output path the prompt
 //              names (FAKE_GRILL_NOWRITE=1: writes nothing, =blank: whitespace only) and exits
-// FAKE_CLAUDE_MODE=limit / crash for the error paths.
-import { spawnSync } from 'node:child_process';
+// FAKE_CLAUDE_MODE=limit / crash for the error paths; =stall prints one event, starts a sleeping child, writes both pids
+// to HX_FAKE_DIR/stall-<pid>.json and sleeps FAKE_CLAUDE_SLEEP_MS (default 10 min), then replies.
+import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { loadJson, locked, saveJson } from './lock.mjs';
@@ -46,6 +47,13 @@ if (/^Role: grill/m.test(grillPrompt)) {
 
 let prompt = '';
 process.stdin.on('data', (d) => (prompt += d)).on('end', () => {
+  if (mode === 'stall') {
+    out({ type: 'system', subtype: 'init' });
+    const kid = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 600000)'], { stdio: 'ignore' });
+    writeFileSync(path.join(process.env.HX_FAKE_DIR, `stall-${process.pid}.json`), JSON.stringify({ pid: process.pid, child: kid.pid }));
+    setTimeout(() => { kid.kill(); reply('woke up'); }, Number(process.env.FAKE_CLAUDE_SLEEP_MS ?? 600000));
+    return;
+  }
   if (mode === 'crash') { process.stderr.write('boom'); process.exit(3); }
   if (mode === 'fatal') {
     out({ type: 'result', subtype: 'success', is_error: true, api_error_status: 400, num_turns: 1, usage, total_cost_usd: 0,

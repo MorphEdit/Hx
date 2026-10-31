@@ -326,6 +326,7 @@ The full suite stays the final word: `ship.mjs` runs it before every PR, and the
 | `usagePauseAt` | 0.9 | claim nothing new once a usage window is this full (0..1) |
 | `checkpointMinutes` | 10 | time a stopped session gets to commit, push and write its handoff |
 | `turnTimeoutMinutes` | 45 | wall-clock limit for one turn |
+| `stallMinutes` | 15 | a turn with no stdout for this long is killed (0 = off) |
 | `pollSeconds` | 60 | how often the board is re-read |
 | `worktreeRoot` | `<drive>:\hx-wt\<repo>` | keep it short: Windows path-length limits |
 | `claudeArgs` | `[]` | extra flags for every `claude` call |

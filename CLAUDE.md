@@ -27,6 +27,8 @@ roadmap and the agreed order of the next features) before changing anything.
   and figures are regenerated from the new results — never edited by hand.
 - Defaults: model `claude-opus-5-5` (full id; the `opus` alias resolved to an older Opus), effort `medium`.
 - Windows: keep paths short (worktrees), spawn without a shell, pass prompts and bodies via stdin.
+- Role prompts (all but `grill`) tell workers to run every command in the foreground and wait for it: never start a command
+  in the background, never poll for its output in a loop. A turn with no stdout for `stallMinutes` is killed.
 - Workers run with bypassPermissions. Anything that lets text from GitHub reach a prompt is a security
   question first. Agents read issues only through `scripts/issue.mjs` (never `gh issue view --comments`);
   only issues opened by trusted accounts (the `gh` login + `trustedAuthors`) are claimed.
