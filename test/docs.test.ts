@@ -49,11 +49,13 @@ test('design.md marks roadmap #3 (gauntlet) done', () => {
   assert.match(read('docs/design.md'), /\| 3 \| ~~\*\*Gauntlet[^|]*~~ done \|/);
 });
 
-test('CLAUDE.md lists every prompt and names #7 (inject) next', () => {
+test('CLAUDE.md lists every prompt, marks #7 (inject) done and names #10 next', () => {
   const c = read('CLAUDE.md');
   const line = c.split('\n').find((l) => l.startsWith('- `prompts/`'))!;
   for (const f of readdirSync(path.join(root, 'prompts'))) assert.ok(line.includes(`\`${f.replace(/\.md$/, '')}\``), f);
-  assert.match(c.slice(c.indexOf('## Next up')), /Next is #7 \(inject\)/);
+  const next = c.slice(c.indexOf('## Next up'));
+  assert.match(next, /inject \(#7[^.]*are done/);
+  assert.match(next, /Next is #10 \(multi-repo/);
 });
 
 test('bug lane: README section, config rows and labels, design #6 done, CLAUDE.md triage prompt and next up', () => {
@@ -74,7 +76,7 @@ test('bug lane: README section, config rows and labels, design #6 done, CLAUDE.m
   assert.ok(c.split('\n').find((l) => l.startsWith('- `prompts/`'))!.includes('`triage`'), 'triage among the prompts');
   const next = c.slice(c.indexOf('## Next up'));
   assert.match(next, /the bug lane \(#6[^.]*are done/);
-  assert.match(next, /Next is #7 \(inject\)/);
+  assert.match(next, /Next is #10 \(multi-repo/);
 });
 
 test('hx help: the PRD-flow paragraph mentions the gauntlet and the security pass', () => {
@@ -125,4 +127,26 @@ test('skills: README section and config rows, design #5 done, .rtdd/ setup commi
   for (const f of ['.rtdd/config.yaml', '.rtdd/.gitignore']) assert.ok(files.includes(f), `${f} tracked`);
   assert.ok(!files.includes('.rtdd/graph.json'), 'graph.json not tracked');
   assert.match(read('.rtdd/.gitignore'), /^graph\.json$/m);
+});
+
+test('inject: README hx issue + running-fleet section with the wake and the closing lines, design #7 done, CLAUDE.md, help', () => {
+  const r = read('README.md');
+  for (const w of ['hx issue', '--bug', '--yes', '--title', '--file']) assert.ok(r.includes(w), w);
+  const start = r.indexOf('## Adding work to a running fleet');
+  assert.ok(start >= 0, 'README has an Adding work to a running fleet section');
+  const sec = r.slice(start, r.indexOf('\n## ', start + 1));
+  for (const w of ['hx issue', 'hx grill', 'hx prd', 'hx bug', '.hx/wake', 'hx run --watch', 'seconds', 'this checkout',
+    'CI gate', 'pause', 'usage', 'trusted',
+    'hx run (pid N) will pick it up now.', 'hx run (pid N) is pausing — run  hx resume  to continue.',
+    'no hx run is running — start it with  hx run --watch',
+    'no hx run is running and hx is paused — run  hx resume, then  hx run --watch',
+    'It will be triaged.', 'It will be decomposed into issues.']) assert.ok(sec.includes(w), w);
+  const d = read('docs/design.md');
+  assert.match(d, /\| 7 \| ~~\*\*Inject into a running fleet\*\*~~ done \|/);
+  assert.ok(!d.includes('mostly done'), 'design.md no longer calls #7 mostly done');
+  const c = read('CLAUDE.md');
+  assert.ok(c.split('\n').find((l) => l.startsWith('- `prompts/`'))!.includes('`issue`'), 'issue among the prompts');
+  const h = spawnSync(process.execPath, [path.join(root, 'bin', 'hx.mjs'), 'help'], { encoding: 'utf8' });
+  assert.equal(h.status, 0);
+  for (const w of ['hx issue', 'issue [']) assert.ok(h.stdout.includes(w), w);
 });

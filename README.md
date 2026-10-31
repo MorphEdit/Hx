@@ -139,6 +139,31 @@ hx usage --by role      # recorded token usage (by issue | role | model | day)
 hx dashboard [--open]   # a read-only page on http://127.0.0.1:4777/ (localhost only; --port N)
 ```
 
+## Adding work to a running fleet
+
+Leave `hx run --watch` running and file work from another terminal in the same checkout:
+
+| You have | Use |
+|---|---|
+| one small task | `hx issue "fix typo"` — a short session grills it into one issue, filed `ready-for-agent` (`--bug`: a bug, triaged first) |
+| a feature | `hx grill "dark mode"` (interviews you into a PRD) or `hx prd feature.md` (a PRD you wrote) |
+| a bug | `hx bug "status hangs"` |
+
+Every filing command touches `.hx/wake`, and a running `hx run --watch` re-reads the board within
+seconds instead of after `pollSeconds`. The file is local to this checkout: it wakes only the runner of
+this repo on this machine. It bypasses nothing — the CI gate, a pause, usage-limit holds and the
+trusted-author filter all still apply to the new issue.
+
+Each filing command ends with one line saying what happens next (after `It will be triaged.` for a bug,
+`It will be decomposed into issues.` for a PRD):
+
+| Runner | Closing line |
+|---|---|
+| running | `hx run (pid N) will pick it up now.` |
+| running, paused or pausing | `hx run (pid N) is pausing — run  hx resume  to continue.` |
+| not running | `no hx run is running — start it with  hx run --watch` |
+| not running, paused | `no hx run is running and hx is paused — run  hx resume, then  hx run --watch` |
+
 ## Dashboard
 
 ```bash
