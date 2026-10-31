@@ -51,7 +51,7 @@ claude -p --output-format stream-json --verbose --resume <uuid> ...       (each 
 | tmux session per worker | `child_process.spawn`, one Node process |
 | `flock` + claim files | in-memory claims in one process, plus the `agent-working` label |
 | pane-scraping watchdog | per-turn timeout + the JSON result |
-| 7 CLI adapters | Claude Code only |
+| 7 CLI adapters | Claude Code only, behind the `AgentCli` seam (`src/agents/`) |
 | bash + python | TypeScript run directly by Node ≥ 23.6 |
 
 Kept as-is: GitHub as the only state, the `## Blocked by` grammar, a worktree per issue,
@@ -83,7 +83,7 @@ Agreed order (2026-10-30), highest quality gain first. Build them in this order.
 | 7 | ~~**Inject into a running fleet**~~ done | `hx prd/issue` while `hx run --watch` runs (grill → file) | PRD #97: `hx issue` grills one small task into one issue; `hx prd`/`bug`/`grill`/`issue` touch `.hx/wake`, which wakes `hx run --watch` within seconds (bypassing nothing), and end with one line on whether a runner will pick the work up |
 | 8 | ~~**Web dashboard / stats**~~ done | read-only local page over `live.json`, `usage.jsonl`, the board; stats per PRD/role/model | `hx dashboard` (#37): 127.0.0.1 only, Host check, GET only, escaped text; outcomes from `.hx/run.log` |
 | 9 | ~~**Author filter**~~ done | only issues (and PRDs) opened by trusted authors (the `gh` login plus `trustedAuthors`) are claimed; agents read issues via `scripts/issue.mjs` without untrusted comments; hx's marker comments only count from trusted accounts | moved ahead of #5 (#26): with workers on bypassPermissions, text from any GitHub account reaching a prompt was a prompt-injection hole, which outranks any quality feature |
-| 10 | **Multi-repo / multi-CLI** | one fleet over several repos; other agent CLIs | only when there is a real need |
+| 10 | ~~**Multi-repo / multi-CLI**~~ done | one fleet over several repos; other agent CLIs | PRD #98: `hx fleet` runs one `hx run` per repo under a shared worker cap and usage hold; the `AgentCli` seam in `src/agents/` (claude only). See [Fleet and agent CLIs](#fleet-and-agent-clis-roadmap-10) |
 
 ### When Hx may build itself (self-hosting)
 
@@ -109,6 +109,34 @@ human reviewing merged PRs. Self-healing (a red gate filing its own bug for the 
 
 Every phase ships with tests; anything that can change quality or tokens is re-measured with
 `node bench/run.mjs hx3` (and `hx1`/`chat` when comparing).
+
+## Fleet and agent CLIs (roadmap #10)
+
+`hx run` stays one process per repo; `hx fleet run` (`src/fleet.ts`) is only a parent that starts one
+`hx run` child per repo listed in `~/.hx/fleet.json` and prefixes its output. Nothing moved into a
+shared in-memory pool: every repo keeps its own runner lock, `.hx/`, pause and checkpoint path, and a
+child keeps working if the parent dies. What the runners share goes through files in `~/.hx/fleet/`,
+named to the children by `HX_FLEET_DIR` (and the cap by `HX_FLEET_WORKERS`):
+
+- **Slots.** The cap is N files, `slots/<k>.json` for k in 0..N-1, each holding its owner's pid, repo
+  and issue. A session takes the first free index by creating the file with `wx` (exclusive create, so
+  two runners never get the same k) and deletes it when it ends; with no free slot the runner claims
+  nothing this tick. A slot whose pid is dead (or that has stayed unparsable for 10 s) is stale: a
+  runner takes it over only after it creates the marker `<k>.<id>.takeover` with `wx` and re-reads the
+  slot under it, so two runners can never both delete and recreate it. Old markers are dropped after 60 s.
+- **Shared hold.** `hold.json` holds `{ until, reason, repo }`. A runner that hits a usage limit, or
+  passes `usagePauseAt`, writes it (only when its `until` is later, via a temp file and rename); every
+  runner reads it each tick and copies it into its own hold (`live.pausedUntil`), never writing a copied
+  hold back.
+- **Ctrl+C over IPC.** The children are `detached` (their own console) so a console Ctrl+C does not hit
+  them all twice, and on Windows `child.kill('SIGINT')` kills a process outright. So the parent sends
+  `{ type: 'interrupt' }` over the IPC channel and the child runs the same handler as its own Ctrl+C:
+  first a checkpoint, then a force quit. The channel is unref'd, so it never keeps a child alive.
+
+The agent CLI is a seam, not a feature: `AgentCli` in `src/agents/` (the argv of one headless turn, a
+per-turn output parser, the interactive argv for `hx grill` / `hx issue`) is all `agent.ts`, `pool.ts`
+and `cli.ts` know about the CLI, and `agentCli` in the config names the adapter. `claude` is the only
+adapter; a second one is added when there is a real need for it, not before.
 
 ## Token optimisation (phase 4)
 

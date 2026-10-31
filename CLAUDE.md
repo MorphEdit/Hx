@@ -12,7 +12,8 @@ roadmap and the agreed order of the next features) before changing anything.
   `agents/` the agent-CLI seam (`AgentCli`, registry by `config.agentCli`; `claude.ts` argv + stream-json) ·
   `runstate.ts` live.json / pause · `github.ts` gh wrapper · `worktree.ts` · `config.ts` · `cli.ts`
   · `dashboard.ts` `hx dashboard` server (localhost, GET only) · `dashboard.html` its page (text only, no `innerHTML`) ·
-  `outcomes.ts` run.log → outcome numbers
+  `outcomes.ts` run.log → outcome numbers ·
+  `fleet.ts` `hx fleet`: ~/.hx/fleet.json, file slots (shared worker cap), hold.json (shared usage hold), the child runners
 - `prompts/` — one per role (`impl`, `decompose`, `review`, `continue`, `checkpoint`, `grill`, `issue`, `audit`, `critic`, `revise`, `security`, `triage`), `{{VAR}}` placeholders; `skills` holds the note appended after a skill (`prompts/skills/<name>.md`, inserted verbatim, never rendered)
 - `scripts/issue.mjs` — prints an issue with comments from untrusted accounts removed (`HX_TRUSTED`); the only way agents read issues
 - `scripts/ship.mjs` — the one-call commit → rebase → test → push → PR → merge → close routine workers use
@@ -37,8 +38,9 @@ roadmap and the agreed order of the next features) before changing anything.
 ## Next up
 The auditor (#1), the CI gate (#4), the grill session (#2, `hx grill`), the gauntlet (#3: a critic →
 reviser loop before decompose, a security pass before a PRD closes), rtdd (#5, #34: skills per role via
-`roleSkills`), the bug lane (#6, PRD #78: `hx bug`, triage sessions, bugs built first) and
-inject (#7, PRD #97: `hx issue`, filing wakes `hx run --watch`) are done.
-Next is #10 (multi-repo / multi-CLI, only when there is a real need): write PRDs for it with `hx grill` or
-`hx issue`, and run `hx run --watch` on this repo, reviewing the merged PRs. Re-run the benchmark and the audit eval
+`roleSkills`), the bug lane (#6, PRD #78: `hx bug`, triage sessions, bugs built first),
+inject (#7, PRD #97: `hx issue`, filing wakes `hx run --watch`) and multi-repo / multi-CLI (#10, PRD #98:
+`hx fleet` with a shared worker cap and usage hold, the `AgentCli` seam in `src/agents/`) are done.
+Every item on the roadmap is built. New work starts as a PRD (`hx grill` or `hx issue`); run
+`hx run --watch` on this repo and review the merged PRs. Re-run the benchmark and the audit eval
 (`node bench/audit-eval.mjs`) after changes to prompts, roles or the merge path.

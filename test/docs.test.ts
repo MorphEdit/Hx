@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DEFAULTS } from '../src/config.ts';
@@ -49,13 +49,12 @@ test('design.md marks roadmap #3 (gauntlet) done', () => {
   assert.match(read('docs/design.md'), /\| 3 \| ~~\*\*Gauntlet[^|]*~~ done \|/);
 });
 
-test('CLAUDE.md lists every prompt, marks #7 (inject) done and names #10 next', () => {
+test('CLAUDE.md lists every prompt and marks #7 (inject) done', () => {
   const c = read('CLAUDE.md');
   const line = c.split('\n').find((l) => l.startsWith('- `prompts/`'))!;
   for (const f of readdirSync(path.join(root, 'prompts'))) assert.ok(line.includes(`\`${f.replace(/\.md$/, '')}\``), f);
   const next = c.slice(c.indexOf('## Next up'));
   assert.match(next, /inject \(#7[^.]*are done/);
-  assert.match(next, /Next is #10 \(multi-repo/);
 });
 
 test('bug lane: README section, config rows and labels, design #6 done, CLAUDE.md triage prompt and next up', () => {
@@ -76,7 +75,6 @@ test('bug lane: README section, config rows and labels, design #6 done, CLAUDE.m
   assert.ok(c.split('\n').find((l) => l.startsWith('- `prompts/`'))!.includes('`triage`'), 'triage among the prompts');
   const next = c.slice(c.indexOf('## Next up'));
   assert.match(next, /the bug lane \(#6[^.]*are done/);
-  assert.match(next, /Next is #10 \(multi-repo/);
 });
 
 test('hx help: the PRD-flow paragraph mentions the gauntlet and the security pass', () => {
@@ -149,4 +147,35 @@ test('inject: README hx issue + running-fleet section with the wake and the clos
   const h = spawnSync(process.execPath, [path.join(root, 'bin', 'hx.mjs'), 'help'], { encoding: 'utf8' });
   assert.equal(h.status, 0);
   for (const w of ['hx issue', 'issue [']) assert.ok(h.stdout.includes(w), w);
+});
+
+test('fleet and agent CLIs: README sections and agentCli row, design #10 done, CLAUDE.md file map and next up', () => {
+  const r = read('README.md');
+  const at = r.indexOf('## Several repos');
+  assert.ok(at >= 0, 'README has a Several repos section');
+  const sec = r.slice(at, r.indexOf('\n## ', at + 1));
+  for (const w of ['hx fleet add', 'hx fleet remove', 'hx fleet list', 'hx fleet workers', 'hx fleet run', 'hx fleet status',
+    '--workers', '--watch', 'slot', 'hold.json', 'hx dashboard', '--port', 'Ctrl+C', '~/.hx/fleet.json']) assert.ok(sec.includes(w), w);
+  const a = r.indexOf('## Agent CLIs');
+  assert.ok(a >= 0, 'README has an Agent CLIs note');
+  const agents = r.slice(a, r.indexOf('\n## ', a + 1));
+  for (const w of ['AgentCli', 'src/agents/', 'claude', 'agentCli']) assert.ok(agents.includes(w), w);
+  assert.ok(hasRow(r, 'agentCli', `\`${JSON.stringify(DEFAULTS.agentCli)}\``), 'agentCli row');
+  // every hx fleet subcommand the README names is one the CLI knows
+  const h = spawnSync(process.execPath, [path.join(root, 'bin', 'hx.mjs'), 'help'], { encoding: 'utf8' });
+  for (const m of sec.matchAll(/hx fleet (\w+)/g)) assert.ok(h.stdout.includes(`fleet ${m[1]}`), `fleet ${m[1]}`);
+  const d = read('docs/design.md');
+  assert.match(d, /\| 10 \| ~~\*\*Multi-repo \/ multi-CLI\*\*~~ done \|/);
+  const f0 = d.indexOf('## Fleet');
+  assert.ok(f0 >= 0, 'design.md has a Fleet section');
+  const fs = d.slice(f0, d.indexOf('\n## ', f0 + 1));
+  for (const w of ['slots', '`wx`', 'takeover', 'hold.json', 'IPC', 'detached', 'AgentCli', 'src/agents/']) assert.ok(fs.includes(w), w);
+  const c = read('CLAUDE.md');
+  const map = c.slice(c.indexOf('## Where things are'), c.indexOf('## Conventions'));
+  for (const f of ['`fleet.ts`', '`agents/`']) assert.ok(map.includes(f), f);
+  const next = c.slice(c.indexOf('## Next up'));
+  assert.match(next, /multi-repo \/ multi-CLI \(#10[^.]*are done/);
+  assert.doesNotMatch(next, /Next is #10/);
+  // every src/ file and directory the docs name exists
+  for (const doc of [r, d, c]) for (const m of doc.matchAll(/`src\/([\w./-]+)`/g)) assert.ok(existsSync(path.join(root, 'src', m[1])), `src/${m[1]}`);
 });
