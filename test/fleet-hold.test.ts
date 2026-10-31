@@ -88,7 +88,8 @@ test('a rate-limit event in repo A writes hold.json; repo B copies the hold and 
   const timesB = path.join(tmp, 'times-b.jsonl');
   const env = { HX_FLEET_DIR: fleet, HX_HOME: path.join(tmp, 'home') };
   const a = repo('a', [1]), b = repo('b', [1]);
-  const ra = hxRun(a, { ...env, FAKE_CLAUDE_RATE: '0.95', FAKE_CLAUDE_RESET_S: '8' });
+  // a 30 s hold: B's start (labels, gate, worktree) took over 8 s on a loaded machine, past the hold's end (#126)
+  const ra = hxRun(a, { ...env, FAKE_CLAUDE_RATE: '0.95', FAKE_CLAUDE_RESET_S: '30' });
   while (!existsSync(holdFile(fleet))) { if (!ra.running()) assert.fail((await ra.done).out); await tick(); }
   await tick(); // the rename is atomic, but let A finish logging
   const hold = onDisk(fleet);
