@@ -12,6 +12,7 @@
 //   triage:    posts a verdict comment per the issue body (see finish())
 //   grill:     interactive (prompt as the last argument, not stdin): writes a PRD to the output path the prompt
 //              names (FAKE_GRILL_NOWRITE=1: writes nothing, =blank: whitespace only) and exits
+//   issue:     the same for `hx issue`: writes a small issue to its output path (same FAKE_GRILL_NOWRITE)
 // FAKE_CLAUDE_MODE=limit / crash for the error paths; =stall prints one event, starts a sleeping child, writes both pids
 // to HX_FAKE_DIR/stall-<pid>.json and sleeps FAKE_CLAUDE_SLEEP_MS (default 10 min), then replies.
 import { spawn, spawnSync } from 'node:child_process';
@@ -36,14 +37,16 @@ const file = (b, title, body, labels) => {
 };
 
 const grillPrompt = a.at(-1) ?? '';
-if (/^Role: grill/m.test(grillPrompt)) {
+const session = /^Role: (grill|issue)\b/m.exec(grillPrompt)?.[1];
+if (session) {
   // the short variant only points at the full prompt file
   const ptr = /^Read (.+?) first and follow it/m.exec(grillPrompt);
   const full = ptr ? readFileSync(ptr[1], 'utf8') : grillPrompt;
-  const output = /Write the PRD to `([^`]+)`/.exec(full)[1];
-  if (process.env.HX_FAKE_DIR) writeFileSync(path.join(process.env.HX_FAKE_DIR, 'grill-args.json'), JSON.stringify({ args: a, cwd: process.cwd(), full, trusted: process.env.HX_TRUSTED ?? null }));
+  const output = /Write the (?:PRD|issue) to `([^`]+)`/.exec(full)[1];
+  if (process.env.HX_FAKE_DIR) writeFileSync(path.join(process.env.HX_FAKE_DIR, `${session}-args.json`), JSON.stringify({ args: a, cwd: process.cwd(), full, trusted: process.env.HX_TRUSTED ?? null }));
   if (process.env.FAKE_GRILL_NOWRITE === 'blank') writeFileSync(output, '  \n\t\n');
-  else if (!process.env.FAKE_GRILL_NOWRITE) writeFileSync(output, '# Grilled feature\n\n## Goals\nShip it.\n');
+  else if (!process.env.FAKE_GRILL_NOWRITE) writeFileSync(output, session === 'grill' ? '# Grilled feature\n\n## Goals\nShip it.\n'
+    : '# Small task\n\n## What to do\nDo it.\n\n## Blocked by\nnone\n');
   process.exit(0);
 }
 

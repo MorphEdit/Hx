@@ -1,15 +1,18 @@
-// Filing a PRD or a bug: one markdown file → one issue. Shared by `hx prd`, `hx grill` and `hx bug`.
+// Filing a PRD, an issue or a bug: one markdown file → one issue. Shared by `hx prd`, `hx grill`, `hx issue` and `hx bug`.
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import type { Config } from './config.ts';
 import * as gh from './github.ts';
 
-/** File `file` as a PRD issue and return its URL. Title: `title` if given, else the first '# ' line (removed from the body). */
-export async function filePrd(config: Config, file: string, title?: string): Promise<string> {
+/**
+ * File `file` as an issue (labels: the PRD label unless given) and return its URL.
+ * Title: `title` if given (body unchanged), else the first '# ' line (removed from the body).
+ */
+export async function filePrd(config: Config, file: string, title?: string, labels: string[] = [config.labels.prd]): Promise<string> {
   let body = readFileSync(file, 'utf8');
   const h1 = /^#[ \t]+(.+?)[ \t]*$/m.exec(body);
   if (!title && h1) { title = h1[1]; body = body.replace(h1[0], '').trimStart(); }
   if (!title) throw new Error('no title: pass --title or start the file with a "# Title" line');
-  return gh.createIssue(config.repo, title, body, [config.labels.prd]);
+  return gh.createIssue(config.repo, title, body, labels);
 }
 
 /** The title of a bug: `title` if given, else the first '# ' line, else the first non-empty line, cut to 80 characters. */

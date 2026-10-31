@@ -124,6 +124,9 @@ hx bug "status hangs"   # file a bug issue (label bug, text or a .md file; --tit
 hx prd feature.md       # file a PRD issue (title from the file's first "# " line)
 hx grill "dark mode"    # an interactive claude session interviews you into a PRD (idea: text or a .md file),
                         # shows it and files it on confirm (--yes: no question); kept in .hx/prds/
+hx issue "fix typo"     # a shorter session grills one small task into one issue, filed ready-for-agent on
+                        # confirm (--bug: label bug, triaged first; --yes; --title T); kept in .hx/issues/
+hx issue --file x.md    # file an issue file the same way, without a session (--bug, --title T)
 hx status               # the runner, live sessions, usage window, and the board (issues opened by an
                         # untrusted account show as `untrusted` and are never claimed)
 hx run --dry-run        # the board and what would run next, without changing anything
