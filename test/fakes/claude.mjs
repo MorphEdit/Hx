@@ -1,7 +1,9 @@
 // Fake `claude -p --output-format stream-json`. It acts on the fake board (HX_FAKE_STATE) per role:
 //   implement: turn 1 "working", turn 2 closes the issue and prints the promise (never, if the body says FAIL)
-//   decompose: files two children (the second blocked by the first) and prints the promise
-//   review:    round 1 files a gap issue; later rounds sign off. Both post the review comment.
+//   decompose: files two children (the second blocked by the first) and prints the promise (DECOMPOSEONE in the
+//              PRD body: only the first)
+//   review:    round 1 files a gap issue; later rounds sign off. Both post the review comment. REVIEWPASS in the
+//              PRD body: round 1 signs off too
 //   critic:    FAIL until the PRD body holds the fake reviser's marker (GAUNTLETNEVER in the body: always FAIL)
 //   security:  round 1 files a `security` issue, later rounds sign off (security-reviewed); both post the
 //              verdict comment. In the PRD body: SECURITYNEVER = files one every round, SECURITYNOOP = does
@@ -205,10 +207,10 @@ function finish(st, checkpoint, prompt) {
       t = `filed 2 issues. ${done()}`;
     } else if (st.role === 'decompose') {
       const first = file(b, `part A of ${me.title}`, `do A\n\n## Blocked by\nNone\n\n## Parent\n#${st.n}\n`, ['ready-for-agent']);
-      file(b, `part B of ${me.title}`, `do B\n\n## Blocked by\n#${first}\n\n## Parent\n#${st.n}\n`, ['ready-for-agent']);
+      if (!/DECOMPOSEONE/.test(me.body)) file(b, `part B of ${me.title}`, `do B\n\n## Blocked by\n#${first}\n\n## Parent\n#${st.n}\n`, ['ready-for-agent']);
       t = `filed 2 issues. ${done()}`;
     } else if (st.role === 'review') {
-      if (st.round === 1) file(b, `gap in ${me.title}`, `fix gap\n\n## Blocked by\nNone\n\n## Parent\n#${st.n}\n`, ['ready-for-agent']);
+      if (st.round === 1 && !/REVIEWPASS/.test(me.body)) file(b, `gap in ${me.title}`, `fix gap\n\n## Blocked by\nNone\n\n## Parent\n#${st.n}\n`, ['ready-for-agent']);
       else me.labels.push('prd-reviewed');
       b.comments.push({ issue: st.n, body: `<!-- hx-review -->\nround ${st.round}` });
       t = `reviewed. ${done()}`;

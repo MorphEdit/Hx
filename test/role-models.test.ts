@@ -40,7 +40,8 @@ const project = (extra = {}) => ({ root, stateDir, config: { ...DEFAULTS, repo: 
   security: false, roleSkills: {}, ...extra } });
 
 const issue = (n: number) => ({ number: n, title: `task ${n}`, body: '', state: 'OPEN', labels: [L.ready] });
-const prd = (n: number) => ({ number: n, title: `feature ${n}`, body: 'make it fast', state: 'OPEN', labels: [L.prd] });
+// one child, a review that signs off in round 1: every PRD role runs once, and the run fits E2E.timeout on a loaded machine
+const prd = (n: number) => ({ number: n, title: `feature ${n}`, body: 'make it fast DECOMPOSEONE REVIEWPASS', state: 'OPEN', labels: [L.prd] });
 const board = (issues: any[]) => writeFileSync(stateFile, JSON.stringify({ comments: [], prs: [], issues }));
 const byNum = (n: number) => JSON.parse(readFileSync(stateFile, 'utf8')).issues.find((i: any) => i.number === n);
 
@@ -127,7 +128,7 @@ test('roleModels {}: every session gets --model and --effort as before; no model
   board([issue(1), prd(11)]);
   const r = await run();
   assert.equal(r.rc, 0, r.lines.join('\n'));
-  assert.ok(r.turns.some((t) => t.role === 'review'), 'a review session ran');
+  assert.equal(r.turns.filter((t) => t.role === 'review').length, 1, 'one review session ran');
   for (const t of r.turns) { assert.equal(t.model, DEFAULTS.model, t.role); assert.equal(t.effort, DEFAULTS.effort, t.role); }
   assert.ok(!r.lines.some((l) => / models: /.test(l)));
   assert.deepEqual(r.models, roleModelMap(DEFAULTS));
@@ -140,6 +141,8 @@ test('impl and audit set: their sessions get their model and effort, a PRD role 
   assert.equal(r.rc, 0, r.lines.join('\n'));
   const of = (role: string) => r.turns.filter((t) => t.role === role);
   assert.ok(of('implement').length && of('audit').length && of('review').length && of('decompose').length);
+  assert.equal(of('review').length, 1, 'one review round: the PRD has one child and no gap');
+  assert.equal(byNum(11).state, 'CLOSED');
   for (const t of of('implement')) assert.deepEqual([t.model, t.effort], [SONNET, 'medium']); // continue turns included
   assert.ok(of('implement').some((t) => t !== of('implement')[0]), 'more than one impl turn');
   for (const t of of('audit')) assert.deepEqual([t.model, t.effort], [SONNET, 'high']);
