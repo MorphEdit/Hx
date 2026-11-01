@@ -54,6 +54,7 @@ test('parseOutcomes(fixture in the §1 format): every §5a count', () => {
     // #1 30m, #2 10m, #3 60m (audited), #4 20m (unaudited) → (20+30)/2; review/security DONE are not issue ends
     issues: { done: 4, medianMs: 25 * min },
     triage: { reproduced: 0, needsInfo: 0, failed: 0, gaveUp: 0 },
+    modelMismatch: 0,
   });
 });
 
@@ -71,6 +72,7 @@ test('empty input: zeros and nulls, no throw', () => {
     gate: { red: 0, recovered: 0, openRed: false, redMs: [], avgRedMs: null },
     issues: { done: 0, medianMs: null },
     triage: { reproduced: 0, needsInfo: 0, failed: 0, gaveUp: 0 },
+    modelMismatch: 0,
   };
   assert.deepEqual(parseOutcomes([]), empty);
   assert.deepEqual(parseOutcomes(['garbage', 'more', '2026-10-31 not iso [#1] audit PASS ✓']), empty);

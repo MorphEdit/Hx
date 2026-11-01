@@ -431,6 +431,14 @@ Every session runs with `model` and `effort` unless `roleModels` gives its role 
 The default is `{}`: every role on `model` and `effort`, as before. A cheaper model on `impl` or `audit`
 saves tokens but can cost quality — check it with the benchmark before it becomes a default.
 
+A turn can run on another model than it asked for (the CLI reports the one that ran; `hx usage --by model`
+and the dashboard's per-model numbers use it). To spot one:
+
+- `run.log` gets one line per session: `model mismatch: <role> asked <x>, ran <y>`; the session goes on.
+- `hx status` prints `model mismatch: N session(s) — see run.log` when N > 0 (checkpoint turns and older
+  usage records without the reported model never count).
+- The dashboard's Stats has a **model mismatch** row next to the other outcomes.
+
 ## Config (`.hx/config.json`)
 
 | key | default | |

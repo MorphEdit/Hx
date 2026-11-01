@@ -98,7 +98,7 @@ export function dashboardState(p: Project, board: () => BoardSeen): object {
   const usage = {
     total: rows(recs, () => 'total')[0] ?? null,
     byRole: rows(recs, (r) => r.role ?? 'impl'),
-    byModel: rows(recs, (r) => r.model),
+    byModel: rows(recs, (r) => r.actualModel ?? r.model), // the model that ran, when the CLI reported it
     byDay: rows(recs, (r) => localDay(r.ts)),
     byPrd: parents ? rows(recs, (r) => String(parents[r.issue] ?? r.issue)) : null,
     ...(b.error !== undefined ? { boardError: b.error } : {}),

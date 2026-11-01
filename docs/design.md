@@ -138,6 +138,17 @@ per-turn output parser, the interactive argv for `hx grill` / `hx issue`) is all
 and `cli.ts` know about the CLI, and `agentCli` in the config names the adapter. `claude` is the only
 adapter; a second one is added when there is a real need for it, not before.
 
+## Models per role
+
+`roleModels` (PRD #129) gives a role its own model and effort, but it is opt-in: the default is `{}`, every
+role on `model` / `effort`, and no default changes until a benchmark run shows a cheaper model on a role
+keeps the quality. The guard is the mismatch check: the CLI reports the model that ran each turn
+(`actualModel` in `usage.jsonl`), and a session whose turn ran on another model than it asked for (by
+`modelMatches`: the same id, a dated id of it, or a bare alias's family) logs one
+`model mismatch: <role> asked <x>, ran <y>` line and goes on. The count surfaces in the dashboard's
+outcomes and in `hx status`, so a silent fallback to another model is seen instead of skewing quality or
+token numbers. Checkpoint turns resume the session's own model and do not count.
+
 ## Token optimisation (phase 4)
 
 Measured before (see the [benchmark](../README.md#benchmark), `bench/results/phase3/`):

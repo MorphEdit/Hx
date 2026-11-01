@@ -212,6 +212,7 @@ function renderStats(s) {
       ['security', (se.passes ?? 0) + ' passes · ' + (se.filed ?? 0) + ' filed issues'],
       ['gate', (gt.red ?? 0) + ' RED · avg RED → green ' + dur(gt.avgRedMs) + (gt.openRed ? ' · RED now' : '')],
       ['issues', (is.done ?? 0) + ' done · median wall time ' + dur(is.medianMs)],
+      ['model mismatch', (o.modelMismatch ?? 0) + ' session(s) ran another model — see the log'],
     ]),
     el('h3', {}, 'By PRD'),
     u.byPrd ? usageTable('PRD / issue', u.byPrd, true) : el('p', { class: 'mute' }, 'waiting for the board'),

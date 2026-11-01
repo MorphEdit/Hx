@@ -7,6 +7,7 @@ export interface Outcomes {
   gate: { red: number; recovered: number; openRed: boolean; redMs: number[]; avgRedMs: number | null };
   issues: { done: number; medianMs: number | null };      // wall time from the first impl: line to DONE
   triage: { reproduced: number; needsInfo: number; failed: number; gaveUp: number };
+  modelMismatch: number;                                   // `model mismatch:` lines (one per mismatched session)
 }
 
 // `<ISO> [#<n>] <msg>` or `<ISO> <msg>`; a line that does not start with an ISO timestamp is skipped
@@ -21,7 +22,7 @@ const median = (xs: number[]) => {
 
 export function parseOutcomes(lines: string[]): Outcomes {
   let pass = 0, fail = 0, gPass = 0, gFail = 0, secPasses = 0, filed = 0, red = 0;
-  let reproduced = 0, needsInfo = 0, tFailed = 0, gaveUp = 0;
+  let reproduced = 0, needsInfo = 0, tFailed = 0, gaveUp = 0, modelMismatch = 0;
   const rounds: number[] = [], redMs: number[] = [], issueMs: number[] = [];
   const started = new Map<number, number>(); // issue → time of its first impl line, until its DONE
   let reds: number[] = [];                    // REDs not yet paired with a `gate green ✓ again`
@@ -45,6 +46,7 @@ export function parseOutcomes(lines: string[]): Outcomes {
     else if (msg.startsWith('triage: NEEDS-INFO')) needsInfo++;
     else if (msg.startsWith('triage: FAILED')) tFailed++;
     else if (msg.startsWith('triage: GAVE UP')) gaveUp++;           // `triage: round cap reached` is not a give-up
+    else if (msg.startsWith('model mismatch: ')) modelMismatch++;
     else if (msg.startsWith('impl: ') || msg.startsWith('impl (round ')) { if (n !== null && !started.has(n)) started.set(n, t); }
     else if ((k = /^DONE ✓ audited and merged(?: \((\d+) round\(s\))?/.exec(msg)) || msg.startsWith('impl DONE ✓')) {
       if (k?.[1] !== undefined) rounds.push(Number(k[1]));
@@ -60,5 +62,6 @@ export function parseOutcomes(lines: string[]): Outcomes {
     gate: { red, recovered: redMs.length, openRed: !lastRedPaired, redMs, avgRedMs: mean(redMs) },
     issues: { done: issueMs.length, medianMs: median(issueMs) },
     triage: { reproduced, needsInfo, failed: tFailed, gaveUp },
+    modelMismatch,
   };
 }
