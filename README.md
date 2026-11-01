@@ -360,6 +360,51 @@ A hung test run cannot block anything: `ship.mjs` gives the tests `--test-timeou
 remembered for `--resume`) and the gate 20 minutes; past that the whole process tree is killed and the
 run counts as failed (exit 4 / a red gate marked "timed out").
 
+## Worktree setup
+
+Every session and the gate work in a fresh `git worktree`, which holds only tracked files: no
+`node_modules`, no `vendor/`, no `.venv`, no `.env`. In most projects the tests then fail before the
+agent has changed anything, so the first session spends turns installing things by hand (or reports
+failures that are not its own), and the gate turns red on a base that is fine. Three keys fix that:
+
+- `worktreeSetup` — one shell command run in every new worktree, e.g. `npm ci` (`""` = none).
+- `worktreeSetupMinutes` — its time limit (default 10); past that its whole process tree is killed and
+  the setup counts as failed.
+- `worktreeCopy` — untracked local files or folders copied from the main checkout into every new
+  worktree before the command runs, e.g. `[".env", "config/local"]`. Entries are paths relative to the
+  repo root: no `..`, no globs, no absolute paths (config validation refuses them). A missing entry is
+  skipped; an entry git tracks is not copied (`setup: skipped <path> (tracked by git)` in the run log).
+  Every copied path is added once to the repo's shared `info/exclude` (`/.env`, `/config/local`), so
+  `git status` in a worktree never shows it and no session commits it.
+
+**When it runs:** whenever hx creates a worktree: impl, audit, triage, the PRD roles (decompose, review,
+gauntlet, security) and the gate. A reused impl worktree is set up again only when its last setup
+did not succeed (or was interrupted). Setup runs outside the worktree queue, so a slow install never holds
+up other workers.
+
+**`hx init`** proposes the command from the first lockfile in the repo root: `pnpm-lock.yaml` →
+`pnpm install --frozen-lockfile`, `yarn.lock` → `yarn install --frozen-lockfile`, `package-lock.json` →
+`npm ci`, `bun.lockb` → `bun install --frozen-lockfile`, `composer.lock` → `composer install
+--no-interaction`, `poetry.lock` → `poetry install`, `uv.lock` → `uv sync`, `Gemfile.lock` →
+`bundle install`, `go.sum` → `go mod download`, `Cargo.lock` → `cargo fetch`. A git-ignored `.env` in
+the root goes into `worktreeCopy`. A key already in `.hx/config.json` is left alone — an explicit
+`"worktreeSetup": ""` stays off. `hx status` shows both.
+
+**On failure:** a session starts anyway; the impl, audit and triage prompts get a setup note with the
+command and the last 20 lines of its output, and the agent fixes the environment first if it has to.
+The gate retries a failed setup at once, up to 3 times at one sha; after the third it turns red and
+files a fix issue that names the setup command (`worktreeSetup`), not the test command.
+
+**Where the output is:** the full output of each setup in `.hx/logs/setup-<name>.log` (`<name>` is the
+worktree: `i12`, `a12`, `t12`, `p12`, `gate`), one line per setup in the run log (`[#12] setup: npm ci
+(42s)`, `[#12] setup FAILED (exit 1): …`, `gate: setup FAILED (exit 1, try 2 of 3): …`), and for
+session worktrees the last result in `.hx/logs/setup-<name>.json`, which decides whether a reused
+worktree is set up again.
+
+A setup command that rewrites tracked files (a lockfile an install updates) leaves those changes in the
+worktree, where the session sees them as its own. Use frozen installs — `npm ci`, `--frozen-lockfile` —
+which never rewrite the lockfile; that is the guard.
+
 ## Bug lane
 
 File a bug with `hx bug "status hangs"` (text or a `.md` file; `--title T`): it opens an issue labelled
@@ -491,6 +536,9 @@ and the dashboard's per-model numbers use it). To spot one:
 | `stallMinutes` | 15 | a turn with no stdout for this long is killed (0 = off) |
 | `pollSeconds` | 60 | how often the board is re-read |
 | `worktreeRoot` | `<drive>:\hx-wt\<repo>` | keep it short: Windows path-length limits |
+| `worktreeSetup` | `""` | a shell command run in every new worktree (sessions and the gate) before it is used, e.g. `npm ci`; `hx init` proposes one from the lockfile (see [Worktree setup](#worktree-setup)) |
+| `worktreeSetupMinutes` | `10` | the setup command is killed, with its process tree, after this long and counts as failed |
+| `worktreeCopy` | `[]` | untracked paths relative to the repo root (no `..`, globs or absolute paths) copied from the checkout into every new worktree and kept out of git; `hx init` adds a git-ignored `.env` |
 | `claudeArgs` | `[]` | extra flags for every `claude` call |
 | `leanWorkers` | `true` | workers start without MCP servers, skills, slash commands or user-level settings and plugins (~8K instead of ~44K tokens of base context per call) |
 | `workerTools` | `Bash Read Edit Write Glob Grep` | the only built-in tools a lean worker gets; add e.g. `Agent` or `WebFetch` if your issues need them |
@@ -522,6 +570,7 @@ it reads. So Hx only works on text from **trusted accounts**: your `gh` login pl
 
 - `.hx/usage.jsonl` — tokens for every turn (input / cache read / cache write / output)
 - `.hx/logs/<role>-N.jsonl` — the raw Claude event stream per issue / PRD, for debugging
+- `.hx/logs/setup-<name>.log` / `.json` — a worktree's last setup output / result (see [Worktree setup](#worktree-setup))
 - `.hx/live.json` — the running `hx run`: its pid and live sessions (read by `hx status`)
 - `.hx/pause` — present while paused (`drain` or `now`)
 - `.hx/run.log` — the `hx run` log, `<ISO time> [#n] message` per line (rotated to `run.log.1` past 2 MiB), read by `hx dashboard`

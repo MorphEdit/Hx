@@ -203,3 +203,23 @@ test('README: roleModels config row with its default and the Models per role sec
   assert.ok(sec.includes('"roleModels": { "impl": { "model": "claude-sonnet-5-5" }, "audit": { "model": "claude-sonnet-5-5", "effort": "high" } }'));
   assert.match(sec.slice(0, sec.indexOf('\n## ', 5)), /benchmark/);
 });
+
+test('worktree setup: README section and config rows, design records the decision, CLAUDE.md file map', () => {
+  const r = read('README.md');
+  const start = r.indexOf('## Worktree setup');
+  assert.ok(start >= 0, 'README has a Worktree setup section');
+  const sec = r.slice(start, r.indexOf('\n## ', start + 1));
+  assert.ok(hasRow(r, 'worktreeSetup', `\`${JSON.stringify(DEFAULTS.worktreeSetup)}\``), 'worktreeSetup row');
+  assert.ok(hasRow(r, 'worktreeSetupMinutes', `\`${DEFAULTS.worktreeSetupMinutes}\``), 'worktreeSetupMinutes row');
+  assert.ok(hasRow(r, 'worktreeCopy', `\`${JSON.stringify(DEFAULTS.worktreeCopy)}\``), 'worktreeCopy row');
+  for (const w of ['node_modules', '`vendor/`', '`.venv`', '`.env`', 'worktreeSetup', 'worktreeSetupMinutes', 'worktreeCopy',
+    '`..`', 'glob', 'absolute', 'tracked by git', 'info/exclude', 'impl', 'audit', 'triage', 'gate', 'did not succeed',
+    'hx init', 'pnpm-lock.yaml', 'package-lock.json', 'npm ci', 'Cargo.lock', '`""`', 'setup note', '3 times', 'red',
+    '.hx/logs/setup-<name>.log', 'setup-<name>.json', 'setup FAILED', 'frozen']) assert.ok(sec.includes(w), w);
+  const d = read('docs/design.md');
+  assert.ok(d.includes('worktreeSetup'), 'design.md mentions worktreeSetup');
+  const ds = d.slice(d.indexOf('## Worktree setup'), d.indexOf('\n## ', d.indexOf('## Worktree setup') + 1));
+  for (const w of ['queue', 'per-directory', 'gateCheck', 'sha', 'info/exclude', 'cache']) assert.ok(ds.includes(w), w);
+  const c = read('CLAUDE.md');
+  assert.ok(c.slice(c.indexOf('## Where things are'), c.indexOf('## Conventions')).includes('`setup.ts`'), 'setup.ts in the file map');
+});
