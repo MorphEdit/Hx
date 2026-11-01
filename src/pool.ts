@@ -7,13 +7,13 @@ import * as gh from './github.ts';
 import type { Issue } from './github.ts';
 import { claimable, externalRefs, fenceFindings, isTrusted, issueKey, parseParent, plan, prdKey, refKey, render, TRIAGE_MARKER, triageVerdict, trustedSet, type Action, type Plan } from './state.ts';
 import { addWorktree, auditWorktree, cleanStaleWorktrees, implWorktree, prdWorktree, removeWorktree, repairBrokenRefs, triageWorktree, type AddedWorktree } from './worktree.ts';
-import { runGoal, runTurn, type GoalResult, type RateLimit } from './agent.ts';
+import { emptyUsage, runGoal, runTurn, type GoalResult, type RateLimit } from './agent.ts';
+import { readSetupRecord, setupLine, setupNote, setupWorktree, writeSetupRecord, type SetupResult } from './setup.ts';
 import { agentFor, type AgentCli } from './agents/index.ts';
 import { clearLive, otherRunner, readLive, readPause, writeLive, type LiveSession, type LiveState } from './runstate.ts';
 import { fmt, recordUsage, totalTokens } from './usage.ts';
 import { actionBudget, budgetFilter, newSkipLines, readBudget, readBudgetWindows, readingOf, recordReading, type Budget } from './budget.ts';
 import { gateIssueBody, gateIssueTitle, readGate, remoteSha, runGate, writeGate, type GateResult } from './gate.ts';
-import { setupLine, type SetupResult } from './setup.ts';
 import { run as runCmd } from './exec.ts';
 import { acquireSlot, DEFAULT_FLEET_WORKERS, readHold, releaseSlot, writeHold } from './fleet.ts';
 import { appendSkills, resolveSkills, rtddCheck, rtddEnv, SKILL_CHECKS, skillNames, skillsLogLine, type Skill } from './skills.ts';
@@ -609,6 +609,7 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
     SHIP_DONE: audited ? 'READY' : 'SHIPPED',
     SHIP_NOTE: audited ? 'Do not merge the PR or close the issue yourself.\n' : '',
     BUG_NOTE: bug ? `${IMPL_BUG_NOTE}\n` : '',
+    SETUP_NOTE: '',
   };
   const logDir = path.join(p.stateDir, 'logs');
   mkdirSync(logDir, { recursive: true });
@@ -663,6 +664,27 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
     log(`${a.kind} FAILED ✗ — ${reason} (${summary}); ${labelled ? `labelled ${L.blocked}` : `NOT labelled ${L.blocked}`}${keepOnStop ? ', worktree kept' : ''}`, n);
     return { ...r, done: false };
   };
+  /**
+   * Copies and sets up a session worktree before its first turn (a reused impl worktree only when its last
+   * setup did not succeed). Returns its {{SETUP_NOTE}} ('' unless the setup failed), or null when ctx.signal
+   * stopped it: then nothing is recorded or logged.
+   */
+  const setup = async (w: AddedWorktree, name: string): Promise<string | null> => {
+    if (!w.created && (readSetupRecord(p.stateDir, name)?.ok || (!c.worktreeSetup && !c.worktreeCopy?.length))) return '';
+    const r = await setupWorktree({ checkout: p.root, dir: w.dir, name, stateDir: p.stateDir, config: c, signal: ctx.signal, log: (m) => log(m, n) });
+    if (!r) return '';
+    if (r.aborted) return null;
+    writeSetupRecord(p.stateDir, name, r);
+    if (r.command) log(setupLine(r, r.command, { minutes: c.worktreeSetupMinutes }), n);
+    const note = setupNote(r.command, r);
+    return note && `${note}\n`;
+  };
+  /** A session stopped during its worktree's setup, before its first turn. */
+  const setupStopped = (): GoalResult => ({ done: false, sessionId: '', iterations: 0, usage: emptyUsage(), costUsd: 0, stopReason: 'aborted' });
+  const setupMsg = await setup(wt, a.kind === 'impl' ? `i${n}` : a.kind === 'triage' ? `t${n}` : `p${n}`);
+  if (setupMsg === null) return handBack(setupStopped(), 'during the worktree setup');
+  if (a.kind === 'impl' || a.kind === 'triage') vars.SETUP_NOTE = setupMsg; // PRD roles get no note
+
   const stopped = (r: GoalResult) => r.stopReason === 'aborted' || r.stopReason === 'limited' || r.stopReason === 'fatal';
   const promise = `${a.kind === 'impl' ? 'ISSUE' : a.kind.toUpperCase()} ${n} DONE`;
 
@@ -691,6 +713,10 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
         await gh.comment(c.repo, n, `${ORIGINAL_MARKER}\n${before}`);
       const rwt = await addWorktree(p.root, c.worktreeRoot, prdWorktree(n, c.defaultBranch));
       reviseDir = rwt.dir;
+      if ((await setup(rwt, `p${n}`)) === null) {
+        await removeWorktree(p.root, rwt.dir);
+        return handBack(setupStopped(), 'during the worktree setup');
+      }
       const rr = await goal('revise', rwt.dir, 'revise.md', `REVISE ${n} DONE`, { FINDINGS: fenceFindings(v.findings) });
       await removeWorktree(p.root, rwt.dir);
       summary = `${fmt(sessionTokens)} tokens`;
@@ -778,8 +804,13 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
     // the auditor works in its own fresh checkout of the pushed branch and never sees the implementer's session
     const awt = await addWorktree(p.root, c.worktreeRoot, auditWorktree(n));
     log(`audit ${attempt}/${c.auditRounds}: PR #${pr}`, n);
+    const auditNote = await setup(awt, `a${n}`);
+    if (auditNote === null) {
+      await removeWorktree(p.root, awt.dir);
+      return handBack(setupStopped(), 'during the audit worktree setup');
+    }
     const ar = await goal('audit', awt.dir, 'audit.md', `AUDIT ${n} DONE`, { PR: pr, ROUND: attempt, ROUNDS: c.auditRounds,
-      BUG_NOTE: bug ? `${AUDIT_BUG_NOTE}\n` : '' });
+      BUG_NOTE: bug ? `${AUDIT_BUG_NOTE}\n` : '', SETUP_NOTE: auditNote });
     await removeWorktree(p.root, awt.dir);
     summary = `${fmt(sessionTokens)} tokens`;
     if (stopped(ar)) return handBack(ar, summary);

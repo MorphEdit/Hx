@@ -104,7 +104,7 @@ if (n <= 2) { console.log('registry timeout ' + n); process.exit(1); }
   const before = gateJson();
   const between: string[] = [];
   const { rc, lines } = await runLogged(project({ gateCommand: countingGate(runs), worktreeSetup: setup }),
-    { onLine: (l) => { if (/setup FAILED/.test(l)) between.push(gateJson()); } });
+    { onLine: (l) => { if (/gate: setup FAILED/.test(l)) between.push(gateJson()); } });
   assert.equal(rc, 0, lines.join('\n'));
   const failed = lines.filter((l) => /gate: setup FAILED/.test(l));
   assert.equal(failed.length, 2, lines.join('\n'));
@@ -131,7 +131,7 @@ if (existsSync('BROKEN')) { for (let i = 1; i <= 70; i++) console.log('npm ERR l
   let atRed: { gate: string; live: any; ran: boolean } | undefined;
   const { rc, lines } = await runLogged(project({ gateCommand: countingGate(runs), worktreeSetup: setup }), {
     onLine: (l) => {
-      if (/setup FAILED/.test(l)) between.push(gateJson());
+      if (/gate: setup FAILED/.test(l)) between.push(gateJson());
       // the fix session starts after the startup gate check wrote its result
       if (!atRed && /\] impl:/.test(l)) atRed = { gate: gateJson(), ran: existsSync(runs), live: JSON.parse(readFileSync(path.join(stateDir, 'live.json'), 'utf8')) };
     },

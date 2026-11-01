@@ -153,8 +153,11 @@ test('hx run: a reading recorded mid-session refreshes live.json budget at once'
   const stop = new AbortController();
   let live: any = null;
   try {
-    const done = capture(() => pooled((signal) => runPool(p, { workers: 1, watch: false, dryRun: false, signal }), stop.signal));
-    for (let i = 0; i < 100 && !live; i++) {
+    let ended = false;
+    const done = capture(() => pooled((signal) => runPool(p, { workers: 1, watch: false, dryRun: false, signal }), stop.signal))
+      .finally(() => { ended = true; });
+    // polled until the run ends, not for a fixed time: under a loaded full suite the session can start late
+    while (!live && !ended) {
       await new Promise((r) => setTimeout(r, 100));
       const l = readLiveFile();
       if (l?.budget?.windows?.length) live = l;

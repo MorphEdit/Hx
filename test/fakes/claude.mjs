@@ -92,6 +92,15 @@ process.stdin.on('data', (d) => (prompt += d)).on('end', () => {
   writeFileSync(path.join(process.env.HX_FAKE_DIR, `${sid}.env-${st.turns}.json`), JSON.stringify({ role: st.role, checkpoint: /HX CHECKPOINT/.test(prompt), trusted: process.env.HX_TRUSTED ?? null, path: process.env.PATH ?? null,
     model: a.includes('--model') ? a[a.indexOf('--model') + 1] : null, effort: a.includes('--effort') ? a[a.indexOf('--effort') + 1] : null }));
   if (a.includes('--resume') !== st.turns > 1) { process.stderr.write('resume flag mismatch'); process.exit(4); }
+  // FAKE_CLAUDE_NEED=<file>: a session's first turn fails unless the worktree setup wrote <file> in this cwd, holding the cwd
+  // (a marker an implementer committed and its auditor checked out names another directory)
+  const need = process.env.FAKE_CLAUDE_NEED;
+  if (need && st.turns === 1) {
+    const f = path.join(process.cwd(), need);
+    const found = existsSync(f) && path.resolve(readFileSync(f, 'utf8').trim()).toLowerCase() === path.resolve(process.cwd()).toLowerCase();
+    appendFileSync(path.join(process.env.HX_FAKE_DIR, 'need.jsonl'), JSON.stringify({ role: st.role, n: st.n, cwd: process.cwd(), found }) + '\n');
+    if (!found) { process.stderr.write(`no setup marker ${need} in ${process.cwd()}`); process.exit(5); }
+  }
   const checkpoint = /HX CHECKPOINT/.test(prompt);
   // FAKE_CLAUDE_RATE=<0..1>: report that much of the five-hour window used, resetting in FAKE_CLAUDE_RESET_S (default 2) seconds
   if (process.env.FAKE_CLAUDE_RATE)
