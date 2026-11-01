@@ -118,6 +118,7 @@ function renderNow(s) {
     parts.push(el('div', { class: 'kv' }, kv));
     const bw = r.budget && Array.isArray(r.budget.windows) ? r.budget.windows : [];
     if (bw.length) parts.push(el('div', { class: 'kv' }, bw.map((w) => el('span', {}, String(w.line ?? '')))));
+    if (r.github && r.github.line) parts.push(el('div', { class: 'kv' }, el('span', {}, String(r.github.line))));
   }
   const g = s.gate;
   parts.push(el('div', { class: 'kv' }, el('span', {}, 'gate ', !g ? badge('mute', 'no run yet') : g.ok ? badge('ok', 'green') : badge('bad', 'RED')),

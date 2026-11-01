@@ -1,4 +1,5 @@
 import { run, runOk } from './exec.ts';
+import { parseRateLimit, type GhBudget } from './ghlimit.ts';
 
 export interface Issue {
   number: number;
@@ -33,6 +34,14 @@ export async function ghLogin(): Promise<string> {
   if (r.code !== 0 || !login)
     throw new Error(`could not look up the gh login (gh api user${r.code !== 0 ? ` failed: ${(r.stderr || r.stdout).trim().slice(0, 200)}` : ' returned no login'}) — run  gh auth login  and try again`);
   return login;
+}
+
+/** The API budget (`gh api rate_limit` is free: it does not count against it); null on any failure, never throws. */
+export async function rateLimit(): Promise<GhBudget | null> {
+  try {
+    const r = await run(GH, ['api', 'rate_limit']);
+    return r.code === 0 ? parseRateLimit(r.stdout) : null;
+  } catch { return null; }
 }
 
 export async function defaultBranch(repo: string): Promise<string> {

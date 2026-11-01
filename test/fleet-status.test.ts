@@ -57,10 +57,12 @@ test('hx fleet status prints each repo under its header, followed by that repo\'
   assert.doesNotMatch(partA, /task 2/);
   assert.match(partB, /me\/beta — 0 open PRD\(s\), 1 open 'ready-for-agent' issue\(s\)/);
   assert.match(partB, /task 2 of me\/beta/);
-  // each part is exactly what hx status prints in that repo
+  // each part is exactly what hx status prints in that repo, less the github line (printed once, after the parts)
   const single = hx(s, ['status'], s.a);
   assert.equal(single.code, 0, single.out + single.err);
-  assert.ok(partA.includes(single.out), `${partA}\n---\n${single.out}`);
+  assert.match(single.out, /^github /m);
+  const singleOut = single.out.replace(/^github .*\r?\n/m, '');
+  assert.ok(partA.includes(singleOut), `${partA}\n---\n${singleOut}`);
   assert.match(r.out, /fleet\s+0\/3 slot\(s\) in use\s*$/);
 });
 

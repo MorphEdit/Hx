@@ -81,6 +81,13 @@ if (a[0] === 'issue' && a[1] === 'list') {
   if (s.loginFails) { process.stderr.write('HTTP 401: Bad credentials'); process.exit(1); }
   process.stdout.write(opt('-q') === '.login' ? `${LOGIN}
 ` : JSON.stringify({ login: LOGIN }));
+} else if (a[0] === 'api' && a[1] === 'rate_limit') {
+  // state.rateLimit = { core: {limit, remaining, reset}, graphql: {...} } (default: both 5000/5000, reset an hour from now);
+  // state.rateLimitFails: true makes it fail
+  if (s.rateLimitFails) { process.stderr.write('HTTP 502: Bad Gateway'); process.exit(1); }
+  const full = { limit: 5000, remaining: 5000, reset: Math.floor(Date.now() / 1000) + 3600 };
+  const rl = s.rateLimit ?? {};
+  process.stdout.write(JSON.stringify({ resources: { core: rl.core ?? full, graphql: rl.graphql ?? full } }));
 } else if (a[0] === 'api') {
   const path = a.find((x) => x.startsWith('repos/'));
   const one = /issues\/(\d+)$/.exec(path);

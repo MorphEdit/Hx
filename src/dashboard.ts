@@ -9,6 +9,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { budgetLine } from './budget.ts';
 import type { Project } from './config.ts';
+import { githubLine } from './ghlimit.ts';
 import { readGate } from './gate.ts';
 import { parseOutcomes } from './outcomes.ts';
 import { lookupTrusted, readPlan, runLogFile } from './pool.ts';
@@ -89,6 +90,7 @@ export function dashboardState(p: Project, board: () => BoardSeen): object {
     rateLimit: live.rateLimit ?? null,
     // like rateLimit, only from a live runner; each window carries the line hx status prints
     budget: live.budget ? { windows: live.budget.windows.map((w) => ({ ...w, line: budgetLine(w, p.config.budgetMinPairs) })) } : null,
+    github: live.github ? { ...live.github, line: githubLine(live.github) } : null, // the GitHub API budget, with the hx status line
   } : { running: false };
   const sessions = running ? live.sessions.map((s) => ({ number: s.number, kind: s.kind, title: s.title, turn: s.turn, tokens: s.tokens,
     since: s.since, elapsedMs: now - Date.parse(s.since) })) : [];

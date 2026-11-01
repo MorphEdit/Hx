@@ -10,6 +10,7 @@ import { killAllSessions } from './agent.ts';
 import { clearPause, nextLine, otherRunner, pidAlive, readLive, readPause, setPause, writeWake } from './runstate.ts';
 import { readGate } from './gate.ts';
 import { budgetLine, readBudgetWindows } from './budget.ts';
+import { githubLine } from './ghlimit.ts';
 import { DEFAULT_PORT, serveDashboard } from './dashboard.ts';
 import { fileBug, filePrd } from './prd.ts';
 import { agentFor } from './agents/index.ts';
@@ -351,7 +352,8 @@ const ago = (iso: string) => {
   return s < 60 ? `${s}s` : s < 3600 ? `${Math.floor(s / 60)}m${String(s % 60).padStart(2, '0')}s` : `${Math.floor(s / 3600)}h${String(Math.floor(s / 60) % 60).padStart(2, '0')}m`;
 };
 
-async function status(p = loadProject()): Promise<number> {
+/** o.github false: no github line (hx fleet status prints it once for every repo). */
+async function status(p = loadProject(), o: { github?: boolean } = {}): Promise<number> {
   const c = p.config;
 
   // the runner
@@ -382,6 +384,9 @@ async function status(p = loadProject()): Promise<number> {
   if (c.worktreeCopy?.length) console.log(`copy     ${c.worktreeCopy.join(', ')}`);
   // from the files, so it shows whether or not a runner is up
   for (const w of readBudgetWindows(p.stateDir, c.budgetMinPairs, new Date())) console.log(budgetLine(w, c.budgetMinPairs));
+  // its own read, runner or not; a failed read prints nothing
+  const ghb = o.github === false ? null : await gh.rateLimit();
+  if (ghb) console.log(githubLine(ghb));
   console.log(`model    ${c.model}${c.effort ? ` (${c.effort} effort)` : ''}\n`);
 
   // the board (only issues and PRDs opened by a trusted account are worked on)
@@ -425,9 +430,12 @@ async function fleetStatus(f: Fleet): Promise<number> {
     try { p = loadProject(r.root); } catch { /* missing root or no config */ }
     console.log(`== ${p?.config.repo || '?'} (${r.root})`);
     if (!existsSync(r.root) || !p) { console.log('missing'); console.log(''); rc ||= 1; continue; }
-    try { rc = (await status(p)) || rc; } catch (e: any) { console.error(`hx: ${e.message}`); rc ||= 1; }
+    try { rc = (await status(p, { github: false })) || rc; } catch (e: any) { console.error(`hx: ${e.message}`); rc ||= 1; }
     console.log('');
   }
+  // one account, one budget: printed once, not per repo
+  const ghb = await gh.rateLimit();
+  if (ghb) console.log(githubLine(ghb));
   const hold = readHold(fleetDir());
   console.log(`fleet    ${slotsInUse(fleetDir())}/${fleetWorkers(f)} slot(s) in use`
     + (hold ? ` · hold until ${new Date(hold.until).toLocaleString()} (${hold.reason}, ${hold.repo})` : ''));
