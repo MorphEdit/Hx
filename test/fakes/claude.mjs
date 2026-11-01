@@ -14,6 +14,7 @@
 //              names (FAKE_GRILL_NOWRITE=1: writes nothing, =blank: whitespace only) and exits
 //   issue:     the same for `hx issue`: writes a small issue to its output path (same FAKE_GRILL_NOWRITE)
 // FAKE_CLAUDE_PAUSE=<file>: an implement session writes `drain` there as it closes its issue
+// FAKE_CLAUDE_PAUSE_START=<file>: an implement session writes `drain` there as its first turn starts (mid-session)
 // FAKE_CLAUDE_TIMES=<file>: each turn appends {sid, start, end} (ms) as one line when it exits.
 // FAKE_CLAUDE_MODE=limit / crash for the error paths; =stall prints one event, starts a sleeping child, writes both pids
 // to HX_FAKE_DIR/stall-<pid>.json and sleeps FAKE_CLAUDE_SLEEP_MS (default 10 min), then replies.
@@ -102,6 +103,9 @@ process.stdin.on('data', (d) => (prompt += d)).on('end', () => {
     if (!found) { process.stderr.write(`no setup marker ${need} in ${process.cwd()}`); process.exit(5); }
   }
   const checkpoint = /HX CHECKPOINT/.test(prompt);
+  // FAKE_CLAUDE_PAUSE_START=<.hx/pause>: `hx pause` lands while the session is mid-turn, however slow the machine
+  if (process.env.FAKE_CLAUDE_PAUSE_START && st.role === 'implement' && st.turns === 1 && !checkpoint)
+    writeFileSync(process.env.FAKE_CLAUDE_PAUSE_START, 'drain');
   // FAKE_CLAUDE_RATE=<0..1>: report that much of the five-hour window used, resetting in FAKE_CLAUDE_RESET_S (default 2) seconds
   if (process.env.FAKE_CLAUDE_RATE)
     out({ type: 'rate_limit_event', rate_limit_info: { status: 'allowed_warning', utilization: Number(process.env.FAKE_CLAUDE_RATE),
