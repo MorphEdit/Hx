@@ -180,6 +180,21 @@ test('fleet and agent CLIs: README sections and agentCli row, design #10 done, C
   for (const doc of [r, d, c]) for (const m of doc.matchAll(/`src\/([\w./-]+)`/g)) assert.ok(existsSync(path.join(root, 'src', m[1])), `src/${m[1]}`);
 });
 
+test('README: budgetGate config row with its default and the Budget gate paragraph; design records the gate', () => {
+  const r = read('README.md');
+  assert.ok(hasRow(r, 'budgetGate', `\`${DEFAULTS.budgetGate}\``));
+  const para = r.split(/\r?\n\r?\n/).find((p) => p.startsWith('**Budget gate:**'))?.replace(/\r?\n/g, ' ');
+  assert.ok(para, 'Budget gate paragraph');
+  for (const s of ['.hx/usage-readings.jsonl', 'budgetMinPairs', 'budget: not starting #12 review — needs ~7% of five_hour, 85% used, cap 90%', '`budgetGate: false`', 'too little'])
+    assert.ok(para.includes(s), s);
+  const at = r.indexOf('**Budget gate:**');
+  assert.ok(at > r.indexOf('**Usage limits:**') && r.indexOf('**Usage limits:**') >= 0 && at < r.indexOf('## PRD flow'), 'in Stopping and resuming, after Usage limits');
+  const d = read('docs/design.md');
+  assert.ok(d.includes('## Budget gate'));
+  const sec = d.slice(d.indexOf('## Budget gate'));
+  for (const s of ['p20', 'p80', 'nearest-rank', 'impl + audit', 'critic + revise', 'usage-readings.jsonl']) assert.ok(sec.slice(0, sec.indexOf('\n## ', 5)).includes(s), s);
+});
+
 test('README: roleModels config row with its default and the Models per role section', () => {
   const r = read('README.md');
   assert.ok(hasRow(r, 'roleModels', `\`${JSON.stringify(DEFAULTS.roleModels)}\``));

@@ -267,6 +267,18 @@ that unpushed work may be lost (`git fsck --lost-found`). Packed refs and `hx/ga
 default), it claims nothing new until the window resets; running sessions carry on. If a session hits
 the limit anyway, its issue is handed back and picked up again after the reset.
 
+**Budget gate:** every usage-window reading is kept in `.hx/usage-readings.jsonl`. Once a window has
+`budgetMinPairs` pairs of rising readings, each with the usage cost spent between them, it is calibrated:
+Hx knows roughly how many dollars 1% of it costs. Before claiming a session it forecasts the session's
+share of each calibrated window from past sessions of the same role, and skips the action for now when
+the forecast would take a window past `usagePauseAt`; actions further down that fit are still claimed,
+and the skipped one is looked at again on the next poll (a new reading or a reset may let it through).
+The run log gets one line per action per window reset, e.g.
+`budget: not starting #12 review — needs ~7% of five_hour, 85% used, cap 90%`, and `hx run --dry-run`
+shows each planned action's forecast (`~7%`) and marks the ones the gate would skip. With too little
+history (an uncalibrated window, fewer than three past sessions) Hx claims as it did without the gate;
+`budgetGate: false` turns it off.
+
 ## PRD flow
 
 Write what you want as a PRD (a markdown file: goal, requirements, acceptance criteria) and file it
@@ -465,6 +477,7 @@ and the dashboard's per-model numbers use it). To spot one:
 | `gate` | `true` | test the default branch after every merge; while red, claim only its fix |
 | `gateCommand` | `""` | the gate's test command (empty: learned from the first audited merge) |
 | `usagePauseAt` | 0.9 | claim nothing new once a usage window is this full (0..1) |
+| `budgetGate` | `true` | before claiming a session, skip it while its forecast would take a calibrated usage window past `usagePauseAt` (see Budget gate) |
 | `budgetMinPairs` | 5 | pairs of rising usage-window readings (each with the usage cost spent between them) a window needs before its dollars-per-1% rate is calibrated and used to forecast |
 | `checkpointMinutes` | 10 | time a stopped session gets to commit, push and write its handoff |
 | `turnTimeoutMinutes` | 45 | wall-clock limit for one turn |
