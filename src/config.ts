@@ -122,6 +122,12 @@ export function roleModel(c: Pick<Config, 'model' | 'effort' | 'roleModels'>, ro
   return { model: r?.model ?? c.model, effort: r?.effort ?? c.effort };
 }
 
+/** Did a turn that asked for `asked` run on it? Same id, a dated id of it (`<asked>-20261001`), or a bare alias's family. */
+export function modelMatches(asked: string, actual: string): boolean {
+  if (actual === asked || actual.startsWith(`${asked}-`)) return true;
+  return ['opus', 'sonnet', 'haiku'].includes(asked) && actual.includes(asked);
+}
+
 /** Every known role → its resolved model and effort. */
 export function roleModelMap(c: Pick<Config, 'model' | 'effort' | 'roleModels'>): Record<string, RoleModel> {
   return Object.fromEntries(ROLES.map((r) => [r, roleModel(c, r)]));

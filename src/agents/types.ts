@@ -11,7 +11,7 @@ export interface AgentCli {
 }
 
 export interface AgentTurn {
-  /** One stdout line: fill `res`; an `event` goes to the per-issue log, a `rateLimit` to the pool. */
+  /** One stdout line: fill `res` (`actualModel` too, when the CLI reports it); an `event` goes to the per-issue log, a `rateLimit` to the pool. */
   line(line: string, res: TurnResult): { event?: unknown; rateLimit?: RateLimit } | void;
   /** The process closed. runTurn has set durationMs, timedOut and stalled. */
   finish(res: TurnResult, code: number | null, stderr: string): void;

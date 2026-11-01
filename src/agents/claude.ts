@@ -16,6 +16,18 @@ export function rateLimitOf(ev: any): RateLimit | null {
   return { status: String(i.status ?? ''), utilization: u, resetsAt: i.resetsAt, type: i.rateLimitType };
 }
 
+/** The model with the most output tokens in a result's modelUsage (side calls may use a small model), or undefined. */
+export function mainModel(modelUsage: unknown): string | undefined {
+  if (!modelUsage || typeof modelUsage !== 'object') return undefined;
+  let best: string | undefined;
+  let most = -1;
+  for (const [model, u] of Object.entries(modelUsage as Record<string, any>)) {
+    const out = Number(u?.outputTokens ?? 0) || 0;
+    if (out > most) { best = model; most = out; }
+  }
+  return best;
+}
+
 function claudeTurn(o: TurnOptions): AgentTurn {
   const texts: string[] = [];
   let gotResult = false;
@@ -35,6 +47,8 @@ function claudeTurn(o: TurnOptions): AgentTurn {
         res.usage = { input: u.input_tokens ?? 0, cacheWrite: u.cache_creation_input_tokens ?? 0,
           cacheRead: u.cache_read_input_tokens ?? 0, output: u.output_tokens ?? 0 };
         res.costUsd = ev.total_cost_usd ?? 0;
+        const actual = mainModel(ev.modelUsage);
+        if (actual) res.actualModel = actual;
         res.numTurns = ev.num_turns ?? 0;
         res.ok = !ev.is_error && ev.subtype === 'success';
         if (!res.ok) {
