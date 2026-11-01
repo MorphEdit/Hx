@@ -97,6 +97,14 @@ process.stdin.on('data', (d) => (prompt += d)).on('end', () => {
   if (process.env.FAKE_CLAUDE_RATE)
     out({ type: 'rate_limit_event', rate_limit_info: { status: 'allowed_warning', utilization: Number(process.env.FAKE_CLAUDE_RATE),
       resetsAt: Math.ceil(Date.now() / 1000) + Number(process.env.FAKE_CLAUDE_RESET_S ?? 2), rateLimitType: 'five_hour' } });
+  // FAKE_CLAUDE_RATES=<entry>,<entry>,...: the first turn of a session reports one `allowed` event per entry,
+  // `utilization[:window[:resetsAt]]` (window default five_hour, resetsAt default 4102444800); an empty utilization leaves it out
+  if (process.env.FAKE_CLAUDE_RATES && st.turns === 1)
+    for (const e of process.env.FAKE_CLAUDE_RATES.split(',')) {
+      const [u, w, r] = e.split(':');
+      out({ type: 'rate_limit_event', rate_limit_info: { status: 'allowed', ...(u ? { utilization: Number(u) } : {}),
+        resetsAt: Number(r || 4102444800), rateLimitType: w || 'five_hour' } });
+    }
   // FAKE_CLAUDE_DELAY_MS: a slow turn, so a test can pause or stop the run mid-session
   setTimeout(() => finish(st, checkpoint, prompt), checkpoint ? 0 : Number(process.env.FAKE_CLAUDE_DELAY_MS ?? 0));
 });

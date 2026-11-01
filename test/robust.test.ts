@@ -4,7 +4,7 @@ import { E2E, pooled, sessionEnvs, deadPid } from './isolate.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -165,4 +165,29 @@ test('a usage window over usagePauseAt holds new claims until it resets', E2E, a
   const i8start = lines.findIndex((l) => /\[#8\] impl:/.test(l));
   assert.ok(i8start > i7done, '#8 waited for the hold, not run alongside');
   assert.ok(Date.now() - t0 >= 2000);
+});
+
+test('usage-window readings: one line per change, none for a repeat or an event without utilization', E2E, async () => {
+  const { readReadings, readingsFile } = await import('../src/budget.ts');
+  rmSync(readingsFile(stateDir), { recursive: true, force: true });
+  board([issue(9)]);
+  const { rc } = await run({ env: { FAKE_CLAUDE_RATES: '0.1,0.1,:five_hour,0.2,0.3:seven_day,0.2,0.2:five_hour:4102448400' } });
+  assert.equal(rc, 0);
+  assert.equal(byNum(9).state, 'CLOSED');
+  assert.deepEqual(readReadings(stateDir).map((r) => [r.window, r.utilization, r.resetsAt]),
+    [['five_hour', 0.1, 4102444800], ['five_hour', 0.2, 4102444800], ['seven_day', 0.3, 4102444800], ['five_hour', 0.2, 4102448400]]);
+  assert.ok(readReadings(stateDir).every((r) => !isNaN(Date.parse(r.ts))));
+});
+
+test('usage-window readings: a write failure is logged and the session still completes', E2E, async () => {
+  const { readingsFile } = await import('../src/budget.ts');
+  rmSync(readingsFile(stateDir), { recursive: true, force: true });
+  mkdirSync(readingsFile(stateDir)); // the readings path is a directory
+  try {
+    board([issue(10)]);
+    const { rc, lines } = await run({ env: { FAKE_CLAUDE_RATES: '0.1' } });
+    assert.equal(rc, 0);
+    assert.ok(lines.some((l) => /could not record a usage reading/.test(l)));
+    assert.equal(byNum(10).state, 'CLOSED');
+  } finally { rmSync(readingsFile(stateDir), { recursive: true, force: true }); }
 });
