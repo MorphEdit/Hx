@@ -1,4 +1,16 @@
-# Hx
+<p align="center">
+  <img src="docs/logo.svg" alt="Hx logo" width="128" height="128">
+</p>
+
+<h1 align="center">Hx</h1>
+
+<p align="center"><em>Issues in, merged PRs out. Headless Claude Code workers on a GitHub board, native on Windows.</em></p>
+
+<p align="center">
+  <a href="https://github.com/MorphEdit/Hx/releases"><img alt="Release" src="https://img.shields.io/github/v/release/MorphEdit/Hx"></a>
+  <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue"></a>
+  <img alt="Node 23.6+" src="https://img.shields.io/badge/node-%3E%3D23.6-339933">
+</p>
 
 A Windows-native pool of autonomous Claude Code workers for a GitHub-issues board.
 Inspired by [VocanicZ/Harness](https://github.com/VocanicZ/Harness).
@@ -477,7 +489,8 @@ npm test
 The end-to-end test uses real git (a local bare repo as origin) with fake `gh` and `claude`
 (`test/fakes/`).
 
-See [docs/design.md](docs/design.md) for how Hx relates to Harness and the roadmap.
+See [docs/design.md](docs/design.md) for how Hx relates to Harness and the roadmap, and
+[CONTRIBUTING.md](CONTRIBUTING.md) for how changes are made and released.
 
 ## Credits
 
