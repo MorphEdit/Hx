@@ -11,6 +11,7 @@ import { runGoal, runTurn, type GoalResult, type RateLimit } from './agent.ts';
 import { agentFor, type AgentCli } from './agents/index.ts';
 import { clearLive, otherRunner, readLive, readPause, writeLive, type LiveSession, type LiveState } from './runstate.ts';
 import { fmt, recordUsage, totalTokens } from './usage.ts';
+import { readingOf, recordReading } from './budget.ts';
 import { gateIssueBody, gateIssueTitle, readGate, remoteSha, runGate, writeGate, type GateResult } from './gate.ts';
 import { run as runCmd } from './exec.ts';
 import { acquireSlot, DEFAULT_FLEET_WORKERS, readHold, releaseSlot, writeHold } from './fleet.ts';
@@ -348,6 +349,9 @@ export async function runPool(p: Project, o: PoolOptions): Promise<number> {
       if (high && rl.status !== 'rejected')
         holdUntil(rl.resetsAt ? rl.resetsAt * 1000 : Date.now() + 30 * 60_000,
           `usage ${rl.utilization !== undefined ? Math.round(rl.utilization * 100) + '%' : 'warning'} on the ${rl.type ?? 'current'} window`);
+      // a usage-window reading for the budget gate; failing to record it never stops the run
+      const reading = readingOf(rl, new Date());
+      if (reading) try { recordReading(p.stateDir, reading); } catch (e) { log(`could not record a usage reading: ${(e as Error).message}`); }
     },
   };
   const checkPause = () => {
