@@ -11,7 +11,7 @@ import { runGoal, runTurn, type GoalResult, type RateLimit } from './agent.ts';
 import { agentFor, type AgentCli } from './agents/index.ts';
 import { clearLive, otherRunner, readLive, readPause, writeLive, type LiveSession, type LiveState } from './runstate.ts';
 import { fmt, recordUsage, totalTokens } from './usage.ts';
-import { readingOf, recordReading } from './budget.ts';
+import { actionBudget, budgetFilter, newSkipLines, readBudget, readingOf, recordReading, type Budget } from './budget.ts';
 import { gateIssueBody, gateIssueTitle, readGate, remoteSha, runGate, writeGate, type GateResult } from './gate.ts';
 import { setupLine, type SetupResult } from './setup.ts';
 import { run as runCmd } from './exec.ts';
@@ -219,6 +219,14 @@ export function printPlan(pl: Plan, repo: string): void {
     console.log(`  #${String(r.number).padEnd(8)} ${r.status.padEnd(13)} ${untrustedNote(r)}${r.title.slice(0, 60)}${r.waitingOn.length ? `  waits on ${refs(r.waitingOn)}` : ''}`);
 }
 
+/** The --dry-run `next:` listing: each action with its forecast (`~7%`) when it has one, `(budget: skip)` when the gate would skip it. */
+export function nextListing(actions: Action[], b: Budget, gate: boolean): string {
+  return actions.map((a) => {
+    const { pct, block } = actionBudget(a, b);
+    return `${a.kind} #${target(a)}${pct !== undefined ? ` ~${Math.round(pct)}%` : ''}${gate && block ? ' (budget: skip)' : ''}`;
+  }).join(', ');
+}
+
 export async function runPool(p: Project, o: PoolOptions): Promise<number> {
   const c = p.config;
   // an unknown agentCli stops the run before anything reads the board
@@ -235,7 +243,7 @@ export async function runPool(p: Project, o: PoolOptions): Promise<number> {
   if (o.dryRun) {
     const pl = await readPlan(p, trusted);
     printPlan(pl, c.repo);
-    console.log(pl.actions.length ? `\nnext: ${pl.actions.slice(0, o.workers + 5).map((a) => `${a.kind} #${target(a)}`).join(', ')}` : '\nnothing to do');
+    console.log(pl.actions.length ? `\nnext: ${nextListing(pl.actions.slice(0, o.workers + 5), readBudget(p.stateDir, c, new Date()), c.budgetGate)}` : '\nnothing to do');
     return 0;
   }
   const other = otherRunner(p.stateDir);
@@ -335,6 +343,7 @@ export async function runPool(p: Project, o: PoolOptions): Promise<number> {
   const fleetCap = Number(process.env.HX_FLEET_WORKERS) || DEFAULT_FLEET_WORKERS;
   let idleLogged = false;
   const skipped = new Set<number>(); // untrusted issues / PRDs already logged this run
+  const budgetLogged = new Set<string>(); // budget skips already logged: once per action per window reset
   let failures = 0;
   let engineRetries = 0;
   let fatal: string | undefined; // a setup error: stop claiming, let running sessions finish
@@ -399,6 +408,7 @@ export async function runPool(p: Project, o: PoolOptions): Promise<number> {
       sharedHold(); // another fleet runner's usage hold
       const held = Date.now() < (live.pausedUntil ?? 0);
       let slotBlocked = false; // no fleet slot free: no more sessions this pass, look again within 5 s
+      let budgetBlocked = false; // the budget gate skipped an action: wait for a reading or a reset instead of finishing
       if (!held && !live.draining) {
         try {
           const pl = await readPlan(p, trusted, new Set(inFlight.keys()));
@@ -410,6 +420,13 @@ export async function runPool(p: Project, o: PoolOptions): Promise<number> {
           const fixing = gs.fixIssue !== undefined && inFlight.has(issueKey(gs.fixIssue));
           if (gateRed() && !gateRunning && !fixing && gs.last && (await remoteSha(p.root, c.defaultBranch)) !== gs.last.sha) void gateCheck();
           actions = claimable(pl.actions, { only: o.only, gateRed: gateRed(), fixIssue: gs.fixIssue });
+          if (c.budgetGate) {
+            // the files are read once per pass; a skipped action is looked at again next pass
+            const g = budgetFilter(actions, readBudget(p.stateDir, c, new Date()));
+            actions = g.claim;
+            budgetBlocked = g.skipped.length > 0;
+            for (const l of newSkipLines(g.skipped, budgetLogged)) log(l);
+          }
         } catch (e: any) {
           log(`board read failed, retrying next poll: ${e.message}`);
         }
@@ -439,9 +456,9 @@ export async function runPool(p: Project, o: PoolOptions): Promise<number> {
       if (!inFlight.size && !slotBlocked) {
         if (live.draining) { log('paused — every session has finished'); break; }
         if (finished !== finishedBefore) continue; // the plan predates a session ending: read it again
-        const limited = Date.now() < (live.pausedUntil ?? 0);
+        const limited = Date.now() < (live.pausedUntil ?? 0) || budgetBlocked;
         // an engine step (PRD closed, child labelled) may have unlocked work: re-read before giving up
-        const engineOnly = actions.length > 0 && actions.every((a) => a.kind === 'close-prd' || a.kind === 'label-ready');
+        const engineOnly = !budgetBlocked && actions.length > 0 && actions.every((a) => a.kind === 'close-prd' || a.kind === 'label-ready');
         engineRetries = engineOnly ? engineRetries + 1 : 0;
         if (!o.watch && !limited && (!engineOnly || engineRetries > 3)) {
           log('nothing left to do — done');
@@ -449,7 +466,7 @@ export async function runPool(p: Project, o: PoolOptions): Promise<number> {
           break;
         }
         if (engineOnly) { await sleep(2000, stop.signal); continue; }
-        if (!idleLogged) { log(limited ? 'waiting for the usage limit to reset…' : 'board empty — watching for new issues'); idleLogged = true; }
+        if (!idleLogged) { log(budgetBlocked ? 'budget: waiting for usage to leave room for the next session…' : limited ? 'waiting for the usage limit to reset…' : 'board empty — watching for new issues'); idleLogged = true; }
       }
       // wake on the first finished task, a pause, or after a poll interval (new / unblocked issues, a limit reset)
       if (wakePending) { wakePending = false; continue; } // woken while not waiting: re-read the board now

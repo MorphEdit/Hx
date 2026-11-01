@@ -4,7 +4,7 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import type { RateLimit } from './agent.ts';
 import type { Action } from './state.ts';
-import type { UsageRecord } from './usage.ts';
+import { readUsage, type UsageRecord } from './usage.ts';
 
 /** One reading of a usage window, as the agent CLI reported it. */
 export interface Reading {
@@ -163,4 +163,61 @@ export function gateDecision(forecastUsd: number | undefined, calibration: Calib
     if (usedPct + needPct > capPct) return { window: c.window, needPct, usedPct, capPct, resetsAt: r.resetsAt };
   }
   return null;
+}
+
+/** What the gate decides an action by, read once per loop pass: the readings, the usage records and their calibration. */
+export interface Budget { readings: Reading[]; usage: UsageRecord[]; calibration: Calibration[]; usagePauseAt: number; audit: boolean; now: Date }
+
+/** The budget as of `now`, from `<stateDir>/usage-readings.jsonl` and `usage.jsonl`. */
+export function readBudget(stateDir: string, c: { budgetMinPairs: number; usagePauseAt: number; audit: boolean }, now: Date): Budget {
+  const readings = readReadings(stateDir), usage = readUsage(stateDir);
+  return { readings, usage, calibration: calibrate(readings, usage, c.budgetMinPairs), usagePauseAt: c.usagePauseAt, audit: c.audit, now };
+}
+
+/**
+ * An action's forecast in percent of the tightest calibrated window with a current reading (the one the forecast brings
+ * closest to its cap; undefined when there is no forecast or no such window), and the window that blocks it, if any.
+ */
+export function actionBudget(a: Action, b: Budget): { pct?: number; block: Block | null } {
+  const usd = actionForecast(a, b.usage, { audit: b.audit });
+  if (usd === undefined) return { block: null };
+  let pct: number | undefined, top = -Infinity;
+  for (const c of b.calibration) {
+    if (c.usdPerPct === undefined) continue;
+    const r = currentReading(b.readings, c.window, b.now);
+    if (!r) continue;
+    const need = forecastPct(usd, c.usdPerPct);
+    if (r.utilization * 100 + need > top) { top = r.utilization * 100 + need; pct = need; }
+  }
+  return { pct, block: gateDecision(usd, b.calibration, b.readings, b.usagePauseAt, b.now) };
+}
+
+/** The actions the gate lets through, in order (engine steps always), and the session actions it skips with their block. */
+export function budgetFilter(actions: Action[], b: Budget): { claim: Action[]; skipped: { action: Action; block: Block }[] } {
+  const claim: Action[] = [], skipped: { action: Action; block: Block }[] = [];
+  for (const a of actions) {
+    const block = a.kind === 'close-prd' || a.kind === 'label-ready' ? null : actionBudget(a, b).block;
+    if (block) skipped.push({ action: a, block });
+    else claim.push(a);
+  }
+  return { claim, skipped };
+}
+
+const actionTarget = (a: Action) => ('issue' in a ? a.issue : a.prd);
+
+/** The skip is logged once per action per window reset: the key is the action, the window and that window's resetsAt. */
+export const budgetSkipKey = (a: Action, b: Block) => `${a.kind}#${actionTarget(a)}|${b.window}|${b.resetsAt}`;
+
+export function budgetSkipLine(a: Action, b: Block): string {
+  return `budget: not starting #${actionTarget(a)} ${a.kind} — needs ~${Math.round(b.needPct)}% of ${b.window}, ${Math.round(b.usedPct)}% used, cap ${Math.round(b.capPct)}%`;
+}
+
+/** The skip lines not logged yet; their keys are added to `logged`. */
+export function newSkipLines(skipped: { action: Action; block: Block }[], logged: Set<string>): string[] {
+  return skipped.flatMap(({ action, block }) => {
+    const k = budgetSkipKey(action, block);
+    if (logged.has(k)) return [];
+    logged.add(k);
+    return [budgetSkipLine(action, block)];
+  });
 }

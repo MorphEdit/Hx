@@ -149,6 +149,26 @@ keeps the quality. The guard is the mismatch check: the CLI reports the model th
 outcomes and in `hx status`, so a silent fallback to another model is seen instead of skewing quality or
 token numbers. Checkpoint turns resume the session's own model and do not count.
 
+## Budget gate
+
+`usagePauseAt` stops claiming only once a window is already full, so the last sessions started below it
+can still run it out. The budget gate (PRD #130) asks before each claim whether the session fits. Every
+usage-window reading the CLI reports is appended to `.hx/usage-readings.jsonl` (deduplicated against the
+file's last reading of that window). Calibration pairs consecutive readings of a window with the same
+`resetsAt` and a rise; the cost of every usage record between them, checkpoints included, divided by the
+rise gives dollars per 1%. A window is calibrated once it has `budgetMinPairs` such pairs, and its rate
+is the p20 of the fits: a low rate gives a high percentage, so the gate errs on the side of skipping. A
+role's forecast is the p80 of its past session costs (every role's sessions when it has fewer than three;
+none when there are fewer than three in all). An action's forecast is the sum of the roles it starts in
+one round: impl + audit when audit is on, critic + revise for the gauntlet, the role itself otherwise;
+engine steps (`close-prd`, `label-ready`) have none and are never gated. Percentiles are nearest-rank, so
+every one is a cost that was actually seen. The gate skips an action when, in any calibrated window with an
+unexpired reading, used% + forecast% passes `usagePauseAt`; a reading past its `resetsAt` counts as 0%.
+A skipped action is looked at again on the next poll, later actions that fit are claimed in order, and
+running sessions are never stopped. No forecast or no calibrated window means no gate: with too little
+history Hx claims exactly as before. The pure functions live in `src/budget.ts`; the claim loop reads the
+two files once per pass.
+
 ## Token optimisation (phase 4)
 
 Measured before (see the [benchmark](../README.md#benchmark), `bench/results/phase3/`):

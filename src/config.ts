@@ -53,6 +53,7 @@ export interface Config {
   gate: boolean; // test the default branch after every merge; while red, claim only the fix
   gateCommand: string; // the gate's test command ('' = learned from the first audited merge)
   usagePauseAt: number; // 0..1: claim nothing new once a usage window is this full, until it resets
+  budgetGate: boolean; // before claiming a session, skip it when its forecast would take a calibrated usage window past usagePauseAt
   budgetMinPairs: number; // usable reading pairs a usage window needs before its dollars-per-1% rate is trusted (calibrated)
   checkpointMinutes: number; // time a stopped session gets to commit, push and write its handoff
   turnTimeoutMinutes: number;
@@ -96,6 +97,7 @@ export const DEFAULTS: Omit<Config, 'repo' | 'defaultBranch' | 'worktreeRoot'> =
   gate: true,
   gateCommand: '',
   usagePauseAt: 0.9,
+  budgetGate: true,
   budgetMinPairs: 5,
   checkpointMinutes: 10,
   turnTimeoutMinutes: 45,
