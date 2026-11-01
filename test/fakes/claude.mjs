@@ -88,8 +88,9 @@ process.stdin.on('data', (d) => (prompt += d)).on('end', () => {
   st.turns++;
   writeFileSync(counter, JSON.stringify(st));
   writeFileSync(path.join(process.env.HX_FAKE_DIR, `${sid}.prompt-${st.turns}.txt`), prompt);
-  // the session's HX_TRUSTED, for the tests that every session gets the trusted set
-  writeFileSync(path.join(process.env.HX_FAKE_DIR, `${sid}.env-${st.turns}.json`), JSON.stringify({ role: st.role, checkpoint: /HX CHECKPOINT/.test(prompt), trusted: process.env.HX_TRUSTED ?? null, path: process.env.PATH ?? null }));
+  // the session's HX_TRUSTED, PATH, --model and --effort, for the tests of what every session gets
+  writeFileSync(path.join(process.env.HX_FAKE_DIR, `${sid}.env-${st.turns}.json`), JSON.stringify({ role: st.role, checkpoint: /HX CHECKPOINT/.test(prompt), trusted: process.env.HX_TRUSTED ?? null, path: process.env.PATH ?? null,
+    model: a.includes('--model') ? a[a.indexOf('--model') + 1] : null, effort: a.includes('--effort') ? a[a.indexOf('--effort') + 1] : null }));
   if (a.includes('--resume') !== st.turns > 1) { process.stderr.write('resume flag mismatch'); process.exit(4); }
   const checkpoint = /HX CHECKPOINT/.test(prompt);
   // FAKE_CLAUDE_RATE=<0..1>: report that much of the five-hour window used, resetting in FAKE_CLAUDE_RESET_S (default 2) seconds

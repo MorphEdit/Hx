@@ -2,7 +2,7 @@ import { execFile } from 'node:child_process';
 import { appendFileSync, mkdirSync, readFileSync, renameSync, statSync, unwatchFile, watchFile, type Stats } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { effectiveRtddBin, labelSpecs, workerArgs, type LabelSpec, type Project } from './config.ts';
+import { effectiveRtddBin, formatRoleModels, labelSpecs, roleModel, roleModelMap, roleModelsError, workerArgs, type LabelSpec, type Project } from './config.ts';
 import * as gh from './github.ts';
 import type { Issue } from './github.ts';
 import { claimable, externalRefs, fenceFindings, isTrusted, issueKey, parseParent, plan, prdKey, refKey, render, TRIAGE_MARKER, triageVerdict, trustedSet, type Action, type Plan } from './state.ts';
@@ -220,6 +220,9 @@ export async function runPool(p: Project, o: PoolOptions): Promise<number> {
   // an unknown agentCli stops the run before anything reads the board
   const agent = agentFor(c.agentCli);
   setRunLog(runLogFile(p.stateDir));
+  // a bad roleModels stops the run before anything reads or claims the board
+  const badModels = roleModelsError(c.roleModels);
+  if (badModels) { log(`STOPPED: ${badModels}`); return 2; }
   // who may put work on the board: looked up once per run; without it nothing is read or claimed
   let trusted: Set<string>;
   try { trusted = await lookupTrusted(c); } catch (e: any) { log(`STOPPED: ${e.message}`); return 2; }
@@ -239,11 +242,14 @@ export async function runPool(p: Project, o: PoolOptions): Promise<number> {
     { checks: { ...SKILL_CHECKS, rtdd: rtddCheck(p.root, c.defaultBranch, effectiveRtddBin(c)) } });
   for (const l of skills.lines) log(l);
   log(skillsLogLine(skills.byRole));
+  const models = roleModelMap(c);
+  const differ = formatRoleModels(models, c);
+  if (differ) log(`models: ${differ}`);
 
   // Ctrl+C (o.signal) and `hx pause --now` both stop running sessions with a checkpoint
   const stop = new AbortController();
   o.signal.addEventListener('abort', () => stop.abort(), { once: true });
-  const live: LiveState = { pid: process.pid, startedAt: new Date().toISOString(), repo: c.repo, workers: o.workers, sessions: [], skills: skillNames(skills.byRole) };
+  const live: LiveState = { pid: process.pid, startedAt: new Date().toISOString(), repo: c.repo, workers: o.workers, sessions: [], skills: skillNames(skills.byRole), models };
   const save = () => { try { writeLive(p.stateDir, live); } catch {} };
   // a crash mid-write can leave an hx branch ref full of NUL bytes: repair it before anything uses the branch
   await repairBrokenRefs(p.root, c.worktreeRoot, (m) => log(m)).catch((e) => log(`could not check branch refs: ${e.message}`));
@@ -568,8 +574,9 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
     const v = { ...vars, ...extra, PROMISE: promise };
     // the role's skills go after the rendered prompt (never rendered themselves); the continue prompt gets none
     const skills = ctx.skills?.[role] ?? [];
+    const m = roleModel(c, role);
     return runGoal({
-      agent, bin: agent.bin(c), cwd, model: c.model, effort: c.effort, extraArgs: workerArgs(c), timeoutMs: c.turnTimeoutMinutes * 60_000,
+      agent, bin: agent.bin(c), cwd, model: m.model, effort: m.effort, extraArgs: workerArgs(c), timeoutMs: c.turnTimeoutMinutes * 60_000,
       stallMs: c.stallMinutes * 60_000,
       prompt: appendSkills(render(readFileSync(path.join(PROMPTS, promptFile), 'utf8'), v), skills, PROMPTS),
       continuePrompt: render(readFileSync(path.join(PROMPTS, 'continue.md'), 'utf8'), v),
@@ -580,7 +587,7 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
       onTurn: (i, sessionId, t) => {
         sessionTokens += totalTokens(t.usage);
         ctx.progress(key, i, sessionTokens);
-        recordUsage(p.stateDir, { ts: new Date().toISOString(), issue: n, role, sessionId, iteration: i, model: c.model,
+        recordUsage(p.stateDir, { ts: new Date().toISOString(), issue: n, role, sessionId, iteration: i, model: m.model,
           ok: t.ok, usage: t.usage, costUsd: t.costUsd, durationMs: t.durationMs, numTurns: t.numTurns });
         log(`${role} turn ${i}: ${t.ok ? 'ok' : 'error'} · ${fmt(totalTokens(t.usage))} tokens (${fmt(t.usage.output)} out) · ${Math.round(t.durationMs / 1000)}s${t.error ? ` · ${t.error.slice(0, 160)}` : ''}`, n);
       },
@@ -687,7 +694,7 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
   if (!audited) {
     const r = await goal(a.kind, wt.dir, `${a.kind}.md`, promise);
     const summary = `${r.iterations} turn(s), ${fmt(totalTokens(r.usage))} tokens`;
-    if (r.stopReason === 'aborted' && a.kind === 'impl' && r.iterations > 0) await checkpoint(p, agent, n, r.sessionId, wt.dir, vars, eventLog, env);
+    if (r.stopReason === 'aborted' && a.kind === 'impl' && r.iterations > 0) await checkpoint(p, agent, n, 'impl', r.sessionId, wt.dir, vars, eventLog, env);
     if (stopped(r)) return handBack(r, summary);
     const why = await verify(p, a, n, ctx.trusted, before);
     if (!why) {
@@ -710,7 +717,7 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
   for (let attempt = 1; ; attempt++) {
     const r = await goal('impl', wt.dir, 'impl.md', promise, extra);
     let summary = `${fmt(sessionTokens)} tokens so far`;
-    if (r.stopReason === 'aborted' && r.iterations > 0) await checkpoint(p, agent, n, r.sessionId, wt.dir, vars, eventLog, env);
+    if (r.stopReason === 'aborted' && r.iterations > 0) await checkpoint(p, agent, n, 'impl', r.sessionId, wt.dir, vars, eventLog, env);
     if (stopped(r)) return handBack(r, summary);
     const pr = r.done ? await findOpenPr(c.repo, `issue/${n}`) : null;
     if (!pr) return fail(r, r.done ? 'the implementer reported ready but no open PR for its branch exists'
@@ -801,15 +808,16 @@ function mergeAudited(cwd: string): Promise<{ ok: boolean; retry: boolean; code:
  * The run is stopping mid-session: resume the session once more and have it commit and push its
  * WIP and leave a handoff comment, so the next session picks up where this one stopped.
  */
-async function checkpoint(p: Project, agent: AgentCli, n: number, sessionId: string, cwd: string, vars: Record<string, string | number>, eventLog: string,
+async function checkpoint(p: Project, agent: AgentCli, n: number, role: string, sessionId: string, cwd: string, vars: Record<string, string | number>, eventLog: string,
   env: Record<string, string>): Promise<void> {
   const c = p.config;
+  const m = roleModel(c, role); // the resumed session's model and effort
   log('checkpointing: committing WIP and writing a handoff note…', n);
-  const t = await runTurn({ agent, bin: agent.bin(c), cwd, model: c.model, effort: c.effort, extraArgs: workerArgs(c),
+  const t = await runTurn({ agent, bin: agent.bin(c), cwd, model: m.model, effort: m.effort, extraArgs: workerArgs(c),
     timeoutMs: c.checkpointMinutes * 60_000, stallMs: c.stallMinutes * 60_000, sessionId, resume: true, env,
     prompt: render(readFileSync(path.join(PROMPTS, 'checkpoint.md'), 'utf8'), vars),
     onEvent: (ev) => appendFileSync(eventLog, JSON.stringify(ev) + '\n') });
-  recordUsage(p.stateDir, { ts: new Date().toISOString(), issue: n, role: 'checkpoint', sessionId, iteration: 0, model: c.model,
+  recordUsage(p.stateDir, { ts: new Date().toISOString(), issue: n, role: 'checkpoint', sessionId, iteration: 0, model: m.model,
     ok: t.ok, usage: t.usage, costUsd: t.costUsd, durationMs: t.durationMs, numTurns: t.numTurns });
   log(t.ok ? `checkpoint saved (${fmt(totalTokens(t.usage))} tokens)` : `checkpoint failed: ${t.error?.slice(0, 160)} — the worktree still has the work`, n);
 }

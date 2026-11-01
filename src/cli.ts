@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { createInterface } from 'node:readline';
-import { DEFAULTS, defaultWorktreeRoot, effectiveRtddBin, findProjectRoot, labelSpecs, loadProject, saveConfig, STATE_DIR, type Config } from './config.ts';
+import { DEFAULTS, defaultWorktreeRoot, effectiveRtddBin, findProjectRoot, formatRoleModels, labelSpecs, loadProject, saveConfig, STATE_DIR, type Config } from './config.ts';
 import * as gh from './github.ts';
 import { resolveCmd, run, runOk } from './exec.ts';
 import { log, lookupTrusted, printPlan, readPlan, runPool, trustedEnv } from './pool.ts';
@@ -305,6 +305,8 @@ async function status(p = loadProject()): Promise<number> {
     for (const s of live.sessions)
       console.log(`         #${String(s.number).padEnd(5)} ${s.kind.padEnd(9)} ${ago(s.since).padStart(7)}  turn ${s.turn}  ${fmt(s.tokens)} tok  ${s.title.slice(0, 50)}`);
     if (live.skills) console.log(`skills   ${formatSkills(live.skills)}`);
+    const models = live.models ? formatRoleModels(live.models, c) : '';
+    if (models) console.log(`models   ${models}`);
     if (live.pausedUntil && live.pausedUntil > Date.now())
       console.log(`         no new claims until ${new Date(live.pausedUntil).toLocaleTimeString()} (${live.pauseReason})`);
     if (live.rateLimit) {

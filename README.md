@@ -413,12 +413,31 @@ Limitations:
 
 The full suite stays the final word: `ship.mjs` runs it before every PR, and the CI gate after every merge.
 
+## Models per role
+
+Every session runs with `model` and `effort` unless `roleModels` gives its role its own:
+
+```json
+"roleModels": { "impl": { "model": "claude-sonnet-5-5" }, "audit": { "model": "claude-sonnet-5-5", "effort": "high" } }
+```
+
+- Roles: `impl`, `audit`, `triage`, `decompose`, `critic`, `revise`, `review`, `security`. A field left out
+  falls back to the top-level one; `effort` must be one of `low`, `medium`, `high`, `xhigh`, `max`.
+- `hx run` checks `roleModels` before it claims anything and stops with the reason when it is wrong.
+- A checkpoint resumes its session with that session's model; continue turns keep it too.
+- `hx run` logs the roles that differ (`models: impl claude-sonnet-5-5/medium, …`), `hx status` shows them, and
+  `live.json` holds the whole map as `models`.
+
+The default is `{}`: every role on `model` and `effort`, as before. A cheaper model on `impl` or `audit`
+saves tokens but can cost quality — check it with the benchmark before it becomes a default.
+
 ## Config (`.hx/config.json`)
 
 | key | default | |
 |---|---|---|
 | `trustedAuthors` | `[]` | accounts besides the gh login whose issues and PRDs hx works on (case-insensitive); anything opened by anyone else is skipped and shown as `untrusted` |
 | `roleSkills` | `{"impl":["rtdd"],"audit":["rtdd"]}` | role → skills (`SKILL.md` from `<repo>/.claude/skills`, `~/.claude/skills`, `<repo>/.agents/skills`) appended to its prompt, resolved once per `hx run` (logged, and in `live.json`); `{}` = none. rtdd is used only when `.rtdd/config.yaml` is on `origin/<defaultBranch>` and `rtddBin --version` works; its sessions get `prompts/skills/rtdd.md` too, and a path `rtddBin` its directory first on `PATH` |
+| `roleModels` | `{}` | role (`impl`, `audit`, `triage`, `decompose`, `critic`, `revise`, `review`, `security`) → `{ "model", "effort" }` for its sessions; a field left out uses `model` / `effort` (see [Models per role](#models-per-role)) |
 | `skillMaxChars` | `12000` | a skill whose `SKILL.md` body (front matter and HTML comments stripped) is longer is skipped |
 | `rtddBin` | `"rtdd"` | the `rtdd` command (`HX_RTDD_BIN` overrides it) |
 | `workers` | 2 | sessions running in parallel |
