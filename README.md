@@ -131,7 +131,10 @@ npm link
 ```bash
 cd <your repo>
 hx init                 # writes .hx/config.json and creates the GitHub labels; --rtdd also runs
-                        # rtdd init in the repo root (commit .rtdd/), without it a hint if rtdd is installed
+                        # rtdd init in the repo root (commit .rtdd/), without it a hint if rtdd is installed;
+                        # an unset worktreeSetup comes from the first lockfile (pnpm-lock.yaml → pnpm install
+                        # --frozen-lockfile, package-lock.json → npm ci, …), an unset worktreeCopy is [".env"]
+                        # when .env is git-ignored
 hx bug "status hangs"   # file a bug issue (label bug, text or a .md file; --title T); hx run triages it
 hx prd feature.md       # file a PRD issue (title from the file's first "# " line)
 hx grill "dark mode"    # an interactive claude session interviews you into a PRD (idea: text or a .md file),
