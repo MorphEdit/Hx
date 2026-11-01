@@ -465,6 +465,7 @@ and the dashboard's per-model numbers use it). To spot one:
 | `gate` | `true` | test the default branch after every merge; while red, claim only its fix |
 | `gateCommand` | `""` | the gate's test command (empty: learned from the first audited merge) |
 | `usagePauseAt` | 0.9 | claim nothing new once a usage window is this full (0..1) |
+| `budgetMinPairs` | 5 | pairs of rising usage-window readings (each with the usage cost spent between them) a window needs before its dollars-per-1% rate is calibrated and used to forecast |
 | `checkpointMinutes` | 10 | time a stopped session gets to commit, push and write its handoff |
 | `turnTimeoutMinutes` | 45 | wall-clock limit for one turn |
 | `stallMinutes` | 15 | a turn with no stdout for this long is killed (0 = off) |
