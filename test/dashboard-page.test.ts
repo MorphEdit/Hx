@@ -94,23 +94,25 @@ class E extends N {
   getAttribute(k: string) { return this.attrs.get(k) ?? null; }
   all(): E[] { return this.childNodes.flatMap((c) => (c instanceof E ? [c, ...c.all()] : [])); }
 }
-function page(state: object | (() => object | null), board: object | null) {
+function page(state: object | (() => object | null), board: object | null, pathname = '/') {
   const root = new E('body');
   const ids = new Map<string, E>();
-  for (const id of ['repo', 'status', 'now-body', 'board-body', 'stats-body', 'log']) ids.set(id, root.appendChild(new E('div')) as E);
+  for (const id of ['back', 'repo', 'status', 'now-body', 'board-body', 'stats-body', 'log']) ids.set(id, root.appendChild(new E('div')) as E);
   const timers: (() => void)[] = [];
   const document = {
     getElementById: (id: string) => ids.get(id) ?? null,
     createElement: (t: string) => new E(t), createElementNS: (ns: string, t: string) => new E(t, ns), createTextNode: (s: string) => new T(s),
     querySelectorAll: (sel: string) => root.all().filter((e) => sel === '[data-since]' && e.attrs.has('data-since')),
   };
+  const fetched: string[] = [];
   const fetch = async (url: string) => {
-    const body = url === '/api/state' ? (typeof state === 'function' ? state() : state) : board;
+    fetched.push(url);
+    const body = url === 'api/state' ? (typeof state === 'function' ? state() : state) : board;
     if (!body) throw new Error('offline');
     return { ok: true, status: 200, json: async () => JSON.parse(JSON.stringify(body)) };
   };
-  vm.runInNewContext(script, { document, fetch, Node: N, setInterval: (f: () => void) => { timers.push(f); return 0; }, console });
-  return { root, ids, tick: () => timers.forEach((f) => f()), flush: () => new Promise((r) => setTimeout(r, 20)) };
+  vm.runInNewContext(script, { document, fetch, location: { pathname }, Node: N, setInterval: (f: () => void) => { timers.push(f); return 0; }, console });
+  return { root, ids, fetched, tick: () => timers.forEach((f) => f()), flush: () => new Promise((r) => setTimeout(r, 20)) };
 }
 const text = (e: E) => e.textContent;
 const links = (e: E) => e.all().filter((x) => x.tag === 'a').map((a) => a.getAttribute('href'));
@@ -198,4 +200,29 @@ test('a failed fetch shows "offline" and keeps the last data', E2E, async () => 
   assert.match(text(p.ids.get('status')!), /^offline · last updated \d\d:\d\d:\d\d$/);
   assert.equal(text(p.ids.get('log')!), 'kept line');
   assert.match(text(p.ids.get('now-body')!), /not running/);
+});
+
+test('the page fetches only relative api/ paths, so it works at / and under /repo/<k>/', E2E, async () => {
+  assert.ok(!html.includes("'/api/"), "no '/api/ string remains");
+  const urls = [...script.matchAll(/\b(?:fetch|getJson)\(\s*(['"`])([^'"`]*)\1/g)].map((m) => m[2]);
+  assert.deepEqual(urls.sort(), ['api/board', 'api/state']);
+  assert.doesNotMatch(script, /\b(?:fetch|getJson)\(\s*['"`]\//, 'no fetch path starts with /');
+  const p = page({ repo: 'me/app', runner: { running: false }, sessions: [], gate: null, usage: {}, outcomes: {}, log: [] }, { repo: 'me/app', prds: [], board: [] });
+  await p.flush();
+  assert.deepEqual(p.fetched, ['api/state', 'api/board']);
+});
+
+test('a back link to ../../ shows only when the page is at /repo/<k>/', E2E, async () => {
+  const s = { repo: 'me/app', runner: { running: false }, sessions: [], gate: null, usage: {}, outcomes: {}, log: [] };
+  const back = (pathname: string) => { const p = page(s, null, pathname); return p.ids.get('back')! as E & { hidden?: boolean }; };
+  const at = back('/repo/3/');
+  assert.deepEqual(links(at), ['../../']);
+  assert.equal(text(at), '← all repos');
+  assert.equal(at.hidden, false);
+  for (const p of ['/', '/repo/', '/repo/x/', '/repo/3', '/repo/3/api/state', '/a/repo/3/', '/repo/3//']) {
+    const b = back(p);
+    assert.deepEqual(b.childNodes, [], p);
+    assert.notEqual(b.hidden, false, p);
+  }
+  assert.match(html, /<nav id="back"[^>]*\bhidden\b/, 'hidden in the markup, so plain hx dashboard looks as before');
 });

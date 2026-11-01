@@ -38,6 +38,7 @@ svg rect { fill: var(--bar); }
 </style>
 </head>
 <body>
+<nav id="back" class="note" hidden></nav>
 <header>
   <h1>hx dashboard</h1>
   <span id="repo" class="mute"></span>
@@ -244,7 +245,7 @@ async function getJson(url) {
 }
 async function pollState() {
   try {
-    const s = await getJson('/api/state');
+    const s = await getJson('api/state');
     repo = String(s.repo ?? '');
     $('repo').textContent = repo;
     renderNow(s); renderStats(s); renderLog(s.log);
@@ -253,8 +254,14 @@ async function pollState() {
   status();
 }
 async function pollBoard() {
-  try { const b = await getJson('/api/board'); if (!repo) repo = String(b.repo ?? ''); renderBoard(b); }
+  try { const b = await getJson('api/board'); if (!repo) repo = String(b.repo ?? ''); renderBoard(b); }
   catch { failing = true; status(); }
+}
+// Mounted under /repo/<k>/ of the fleet dashboard: a link back to the overview. At / nothing shows.
+if (/^\/repo\/\d+\/$/.test(location.pathname)) {
+  const back = $('back');
+  fill(back, el('a', { href: '../../' }, '← all repos'));
+  back.hidden = false;
 }
 pollState().then(pollBoard);
 setInterval(pollState, 5000);
