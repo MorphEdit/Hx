@@ -104,7 +104,12 @@ process.stdin.on('data', (d) => (prompt += d)).on('end', () => {
 function reply(text) {
   out({ type: 'system', subtype: 'init' });
   out({ type: 'assistant', message: { content: [{ type: 'text', text }] } });
-  out({ type: 'result', subtype: 'success', is_error: false, result: text, num_turns: 3, usage, total_cost_usd: 0.01 });
+  // FAKE_CLAUDE_RAN=<model>: the result's modelUsage holds two models, a small side model first and <model> with more output
+  const ran = process.env.FAKE_CLAUDE_RAN;
+  const modelUsage = ran ? { modelUsage: {
+    'claude-haiku-4-5-20251001': { inputTokens: 900, outputTokens: 20, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, costUSD: 0.001 },
+    [ran]: { inputTokens: 10, outputTokens: 200, cacheReadInputTokens: 5000, cacheCreationInputTokens: 1000, costUSD: 0.009 } } } : {};
+  out({ type: 'result', subtype: 'success', is_error: false, result: text, num_turns: 3, usage, total_cost_usd: 0.01, ...modelUsage });
 }
 
 function finish(st, checkpoint, prompt) {

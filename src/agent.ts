@@ -30,6 +30,7 @@ export interface TurnResult {
   fatal?: boolean; // the setup is wrong (unknown model, auth): every session would fail the same way
   timedOut?: boolean;
   stalled?: boolean; // killed after stallMs without a line on stdout
+  actualModel?: string; // the model that did the turn's work, as the CLI reported it (unset = not reported)
 }
 
 export interface TurnOptions {

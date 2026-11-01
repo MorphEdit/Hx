@@ -2,7 +2,7 @@ import { execFile } from 'node:child_process';
 import { appendFileSync, mkdirSync, readFileSync, renameSync, statSync, unwatchFile, watchFile, type Stats } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { effectiveRtddBin, formatRoleModels, labelSpecs, roleModel, roleModelMap, roleModelsError, workerArgs, type LabelSpec, type Project } from './config.ts';
+import { effectiveRtddBin, formatRoleModels, labelSpecs, modelMatches, roleModel, roleModelMap, roleModelsError, workerArgs, type LabelSpec, type Project } from './config.ts';
 import * as gh from './github.ts';
 import type { Issue } from './github.ts';
 import { claimable, externalRefs, fenceFindings, isTrusted, issueKey, parseParent, plan, prdKey, refKey, render, TRIAGE_MARKER, triageVerdict, trustedSet, type Action, type Plan } from './state.ts';
@@ -575,6 +575,7 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
     // the role's skills go after the rendered prompt (never rendered themselves); the continue prompt gets none
     const skills = ctx.skills?.[role] ?? [];
     const m = roleModel(c, role);
+    let mismatched = false;
     return runGoal({
       agent, bin: agent.bin(c), cwd, model: m.model, effort: m.effort, extraArgs: workerArgs(c), timeoutMs: c.turnTimeoutMinutes * 60_000,
       stallMs: c.stallMinutes * 60_000,
@@ -588,7 +589,11 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
         sessionTokens += totalTokens(t.usage);
         ctx.progress(key, i, sessionTokens);
         recordUsage(p.stateDir, { ts: new Date().toISOString(), issue: n, role, sessionId, iteration: i, model: m.model,
-          ok: t.ok, usage: t.usage, costUsd: t.costUsd, durationMs: t.durationMs, numTurns: t.numTurns });
+          ...(t.actualModel ? { actualModel: t.actualModel } : {}), ok: t.ok, usage: t.usage, costUsd: t.costUsd, durationMs: t.durationMs, numTurns: t.numTurns });
+        if (t.actualModel && !mismatched && !modelMatches(m.model, t.actualModel)) {
+          mismatched = true; // once per session; the session goes on
+          log(`model mismatch: ${role} asked ${m.model}, ran ${t.actualModel}`, n);
+        }
         log(`${role} turn ${i}: ${t.ok ? 'ok' : 'error'} · ${fmt(totalTokens(t.usage))} tokens (${fmt(t.usage.output)} out) · ${Math.round(t.durationMs / 1000)}s${t.error ? ` · ${t.error.slice(0, 160)}` : ''}`, n);
       },
     });
@@ -818,7 +823,7 @@ async function checkpoint(p: Project, agent: AgentCli, n: number, role: string, 
     prompt: render(readFileSync(path.join(PROMPTS, 'checkpoint.md'), 'utf8'), vars),
     onEvent: (ev) => appendFileSync(eventLog, JSON.stringify(ev) + '\n') });
   recordUsage(p.stateDir, { ts: new Date().toISOString(), issue: n, role: 'checkpoint', sessionId, iteration: 0, model: m.model,
-    ok: t.ok, usage: t.usage, costUsd: t.costUsd, durationMs: t.durationMs, numTurns: t.numTurns });
+    ...(t.actualModel ? { actualModel: t.actualModel } : {}), ok: t.ok, usage: t.usage, costUsd: t.costUsd, durationMs: t.durationMs, numTurns: t.numTurns });
   log(t.ok ? `checkpoint saved (${fmt(totalTokens(t.usage))} tokens)` : `checkpoint failed: ${t.error?.slice(0, 160)} — the worktree still has the work`, n);
 }
 

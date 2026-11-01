@@ -9,7 +9,8 @@ export interface UsageRecord {
   role: string; // impl (phase 1); decompose/review later
   sessionId: string;
   iteration: number;
-  model: string;
+  model: string; // the model asked for
+  actualModel?: string; // the model that ran the turn, when the CLI reported it
   ok: boolean;
   usage: Usage;
   costUsd: number;
