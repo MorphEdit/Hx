@@ -1,6 +1,6 @@
 // The worktree setup step: copy the untracked local files a fresh worktree lacks (config.worktreeCopy), keep
 // them out of git, then run config.worktreeSetup (e.g. `npm ci`) in it. Sessions and the gate call it.
-import { appendFileSync, cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import type { Config } from './config.ts';
 import { run, runOk, runShell } from './exec.ts';
@@ -96,6 +96,11 @@ export function writeSetupRecord(stateDir: string, name: string, r: SetupResult)
   mkdirSync(path.join(stateDir, 'logs'), { recursive: true });
   const rec: SetupRecord = { command: r.command, ok: r.ok, exit: r.exit, timedOut: r.timedOut, tail: r.tail, at: new Date().toISOString() };
   writeFileSync(recordFile(stateDir, name), JSON.stringify(rec, null, 2) + '\n');
+}
+
+/** Removes the record of worktree `name` (if any), so a setup that never finishes leaves none behind. */
+export function clearSetupRecord(stateDir: string, name: string): void {
+  rmSync(recordFile(stateDir, name), { force: true });
 }
 
 /** The last setup of worktree `name`, or undefined when there is none (or it cannot be read). */
