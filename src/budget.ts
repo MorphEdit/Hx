@@ -221,3 +221,29 @@ export function newSkipLines(skipped: { action: Action; block: Block }[], logged
     return [budgetSkipLine(action, block)];
   });
 }
+
+/** One usage window as `hx status`, live.json and the dashboard show it. */
+export interface BudgetWindow { window: string; utilization: number; resetsAt: number; usdPerPct?: number; pairs: number }
+
+/**
+ * One entry per window with a reading (in calibration order): its current utilization (0 once resetsAt has passed),
+ * resetsAt, the usable pairs and usdPerPct once calibrated.
+ */
+export function budgetWindows(readings: Reading[], usage: UsageRecord[], minPairs: number, now: Date): BudgetWindow[] {
+  return calibrate(readings, usage, minPairs).flatMap((c) => {
+    const r = currentReading(readings, c.window, now);
+    if (!r) return [];
+    const w: BudgetWindow = { window: c.window, utilization: r.utilization, resetsAt: r.resetsAt, pairs: c.pairs };
+    if (c.usdPerPct !== undefined) w.usdPerPct = c.usdPerPct;
+    return [w];
+  });
+}
+
+/** The windows from `<stateDir>/usage-readings.jsonl` and `usage.jsonl`. */
+export const readBudgetWindows = (stateDir: string, minPairs: number, now: Date) => budgetWindows(readReadings(stateDir), readUsage(stateDir), minPairs, now);
+
+/** `budget five_hour: 85% used, $0.42 per 1% (n=12 pairs)` or `budget five_hour: 85% used, uncalibrated (n=2 pairs, needs 5)`. */
+export function budgetLine(w: BudgetWindow, minPairs: number): string {
+  const rate = w.usdPerPct !== undefined ? `$${w.usdPerPct.toFixed(2)} per 1% (n=${w.pairs} pairs)` : `uncalibrated (n=${w.pairs} pairs, needs ${minPairs})`;
+  return `budget ${w.window}: ${Math.round(w.utilization * 100)}% used, ${rate}`;
+}

@@ -11,7 +11,7 @@ import { runGoal, runTurn, type GoalResult, type RateLimit } from './agent.ts';
 import { agentFor, type AgentCli } from './agents/index.ts';
 import { clearLive, otherRunner, readLive, readPause, writeLive, type LiveSession, type LiveState } from './runstate.ts';
 import { fmt, recordUsage, totalTokens } from './usage.ts';
-import { actionBudget, budgetFilter, newSkipLines, readBudget, readingOf, recordReading, type Budget } from './budget.ts';
+import { actionBudget, budgetFilter, newSkipLines, readBudget, readBudgetWindows, readingOf, recordReading, type Budget } from './budget.ts';
 import { gateIssueBody, gateIssueTitle, readGate, remoteSha, runGate, writeGate, type GateResult } from './gate.ts';
 import { setupLine, type SetupResult } from './setup.ts';
 import { run as runCmd } from './exec.ts';
@@ -355,6 +355,11 @@ export async function runPool(p: Project, o: PoolOptions): Promise<number> {
     if (fleetDir && !shared) writeHold(fleetDir, { until, reason: why, repo: c.repo });
     log(`${why} — no new claims until ${new Date(until).toLocaleTimeString()}`);
   };
+  // live.budget: the usage windows as hx status shows them, refreshed on a new reading and on each loop pass
+  const showBudget = () => {
+    try { live.budget = { windows: readBudgetWindows(p.stateDir, c.budgetMinPairs, new Date()) }; } catch (e) { log(`could not read the budget: ${(e as Error).message}`); }
+    save();
+  };
   const sharedHold = () => {
     const h = fleetDir ? readHold(fleetDir) : null;
     if (h) holdUntil(h.until, `shared hold from ${h.repo}: ${h.reason}`, true);
@@ -378,7 +383,7 @@ export async function runPool(p: Project, o: PoolOptions): Promise<number> {
           `usage ${rl.utilization !== undefined ? Math.round(rl.utilization * 100) + '%' : 'warning'} on the ${rl.type ?? 'current'} window`);
       // a usage-window reading for the budget gate; failing to record it never stops the run
       const reading = readingOf(rl, new Date());
-      if (reading) try { recordReading(p.stateDir, reading); } catch (e) { log(`could not record a usage reading: ${(e as Error).message}`); }
+      if (reading) try { if (recordReading(p.stateDir, reading)) showBudget(); } catch (e) { log(`could not record a usage reading: ${(e as Error).message}`); }
     },
   };
   const checkPause = () => {
@@ -406,6 +411,7 @@ export async function runPool(p: Project, o: PoolOptions): Promise<number> {
       const finishedBefore = finished;
       checkPause(); // the 1 s watcher may not have seen a pause written as a session ended: it must win over the next claim
       sharedHold(); // another fleet runner's usage hold
+      showBudget();
       const held = Date.now() < (live.pausedUntil ?? 0);
       let slotBlocked = false; // no fleet slot free: no more sessions this pass, look again within 5 s
       let budgetBlocked = false; // the budget gate skipped an action: wait for a reading or a reset instead of finishing
