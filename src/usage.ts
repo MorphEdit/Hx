@@ -1,6 +1,7 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import type { Usage } from './agent.ts';
+import { modelMatches } from './config.ts';
 
 /** One line per Claude turn: the raw material for `hx usage` and for later token optimisation. */
 export interface UsageRecord {
@@ -33,6 +34,11 @@ export function readUsage(stateDir: string): UsageRecord[] {
   return readFileSync(f, 'utf8').split('\n').filter(Boolean).flatMap((l) => {
     try { return [JSON.parse(l)]; } catch { return []; }
   });
+}
+
+/** Sessions with a non-checkpoint turn whose reported model is not the one asked for (records without `actualModel` never count). */
+export function mismatchedSessions(recs: UsageRecord[]): number {
+  return new Set(recs.filter((r) => r.role !== 'checkpoint' && r.actualModel && !modelMatches(r.model, r.actualModel)).map((r) => r.sessionId)).size;
 }
 
 /** The local date (machine time zone) of an ISO timestamp, `YYYY-MM-DD`: how usage is grouped by day. */

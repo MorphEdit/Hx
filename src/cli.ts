@@ -15,7 +15,7 @@ import { agentFor } from './agents/index.ts';
 import { ideaFrom, sessionPaths, sessionPrompt } from './grill.ts';
 import { formatSkills } from './skills.ts';
 import { addRepo, type Fleet, fleetDir, fleetFile, fleetWorkers, readFleet, readHold, removeRepo, sameRoot, slotsInUse, startFleetRun, writeFleet } from './fleet.ts';
-import { fmt, localDay, readUsage, summarize, totalTokens, type UsageRow } from './usage.ts';
+import { fmt, localDay, mismatchedSessions, readUsage, summarize, totalTokens, type UsageRow } from './usage.ts';
 
 const HELP = `usage: hx <command> [options]
 
@@ -333,6 +333,8 @@ async function status(p = loadProject()): Promise<number> {
   if (recs.length) {
     const all = summarize(recs, () => '')[0];
     console.log(`\ntokens so far: ${fmt(totalTokens(all.usage))} over ${all.sessions} session(s) — hx usage for details`);
+    const mm = mismatchedSessions(recs);
+    if (mm) console.log(`model mismatch: ${mm} session(s) — see run.log`);
   }
   return 0;
 }
