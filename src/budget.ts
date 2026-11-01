@@ -1,7 +1,10 @@
-// The budget gate (PRD #130). For now: usage-window readings, recorded to `<stateDir>/usage-readings.jsonl`.
+// The budget gate (PRD #130): usage-window readings, recorded to `<stateDir>/usage-readings.jsonl`, the calibration (dollars per 1% of a window),
+// the per-role forecast and the gate decision.
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import type { RateLimit } from './agent.ts';
+import type { Action } from './state.ts';
+import type { UsageRecord } from './usage.ts';
 
 /** One reading of a usage window, as the agent CLI reported it. */
 export interface Reading {
@@ -43,4 +46,121 @@ export function recordReading(stateDir: string, r: Reading): boolean {
   mkdirSync(stateDir, { recursive: true });
   appendFileSync(readingsFile(stateDir), JSON.stringify(r) + '\n');
   return true;
+}
+
+/** Nearest-rank percentile: the value at 1-based rank max(1, ceil(p/100 × n)) of the sorted values; undefined for none. */
+export function percentile(values: number[], p: number): number | undefined {
+  if (!values.length) return undefined;
+  const s = [...values].sort((a, b) => a - b);
+  return s[Math.min(s.length, Math.max(1, Math.ceil((p / 100) * s.length))) - 1];
+}
+
+const byTs = (a: { ts: string }, b: { ts: string }) => Date.parse(a.ts) - Date.parse(b.ts);
+
+/**
+ * The window's latest reading by `ts`, or undefined when it has none. When its `resetsAt` is ≤ now the window has
+ * reset: the reading comes back with utilization 0 and `expired: true` (the gate never blocks on an expired reading).
+ */
+export function currentReading(readings: Reading[], window: string, now: Date): (Reading & { expired?: boolean }) | undefined {
+  const last = readings.filter((r) => r.window === window).sort(byTs).at(-1);
+  if (!last) return undefined;
+  return last.resetsAt * 1000 <= now.getTime() ? { ...last, utilization: 0, expired: true } : last;
+}
+
+/** One window's calibration: `usdPerPct` (p20 of the fits) only once `pairs >= minPairs`; absent means uncalibrated. */
+export interface Calibration {
+  window: string;
+  fits: number[]; // dollars per 1% of the window, one per usable pair of readings
+  pairs: number;
+  usdPerPct?: number;
+}
+
+/**
+ * Per window: consecutive readings (sorted by ts) with the same resetsAt and a rise in utilization make a pair; its cost is
+ * the sum of costUsd of every usage record (all roles, checkpoint included) with first.ts < ts <= second.ts, and its fit is
+ * cost / (rise × 100). Falls, equal readings, pairs across a reset and zero-cost pairs are skipped.
+ */
+export function calibrate(readings: Reading[], usage: UsageRecord[], minPairs: number): Calibration[] {
+  const recs = usage.map((r) => ({ t: Date.parse(r.ts), cost: r.costUsd ?? 0 }));
+  const windows = [...new Set(readings.map((r) => r.window))];
+  return windows.map((window) => {
+    const rs = readings.filter((r) => r.window === window).sort(byTs);
+    const fits: number[] = [];
+    for (let i = 1; i < rs.length; i++) {
+      const a = rs[i - 1], b = rs[i];
+      const rise = b.utilization - a.utilization;
+      if (a.resetsAt !== b.resetsAt || rise <= 0) continue;
+      const ta = Date.parse(a.ts), tb = Date.parse(b.ts);
+      const cost = recs.reduce((s, r) => (r.t > ta && r.t <= tb ? s + r.cost : s), 0);
+      if (cost > 0) fits.push(cost / (rise * 100));
+    }
+    const c: Calibration = { window, fits, pairs: fits.length };
+    if (fits.length && fits.length >= minPairs) c.usdPerPct = percentile(fits, 20);
+    return c;
+  });
+}
+
+export interface Session { sessionId: string; role: string; costUsd: number }
+
+/** Usage records grouped by sessionId, checkpoint records excluded: each session's role and total cost. */
+export function sessions(usage: UsageRecord[]): Session[] {
+  const m = new Map<string, Session>();
+  for (const r of usage) {
+    if (r.role === 'checkpoint') continue;
+    const s = m.get(r.sessionId);
+    if (s) s.costUsd += r.costUsd ?? 0;
+    else m.set(r.sessionId, { sessionId: r.sessionId, role: r.role, costUsd: r.costUsd ?? 0 });
+  }
+  return [...m.values()];
+}
+
+/** p80 of the role's past session costs when it has ≥ 3; else p80 over every role's sessions when there are ≥ 3; else undefined. */
+export function roleForecast(usage: UsageRecord[], role: string): number | undefined {
+  const all = sessions(usage);
+  const mine = all.filter((s) => s.role === role);
+  if (mine.length >= 3) return percentile(mine.map((s) => s.costUsd), 80);
+  if (all.length >= 3) return percentile(all.map((s) => s.costUsd), 80);
+  return undefined;
+}
+
+/** The roles of the sessions an action starts in one round; [] for the engine-only steps. */
+function actionRoles(a: Action, c: { audit: boolean }): string[] {
+  if (a.kind === 'impl') return c.audit ? ['impl', 'audit'] : ['impl'];
+  if (a.kind === 'gauntlet') return ['critic', 'revise'];
+  if (a.kind === 'close-prd' || a.kind === 'label-ready') return [];
+  return [a.kind];
+}
+
+/** USD an action is forecast to cost: the sum of its sessions' role forecasts; undefined when any role has none, or for engine steps. */
+export function actionForecast(a: Action, usage: UsageRecord[], c: { audit: boolean }): number | undefined {
+  const roles = actionRoles(a, c);
+  if (!roles.length) return undefined;
+  let sum = 0;
+  for (const role of roles) {
+    const f = roleForecast(usage, role);
+    if (f === undefined) return undefined;
+    sum += f;
+  }
+  return sum;
+}
+
+/** A forecast in percent of a window: usd / usdPerPct. */
+export const forecastPct = (usd: number, usdPerPct: number) => usd / usdPerPct;
+
+export interface Block { window: string; needPct: number; usedPct: number; capPct: number; resetsAt: number }
+
+/**
+ * The first window (in calibration order) that blocks the action, or null. A window blocks when it is calibrated, has a
+ * current unexpired reading and utilization×100 + forecast% > usagePauseAt×100. No forecast never blocks.
+ */
+export function gateDecision(forecastUsd: number | undefined, calibration: Calibration[], readings: Reading[], usagePauseAt: number, now: Date): Block | null {
+  if (forecastUsd === undefined) return null;
+  for (const c of calibration) {
+    if (c.usdPerPct === undefined) continue;
+    const r = currentReading(readings, c.window, now);
+    if (!r || r.expired) continue;
+    const needPct = forecastPct(forecastUsd, c.usdPerPct), usedPct = r.utilization * 100, capPct = usagePauseAt * 100;
+    if (usedPct + needPct > capPct) return { window: c.window, needPct, usedPct, capPct, resetsAt: r.resetsAt };
+  }
+  return null;
 }
