@@ -63,8 +63,9 @@ function whenSessionStarts(fn: () => void): void {
   const t = setInterval(() => {
     if (readdirSync(fakeDir).some((f) => !before.has(f) && f.endsWith('.prompt-1.txt'))) { clearInterval(t); setTimeout(fn, 200); }
   }, 50);
-  // a session that never starts must fail the test, not keep this file's event loop alive forever
-  setTimeout(() => clearInterval(t), 30_000).unref();
+  // a session that never starts must fail the test, not keep this file's event loop alive forever. Not sooner than
+  // E2E.timeout: on a loaded machine a session can take more than 30 s to start, and the hook must still fire
+  setTimeout(() => clearInterval(t), E2E.timeout).unref();
 }
 
 test('a crashed run: its claims are handed back and the work completes', E2E, async () => {
@@ -91,8 +92,9 @@ test('a second runner for the same repo is refused', E2E, async () => {
 
 test('pause (drain): the running session finishes, nothing new is claimed, then resume continues', E2E, async () => {
   board([issue(3), issue(4)]);
-  whenSessionStarts(() => setPause(stateDir, 'drain'));
-  const { rc, lines } = await run({ env: { FAKE_CLAUDE_DELAY_MS: '1200' } });
+  // the session writes the pause itself as its first turn starts: a timer here, on a loaded machine, could fire only
+  // after the session ended (or give up before it started), and the run would claim #4 first
+  const { rc, lines } = await run({ env: { FAKE_CLAUDE_DELAY_MS: '1200', FAKE_CLAUDE_PAUSE_START: path.join(stateDir, 'pause') } });
   assert.equal(rc, 0);
   assert.equal(byNum(3).state, 'CLOSED', 'the running session finished');
   assert.equal(byNum(4).state, 'OPEN', 'nothing new was claimed');

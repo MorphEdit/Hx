@@ -19,8 +19,9 @@ Object.assign(process.env, {
   GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t',
 });
 
-// 5 min: a test that takes 10-25 s alone runs past 2 min when the gate shares the machine with busy workers
-export const E2E = { timeout: 300_000 };
+// 10 min: a test that takes 10-25 s alone runs past 2 min when the gate shares the machine with busy workers, and a
+// full PRD run (decompose, four impl + audit sessions, two reviews: ~50 s alone) ran past 5 min in the full suite
+export const E2E = { timeout: 600_000 };
 
 // A pool a test starts stops when the test ends. A test that times out leaves its function running: without
 // this, its pool would go on claiming and building on the board the next test writes, failing that test too.

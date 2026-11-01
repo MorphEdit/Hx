@@ -134,7 +134,8 @@ test('a checkpoint turn that ran another model logs no mismatch line; its record
   const t = setInterval(() => {
     if (readdirSync(fakeDir).some((f) => !before.has(f) && f.endsWith('.prompt-1.txt'))) { clearInterval(t); setTimeout(() => ac.abort(), 200); }
   }, 50);
-  setTimeout(() => clearInterval(t), 30_000).unref();
+  // not sooner than E2E.timeout: on a loaded machine the session can take more than 30 s to start (#159)
+  setTimeout(() => clearInterval(t), E2E.timeout).unref();
   const seen = readUsage(stateDir).length;
   const r = await run({ FAKE_CLAUDE_DELAY_MS: '5000', FAKE_CLAUDE_RAN: SONNET }, ac.signal);
   assert.equal(r.rc, 0);

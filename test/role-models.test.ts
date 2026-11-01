@@ -168,7 +168,8 @@ test('a checkpoint of an impl session resumes it with the impl model and effort'
   const t = setInterval(() => {
     if (readdirSync(fakeDir).some((f) => !before.has(f) && f.endsWith('.prompt-1.txt'))) { clearInterval(t); setTimeout(() => ac.abort(), 200); }
   }, 50);
-  setTimeout(() => clearInterval(t), 30_000).unref();
+  // not sooner than E2E.timeout: on a loaded machine the session can take more than 30 s to start (#159)
+  setTimeout(() => clearInterval(t), E2E.timeout).unref();
   const r = await run({ roleModels: { impl: { model: SONNET, effort: 'xhigh' } } }, { signal: ac.signal, env: { FAKE_CLAUDE_DELAY_MS: '5000' } });
   assert.equal(r.rc, 0);
   assert.ok(r.lines.some((l) => /checkpoint saved/.test(l)), r.lines.join('\n'));
