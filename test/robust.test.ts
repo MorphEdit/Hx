@@ -63,8 +63,9 @@ function whenSessionStarts(fn: () => void): void {
   const t = setInterval(() => {
     if (readdirSync(fakeDir).some((f) => !before.has(f) && f.endsWith('.prompt-1.txt'))) { clearInterval(t); setTimeout(fn, 200); }
   }, 50);
-  // a session that never starts must fail the test, not keep this file's event loop alive forever
-  setTimeout(() => clearInterval(t), 30_000).unref();
+  // a session that never starts must fail the test, not keep this file's event loop alive forever; the cap stays
+  // inside E2E.timeout but well above a run's startup on a loaded machine (over 30 s seen)
+  setTimeout(() => clearInterval(t), 240_000).unref();
 }
 
 test('a crashed run: its claims are handed back and the work completes', E2E, async () => {

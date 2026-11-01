@@ -171,8 +171,9 @@ test('a checkpoint of an impl session resumes it with the impl model and effort'
   const t = setInterval(() => {
     if (readdirSync(fakeDir).some((f) => !before.has(f) && f.endsWith('.prompt-1.txt'))) { clearInterval(t); setTimeout(() => ac.abort(), 200); }
   }, 50);
-  setTimeout(() => clearInterval(t), 30_000).unref();
-  const r = await run({ roleModels: { impl: { model: SONNET, effort: 'xhigh' } } }, { signal: ac.signal, env: { FAKE_CLAUDE_DELAY_MS: '5000' } });
+  // the watcher lasts as long as the run: startup alone can take over 30 s on a loaded machine
+  const r = await run({ roleModels: { impl: { model: SONNET, effort: 'xhigh' } } }, { signal: ac.signal, env: { FAKE_CLAUDE_DELAY_MS: '5000' } })
+    .finally(() => clearInterval(t));
   assert.equal(r.rc, 0);
   assert.ok(r.lines.some((l) => /checkpoint saved/.test(l)), r.lines.join('\n'));
   const cps = r.turns.filter((t) => t.checkpoint);

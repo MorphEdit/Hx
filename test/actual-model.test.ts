@@ -134,9 +134,9 @@ test('a checkpoint turn that ran another model logs no mismatch line; its record
   const t = setInterval(() => {
     if (readdirSync(fakeDir).some((f) => !before.has(f) && f.endsWith('.prompt-1.txt'))) { clearInterval(t); setTimeout(() => ac.abort(), 200); }
   }, 50);
-  setTimeout(() => clearInterval(t), 30_000).unref();
   const seen = readUsage(stateDir).length;
-  const r = await run({ FAKE_CLAUDE_DELAY_MS: '5000', FAKE_CLAUDE_RAN: SONNET }, ac.signal);
+  // the watcher lasts as long as the run: startup alone can take over 30 s on a loaded machine
+  const r = await run({ FAKE_CLAUDE_DELAY_MS: '5000', FAKE_CLAUDE_RAN: SONNET }, ac.signal).finally(() => clearInterval(t));
   assert.equal(r.rc, 0);
   assert.ok(r.lines.some((l) => /checkpoint saved/.test(l)), r.lines.join('\n'));
   const cps = readUsage(stateDir).slice(seen).filter((u) => u.issue === 3 && u.role === 'checkpoint');
