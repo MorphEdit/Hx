@@ -233,11 +233,11 @@ class E extends N {
 }
 async function render(state: any): Promise<E> {
   const ids = new Map<string, E>();
-  for (const id of ['repo', 'status', 'now-body', 'board-body', 'stats-body', 'log']) ids.set(id, new E('div'));
+  for (const id of ['back', 'repo', 'status', 'now-body', 'board-body', 'stats-body', 'log']) ids.set(id, new E('div'));
   const document = { getElementById: (id: string) => ids.get(id) ?? null, createElement: (t: string) => new E(t),
     createElementNS: (ns: string, t: string) => new E(t, ns), createTextNode: (x: string) => new T(x), querySelectorAll: () => [] };
-  const fetchFake = async (url: string) => ({ ok: true, status: 200, json: async () => (url === '/api/state' ? state : { prds: [], board: [] }) });
-  vm.runInNewContext(script, { document, fetch: fetchFake, Node: N, setInterval: () => 0, console });
+  const fetchFake = async (url: string) => ({ ok: true, status: 200, json: async () => (url.endsWith('api/state') ? state : { prds: [], board: [] }) });
+  vm.runInNewContext(script, { document, fetch: fetchFake, location: { pathname: '/' }, Node: N, setInterval: () => 0, console });
   await new Promise((r) => setTimeout(r, 20));
   return ids.get('now-body')!;
 }
