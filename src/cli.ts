@@ -15,7 +15,7 @@ import { fileBug, filePrd } from './prd.ts';
 import { agentFor } from './agents/index.ts';
 import { ideaFrom, sessionPaths, sessionPrompt } from './grill.ts';
 import { formatSkills } from './skills.ts';
-import { addRepo, type Fleet, fleetDir, fleetFile, fleetWorkers, readFleet, readHold, removeRepo, sameRoot, slotsInUse, startFleetRun, writeFleet } from './fleet.ts';
+import { addRepo, type Fleet, fleetDir, fleetFile, fleetWorkers, readFleet, readHold, readRepos, registerRepo, removeRepo, sameRoot, slotsInUse, startFleetRun, writeFleet, writeRepos } from './fleet.ts';
 import { fmt, localDay, mismatchedSessions, readUsage, summarize, totalTokens, type UsageRow } from './usage.ts';
 
 const HELP = `usage: hx <command> [options]
@@ -49,6 +49,7 @@ const HELP = `usage: hx <command> [options]
                            sessions, gate, usage by PRD/role/model/day, run log and the board (--open: browser)
   fleet add [<path>]       add the hx repo containing <path> (default: here) to the fleet (~/.hx/fleet.json)
   fleet remove <path>      remove that repo from the fleet (its .hx/ is untouched)
+  fleet forget <path>      drop that repo from ~/.hx/repos.json (every repo hx init / hx run has seen)
   fleet list               the fleet's repos: root, repo and whether the root still exists
   fleet workers <n>        the fleet's worker cap (default 2), read by the next hx fleet run
   fleet status             hx status for every repo in the fleet, then the slots in use and the shared hold
@@ -92,7 +93,7 @@ export async function main(argv: string[]): Promise<number> {
     case 'resume': return resume();
     case 'usage': return usage(args);
     case 'dashboard': return dashboard(args);
-    case 'fleet': return args[0] === 'run' ? fleetRun(args.slice(1)) : fleet(args);
+    case 'fleet': return args[0] === 'run' ? fleetRun(args.slice(1)) : args[0] === 'forget' ? fleetForget(args[1]) : fleet(args);
     case undefined: case 'help': case '-h': case '--help': console.log(HELP); return 0;
     default: console.error(`unknown command: ${cmd}\n\n${HELP}`); return 2;
   }
@@ -126,6 +127,7 @@ async function init(args: string[]): Promise<number> {
     } else delete saved.worktreeCopy;
   }
   saveConfig(path.join(root, STATE_DIR), saved);
+  registerRepo(root, config.repo);
   for (const n of notes) console.log(n);
 
   // keep .hx/ out of git without touching the project's own .gitignore
@@ -208,6 +210,7 @@ async function runCmd(args: string[]): Promise<number> {
     if (++presses === 1) { log('Ctrl+C — checkpointing running sessions and handing their issues back (Ctrl+C again to force quit)'); ac.abort(); }
     else { log('force quit — killing sessions; their worktrees keep the work'); killAllSessions(); process.exit(130); }
   };
+  registerRepo(p.root, p.config.repo);
   process.on('SIGINT', press);
   // started by hx fleet run: its Ctrl+C arrives as an IPC message; the channel never keeps us alive, and the fleet dying does not stop us
   if (process.send) {
@@ -473,8 +476,25 @@ async function fleet(args: string[]): Promise<number> {
       return 0;
     }
     case 'status': return fleetStatus(f);
-    default: console.error('usage: hx fleet add [<path>] | remove <path> | list | workers <n> | status | run [--workers N] [--watch]'); return 2;
+    default: console.error('usage: hx fleet add [<path>] | remove <path> | forget <path> | list | workers <n> | status | run [--workers N] [--watch]'); return 2;
   }
+}
+
+/** hx fleet forget: drop a repo from repos.json (resolved like hx fleet remove); fleet.json is never touched. */
+function fleetForget(arg: string | undefined): number {
+  if (!arg) { console.error('usage: hx fleet forget <path>'); return 2; }
+  const abs = path.resolve(arg);
+  const list = readRepos();
+  const inside = findProjectRoot(abs);
+  const at = (root: string) => list?.repos.find((r) => typeof r?.root === 'string' && sameRoot(r.root, root));
+  const entry = at(abs) ?? (inside ? at(inside) : undefined);
+  if (!list || !entry) { console.error(`not in repos.json: ${abs}`); return 1; }
+  writeRepos({ ...list, repos: list.repos.filter((r) => r !== entry) });
+  console.log(`forgot ${entry.root}`);
+  let inFleet = false;
+  try { inFleet = readFleet().repos.some((r) => sameRoot(r.root, entry.root)); } catch { /* an unreadable fleet.json */ }
+  if (inFleet) console.log(`it stays listed while it is in the fleet (hx fleet remove ${entry.root} to drop it)`);
+  return 0;
 }
 
 async function fleetRun(args: string[]): Promise<number> {
