@@ -179,3 +179,12 @@ test('fleet and agent CLIs: README sections and agentCli row, design #10 done, C
   // every src/ file and directory the docs name exists
   for (const doc of [r, d, c]) for (const m of doc.matchAll(/`src\/([\w./-]+)`/g)) assert.ok(existsSync(path.join(root, 'src', m[1])), `src/${m[1]}`);
 });
+
+test('README: roleModels config row with its default and the Models per role section', () => {
+  const r = read('README.md');
+  assert.ok(hasRow(r, 'roleModels', `\`${JSON.stringify(DEFAULTS.roleModels)}\``));
+  const sec = r.slice(r.indexOf('## Models per role'));
+  assert.ok(r.includes('## Models per role'));
+  assert.ok(sec.includes('"roleModels": { "impl": { "model": "claude-sonnet-5-5" }, "audit": { "model": "claude-sonnet-5-5", "effort": "high" } }'));
+  assert.match(sec.slice(0, sec.indexOf('\n## ', 5)), /benchmark/);
+});

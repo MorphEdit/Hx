@@ -68,6 +68,8 @@ export interface Config {
   trustedAuthors: string[]; // accounts besides the gh login whose issues and PRDs hx works on
   // role (impl, audit, decompose, review, critic, revise, security, triage) → skills appended to its prompt; {} = none
   roleSkills: Record<string, string[]>;
+  // role → its own model and/or effort (unset = the top-level model / effort); {} = every role on the defaults
+  roleModels: Record<string, { model?: string; effort?: string }>;
   skillMaxChars: number; // a skill whose stripped SKILL.md body is longer is skipped
   rtddBin: string; // HX_RTDD_BIN overrides it (see effectiveRtddBin)
   labels: Labels;
@@ -101,10 +103,50 @@ export const DEFAULTS: Omit<Config, 'repo' | 'defaultBranch' | 'worktreeRoot'> =
   workerTools: ['Bash', 'Read', 'Edit', 'Write', 'Glob', 'Grep'],
   trustedAuthors: [],
   roleSkills: { impl: ['rtdd'], audit: ['rtdd'] },
+  roleModels: {},
   skillMaxChars: 12000,
   rtddBin: 'rtdd',
   labels: { ready: 'ready-for-agent', working: 'agent-working', blocked: 'agent-blocked', prd: 'prd', reviewed: 'prd-reviewed', hardened: 'prd-hardened', secured: 'security-reviewed', security: 'security', gateFix: 'hx-gate-fix', bug: 'bug', triaged: 'bug-triaged' },
 };
+
+/** The roles a session runs as: the keys roleModels accepts. */
+export const ROLES = ['impl', 'audit', 'triage', 'decompose', 'critic', 'revise', 'review', 'security'] as const;
+/** claude --effort values a role may set (the top-level effort is not checked). */
+export const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'] as const;
+
+export interface RoleModel { model: string; effort: string }
+
+/** The model and effort a role's sessions run with: its roleModels entry, else the top-level model / effort. */
+export function roleModel(c: Pick<Config, 'model' | 'effort' | 'roleModels'>, role: string): RoleModel {
+  const r = c.roleModels?.[role];
+  return { model: r?.model ?? c.model, effort: r?.effort ?? c.effort };
+}
+
+/** Every known role → its resolved model and effort. */
+export function roleModelMap(c: Pick<Config, 'model' | 'effort' | 'roleModels'>): Record<string, RoleModel> {
+  return Object.fromEntries(ROLES.map((r) => [r, roleModel(c, r)]));
+}
+
+/** `impl claude-sonnet-5-5/medium, audit …` for the roles whose model or effort differs from the defaults; '' when none do. */
+export function formatRoleModels(map: Record<string, RoleModel>, def: { model: string; effort: string }): string {
+  return Object.entries(map).filter(([, m]) => m.model !== def.model || m.effort !== def.effort)
+    .map(([r, m]) => `${r} ${m.model}/${m.effort}`).join(', ');
+}
+
+/** What is wrong with config.roleModels, or null when it is valid. */
+export function roleModelsError(roleModels: unknown): string | null {
+  if (roleModels === undefined) return null;
+  if (typeof roleModels !== 'object' || roleModels === null || Array.isArray(roleModels)) return 'roleModels: must be an object of role → { model, effort }';
+  for (const [role, v] of Object.entries(roleModels as Record<string, unknown>)) {
+    if (!(ROLES as readonly string[]).includes(role)) return `roleModels: unknown role "${role}" — known: ${ROLES.join(', ')}`;
+    if (typeof v !== 'object' || v === null || Array.isArray(v)) return `roleModels.${role}: must be an object like { "model": "...", "effort": "high" }`;
+    const { model, effort } = v as { model?: unknown; effort?: unknown };
+    if (model !== undefined && (typeof model !== 'string' || !model.trim())) return `roleModels.${role}.model: must be a non-empty string (omit it to use the top-level model)`;
+    if (effort !== undefined && !(EFFORTS as readonly unknown[]).includes(effort))
+      return `roleModels.${role}.effort: ${JSON.stringify(effort)} is not one of ${EFFORTS.join(', ')} (omit it to use the top-level effort)`;
+  }
+  return null;
+}
 
 export interface Project {
   root: string; // the repo checkout hx was initialised in

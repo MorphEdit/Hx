@@ -28,6 +28,7 @@ export interface LiveState {
   draining?: boolean;
   rateLimit?: RateLimit & { at: string };
   skills?: Record<string, string[]>; // role → names of the skills its prompt gets
+  models?: Record<string, { model: string; effort: string }>; // every known role → the model and effort its sessions run with
   gate?: { ok: boolean; sha: string; at: string; fixIssue?: number };
 }
 
