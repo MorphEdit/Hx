@@ -152,6 +152,7 @@ hx pause [--now]        # from another terminal: stop a running hx run (see belo
 hx resume               # clear a pause
 hx usage --by role      # recorded token usage (by issue | role | model | day)
 hx dashboard [--open]   # a read-only page on http://127.0.0.1:4777/ (localhost only; --port N)
+hx dashboard --fleet [--open]   # one page over every hx repo on this machine (alias: hx fleet dashboard)
 hx fleet run --watch    # one hx run per repo in the fleet, sharing one worker cap (see Several repos)
 ```
 
@@ -224,6 +225,7 @@ hx fleet list             # the repos, and whether each root still exists
 hx fleet workers 3        # the cap shared by every repo (default 2), read by the next hx fleet run
 hx fleet run [--workers N] [--watch]
 hx fleet status           # hx status for every repo, then the slots in use and the shared hold
+hx fleet dashboard [--port N] [--open]   # = hx dashboard --fleet: every repo of fleet.json and repos.json
 ```
 
 - `hx fleet run` starts one `hx run` per repo as a child process and prints its output prefixed
@@ -239,6 +241,9 @@ hx fleet status           # hx status for every repo, then the slots in use and 
   force-quits them all. `hx pause` / `hx resume` still work per repo.
 - **Dashboards.** `hx dashboard` shows one repo: run one per repo, on different ports
   (`hx dashboard --port 4778` in the second repo; without `--port` the next free port is taken).
+  `hx dashboard --fleet` serves one page for all of them: `/api/fleet` (each repo's runner, sessions,
+  gate, tokens and board counts, the slots in use and the hold) and each repo's own dashboard under
+  `/repo/<k>/`.
 
 ## Agent CLIs
 

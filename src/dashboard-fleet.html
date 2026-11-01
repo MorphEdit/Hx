@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>hx fleet dashboard</title>
+<style>
+:root { --bg: #fff; --fg: #1b1f24; --mute: #656d76; --line: #d0d7de; --card: #f6f8fa; --bad: #cf222e; --link: #0969da; }
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #0d1117; --fg: #e6edf3; --mute: #8d96a0; --line: #30363d; --card: #161b22; --bad: #f85149; --link: #4493f8; }
+}
+html, body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+body { padding: 12px; max-width: 1100px; margin: 0 auto; }
+h1 { font-size: 20px; margin: 0 0 8px; }
+a { color: var(--link); }
+ul { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 12px 12px 12px 32px; }
+.mute { color: var(--mute); }
+.note { font-size: 12px; color: var(--mute); }
+.note.offline { color: var(--bad); }
+</style>
+</head>
+<body>
+<h1>hx fleet</h1>
+<p id="status" class="note">no data yet</p>
+<ul id="repos"></ul>
+<script>
+// Every string from the server is set with textContent; links are built from the entry's number k only.
+const $ = (id) => document.getElementById(id);
+const el = (tag, text, cls) => { const n = document.createElement(tag); if (text !== undefined) n.textContent = String(text); if (cls) n.className = cls; return n; };
+
+function render(f) {
+  const list = $('repos');
+  list.replaceChildren();
+  const repos = Array.isArray(f.repos) ? f.repos : [];
+  if (!repos.length) list.append(el('li', 'No repos known yet: add one with  hx fleet add <path>, or run  hx run  in it.', 'mute'));
+  for (const r of repos) {
+    const li = el('li');
+    const name = String(r.repo || r.root);
+    if (r.missing || !Number.isInteger(r.k)) { li.append(el('span', name, 'mute'), el('span', ' (missing)', 'mute')); }
+    else {
+      const a = el('a', name);
+      a.href = 'repo/' + r.k + '/';
+      li.append(a, el('span', r.running ? ' · running' : ' · not running', 'mute'));
+    }
+    list.append(li);
+  }
+}
+
+let lastOk = null, failing = false;
+async function poll() {
+  try {
+    const r = await fetch('api/fleet', { cache: 'no-store' });
+    if (!r.ok) throw new Error('api/fleet: ' + r.status);
+    render(await r.json());
+    lastOk = new Date(); failing = false;
+  } catch { failing = true; }
+  const n = $('status');
+  n.className = 'note' + (failing ? ' offline' : '');
+  n.textContent = (failing ? 'offline · ' : '') + (lastOk ? 'last updated ' + lastOk.toLocaleTimeString() : 'no data yet');
+}
+poll();
+setInterval(poll, 5000);
+</script>
+</body>
+</html>

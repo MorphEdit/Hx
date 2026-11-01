@@ -45,7 +45,7 @@ function get(port: number, p: string): Promise<{ status: number; type: string; b
 
 test('src/dashboard* never uses innerHTML, outerHTML, insertAdjacentHTML or document.write', E2E, () => {
   const files = readdirSync(src).filter((f) => /^dashboard.*\.(ts|html)$/.test(f));
-  assert.deepEqual(files.sort(), ['dashboard.html', 'dashboard.ts']);
+  assert.deepEqual(files.sort(), ['dashboard-fleet.html', 'dashboard.html', 'dashboard.ts']);
   for (const f of files) {
     const t = readFileSync(path.join(src, f), 'utf8');
     for (const w of ['innerHTML', 'outerHTML', 'insertAdjacentHTML', 'document.write']) assert.ok(!t.includes(w), `${f}: ${w}`);

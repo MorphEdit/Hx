@@ -11,7 +11,7 @@ import { clearPause, nextLine, otherRunner, pidAlive, readLive, readPause, setPa
 import { readGate } from './gate.ts';
 import { budgetLine, readBudgetWindows } from './budget.ts';
 import { githubLine } from './ghlimit.ts';
-import { DEFAULT_PORT, serveDashboard } from './dashboard.ts';
+import { DEFAULT_PORT, serveDashboard, serveFleetDashboard } from './dashboard.ts';
 import { fileBug, filePrd } from './prd.ts';
 import { agentFor } from './agents/index.ts';
 import { ideaFrom, sessionPaths, sessionPrompt } from './grill.ts';
@@ -48,12 +48,16 @@ const HELP = `usage: hx <command> [options]
   dashboard [--port N] [--open]
                            a read-only page on http://127.0.0.1:${DEFAULT_PORT}/ (localhost only): the runner,
                            sessions, gate, usage by PRD/role/model/day, run log and the board (--open: browser)
+  dashboard --fleet [--port N] [--open]
+                           one page over every hx repo on this machine (~/.hx/fleet.json and repos.json),
+                           each repo's own dashboard under /repo/<k>/; needs no repo of its own
   fleet add [<path>]       add the hx repo containing <path> (default: here) to the fleet (~/.hx/fleet.json)
   fleet remove <path>      remove that repo from the fleet (its .hx/ is untouched)
   fleet forget <path>      drop that repo from ~/.hx/repos.json (every repo hx init / hx run has seen)
   fleet list               the fleet's repos: root, repo and whether the root still exists
   fleet workers <n>        the fleet's worker cap (default 2), read by the next hx fleet run
   fleet status             hx status for every repo in the fleet, then the slots in use and the shared hold
+  fleet dashboard [--port N] [--open]   the same as hx dashboard --fleet
   fleet run [--workers N] [--watch]
                            one hx run per fleet repo (output prefixed [owner/name]), sharing one worker
                            cap (--workers, else fleet workers); Ctrl+C asks every repo to checkpoint
@@ -94,7 +98,7 @@ export async function main(argv: string[]): Promise<number> {
     case 'resume': return resume();
     case 'usage': return usage(args);
     case 'dashboard': return dashboard(args);
-    case 'fleet': return args[0] === 'run' ? fleetRun(args.slice(1)) : args[0] === 'forget' ? fleetForget(args[1]) : fleet(args);
+    case 'fleet': return args[0] === 'dashboard' ? fleetDashboard(args.slice(1)) : args[0] === 'run' ? fleetRun(args.slice(1)) : args[0] === 'forget' ? fleetForget(args[1]) : fleet(args);
     case undefined: case 'help': case '-h': case '--help': console.log(HELP); return 0;
     default: console.error(`unknown command: ${cmd}\n\n${HELP}`); return 2;
   }
@@ -484,7 +488,7 @@ async function fleet(args: string[]): Promise<number> {
       return 0;
     }
     case 'status': return fleetStatus(f);
-    default: console.error('usage: hx fleet add [<path>] | remove <path> | forget <path> | list | workers <n> | status | run [--workers N] [--watch]'); return 2;
+    default: console.error('usage: hx fleet add [<path>] | remove <path> | forget <path> | list | workers <n> | status | run [--workers N] [--watch] | dashboard [--port N] [--open]'); return 2;
   }
 }
 
@@ -514,12 +518,26 @@ async function fleetRun(args: string[]): Promise<number> {
   return await run.done;
 }
 
-async function dashboard(args: string[]): Promise<number> {
-  const p = loadProject();
+function dashboardPort(args: string[]): number {
   const port = Number(flag(args, '--port') ?? DEFAULT_PORT);
   if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error('--port must be a port number (0-65535)');
-  const d = await serveDashboard(p, { port, open: args.includes('--open') });
+  return port;
+}
+
+async function dashboard(args: string[]): Promise<number> {
+  if (args.includes('--fleet')) return fleetDashboard(args.filter((a) => a !== '--fleet'));
+  const p = loadProject();
+  const d = await serveDashboard(p, { port: dashboardPort(args), open: args.includes('--open') });
   console.log(`hx dashboard on ${d.url} (read-only, localhost only) — Ctrl+C to stop`);
+  await new Promise<void>((resolve) => process.once('SIGINT', () => resolve()));
+  await d.close();
+  return 0;
+}
+
+/** hx dashboard --fleet / hx fleet dashboard: every known repo; needs no repo of its own. */
+async function fleetDashboard(args: string[]): Promise<number> {
+  const d = await serveFleetDashboard({ port: dashboardPort(args), open: args.includes('--open') });
+  console.log(`hx fleet dashboard on ${d.url} (read-only, localhost only) — Ctrl+C to stop`);
   await new Promise<void>((resolve) => process.once('SIGINT', () => resolve()));
   await d.close();
   return 0;
