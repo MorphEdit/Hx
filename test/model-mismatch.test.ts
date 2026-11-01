@@ -23,7 +23,7 @@ const rec = (sessionId: string, role: string, model: string, actualModel: string
     usage: u(tokens), costUsd: 0, durationMs: 100, numTurns: 1 });
 const write = (dir: string, recs: object[]) => { mkdirSync(dir, { recursive: true }); writeFileSync(path.join(dir, 'usage.jsonl'), recs.map((r) => JSON.stringify(r)).join('\n') + '\n'); };
 
-test('parseOutcomes: a session with two mismatched turns logs one line and counts 1; a log without one counts 0', () => {
+test('parseOutcomes: a session with two mismatched turns logs one line and counts 1; a log without one counts 0', E2E, () => {
   const log = [
     '2026-10-31T10:00:00.000Z [#5] impl: task',
     '2026-10-31T10:01:00.000Z [#5] model mismatch: impl asked claude-opus-5-5, ran claude-sonnet-5-5',
@@ -34,7 +34,7 @@ test('parseOutcomes: a session with two mismatched turns logs one line and count
   assert.equal(parseOutcomes([]).modelMismatch, 0);
 });
 
-test('mismatchedSessions: distinct sessions with a non-checkpoint turn whose actualModel fails modelMatches', () => {
+test('mismatchedSessions: distinct sessions with a non-checkpoint turn whose actualModel fails modelMatches', E2E, () => {
   assert.equal(mismatchedSessions([rec('a', 'impl', OPUS, SONNET), rec('a', 'impl', OPUS, SONNET, 10, 2)] as any), 1);
   assert.equal(mismatchedSessions([rec('a', 'impl', OPUS, `${OPUS}-20261001`), rec('b', 'audit', 'opus', OPUS)] as any), 0, 'matching');
   assert.equal(mismatchedSessions([rec('c', 'checkpoint', OPUS, SONNET)] as any), 0, 'checkpoint only');
@@ -42,7 +42,7 @@ test('mismatchedSessions: distinct sessions with a non-checkpoint turn whose act
   assert.equal(mismatchedSessions([rec('a', 'impl', OPUS, SONNET), rec('b', 'audit', OPUS, SONNET)] as any), 2);
 });
 
-test('dashboard stats payload: outcomes.modelMismatch, and byModel keyed on actualModel when present', () => {
+test('dashboard stats payload: outcomes.modelMismatch, and byModel keyed on actualModel when present', E2E, () => {
   const sd = path.join(tmp, 'dash', '.hx');
   write(sd, [rec('a', 'impl', OPUS, SONNET, 10), rec('a', 'impl', OPUS, SONNET, 20, 2), rec('b', 'audit', OPUS, undefined, 5)]);
   writeFileSync(path.join(sd, 'run.log'), '2026-10-31T10:01:00.000Z [#1] model mismatch: impl asked claude-opus-5-5, ran claude-sonnet-5-5\n');
@@ -78,7 +78,7 @@ test('hx status: one mismatched session (two turns) prints the line; matching, c
   }
 });
 
-test('docs: README shows how to spot a mismatch; design.md records per-role models as opt-in with the mismatch guard', () => {
+test('docs: README shows how to spot a mismatch; design.md records per-role models as opt-in with the mismatch guard', E2E, () => {
   const r = readFileSync(path.join(here, '..', 'README.md'), 'utf8');
   for (const w of ['model mismatch: <role> asked', 'model mismatch: N session(s) — see run.log', 'hx status', '**model mismatch** row']) assert.ok(r.includes(w), w);
   const d = readFileSync(path.join(here, '..', 'docs', 'design.md'), 'utf8');
