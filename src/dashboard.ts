@@ -7,6 +7,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import type { AddressInfo } from 'node:net';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { budgetLine } from './budget.ts';
 import type { Project } from './config.ts';
 import { readGate } from './gate.ts';
 import { parseOutcomes } from './outcomes.ts';
@@ -86,6 +87,8 @@ export function dashboardState(p: Project, board: () => BoardSeen): object {
     running: true, pid: live.pid, startedAt: live.startedAt, uptimeMs: now - Date.parse(live.startedAt), workers: live.workers,
     paused: readPause(dir), draining: !!live.draining, pausedUntil: live.pausedUntil ?? null, pauseReason: live.pauseReason ?? null,
     rateLimit: live.rateLimit ?? null,
+    // like rateLimit, only from a live runner; each window carries the line hx status prints
+    budget: live.budget ? { windows: live.budget.windows.map((w) => ({ ...w, line: budgetLine(w, p.config.budgetMinPairs) })) } : null,
   } : { running: false };
   const sessions = running ? live.sessions.map((s) => ({ number: s.number, kind: s.kind, title: s.title, turn: s.turn, tokens: s.tokens,
     since: s.since, elapsedMs: now - Date.parse(s.since) })) : [];

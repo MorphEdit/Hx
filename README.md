@@ -278,6 +278,10 @@ The run log gets one line per action per window reset, e.g.
 shows each planned action's forecast (`~7%`) and marks the ones the gate would skip. With too little
 history (an uncalibrated window, fewer than three past sessions) Hx claims as it did without the gate;
 `budgetGate: false` turns it off.
+`hx status` prints one line per window from those files, runner or not, e.g.
+`budget five_hour: 85% used, $0.42 per 1% (n=12 pairs)` or
+`budget seven_day: 40% used, uncalibrated (n=2 pairs, needs 5)`; a running `hx run` keeps the same
+windows in `live.json` (`budget.windows`) and the dashboard's Now section shows the lines.
 
 ## PRD flow
 

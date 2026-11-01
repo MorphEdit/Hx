@@ -9,6 +9,7 @@ import { log, lookupTrusted, printPlan, readPlan, runPool, trustedEnv } from './
 import { killAllSessions } from './agent.ts';
 import { clearPause, nextLine, otherRunner, pidAlive, readLive, readPause, setPause, writeWake } from './runstate.ts';
 import { readGate } from './gate.ts';
+import { budgetLine, readBudgetWindows } from './budget.ts';
 import { DEFAULT_PORT, serveDashboard } from './dashboard.ts';
 import { fileBug, filePrd } from './prd.ts';
 import { agentFor } from './agents/index.ts';
@@ -321,6 +322,8 @@ async function status(p = loadProject()): Promise<number> {
   const gate = readGate(p.stateDir).last;
   if (c.gate && gate) console.log(`gate     ${gate.ok ? 'green' : 'RED'} at ${gate.sha.slice(0, 7)} (${gate.command})${gate.ok ? '' : ' — only its fix issue is claimed'}`);
   if (paused) console.log(`paused   ${paused} — hx resume to clear`);
+  // from the files, so it shows whether or not a runner is up
+  for (const w of readBudgetWindows(p.stateDir, c.budgetMinPairs, new Date())) console.log(budgetLine(w, c.budgetMinPairs));
   console.log(`model    ${c.model}${c.effort ? ` (${c.effort} effort)` : ''}\n`);
 
   // the board (only issues and PRDs opened by a trusted account are worked on)

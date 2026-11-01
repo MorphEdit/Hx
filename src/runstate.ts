@@ -6,6 +6,7 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import type { RateLimit } from './agent.ts';
+import type { BudgetWindow } from './budget.ts';
 
 export interface LiveSession {
   key: string; // issue:<n> | prd:<n>
@@ -30,6 +31,7 @@ export interface LiveState {
   skills?: Record<string, string[]>; // role → names of the skills its prompt gets
   models?: Record<string, { model: string; effort: string }>; // every known role → the model and effort its sessions run with
   gate?: { ok: boolean; sha: string; at: string; fixIssue?: number };
+  budget?: { windows: BudgetWindow[] }; // per usage window: utilization, resetsAt, pairs, usdPerPct once calibrated
 }
 
 export type PauseMode = 'drain' | 'now';
