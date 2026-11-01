@@ -59,6 +59,48 @@ export function fleetWorkers(fleet: Fleet): number {
   return fleet.workers ?? DEFAULT_FLEET_WORKERS;
 }
 
+// Every repo hx init / hx run has seen: <hx home>/.hx/repos.json, listed by the fleet dashboard; hx fleet forget drops one.
+export interface SeenRepo { root: string; repo: string; lastSeen: string }
+export interface Repos { repos: SeenRepo[] }
+
+export function reposFile(): string {
+  return path.join(hxHome(), STATE_DIR, 'repos.json');
+}
+
+/** repos.json: { repos: [] } when it is absent, null when it exists but cannot be read or parsed or has no repos array. */
+export function readRepos(): Repos | null {
+  const f = reposFile();
+  if (!existsSync(f)) return { repos: [] };
+  try {
+    const raw = JSON.parse(readFileSync(f, 'utf8').replace(/^﻿/, ''));
+    return raw && Array.isArray(raw.repos) ? { ...raw, repos: raw.repos } : null;
+  } catch { return null; }
+}
+
+/** The list with root's entry added, or updated in place (matched with sameRoot). */
+export function seeRepo(list: Repos, root: string, repo: string, now = new Date()): Repos {
+  const entry = { root: path.resolve(root), repo, lastSeen: now.toISOString() };
+  const i = list.repos.findIndex((r) => r && typeof r.root === 'string' && sameRoot(r.root, root));
+  return { ...list, repos: i < 0 ? [...list.repos, entry] : list.repos.map((r, j) => (j === i ? { ...r, ...entry } : r)) };
+}
+
+/** Write repos.json through a temp file renamed over it; the temp file is deleted when the rename fails. */
+export function writeRepos(list: Repos): void {
+  const f = reposFile();
+  mkdirSync(path.dirname(f), { recursive: true });
+  const tmp = `${f}.${process.pid}.tmp`;
+  writeFileSync(tmp, JSON.stringify(list, null, 2) + '\n');
+  try { renameSync(tmp, f); } catch (e) { try { unlinkSync(tmp); } catch {} throw e; }
+}
+
+/** Record root in repos.json (hx init, hx run). An unusable repos.json is left as it is; no error ever escapes. */
+export function registerRepo(root: string, repo: string): void {
+  try {
+    const list = readRepos();
+    if (list) writeRepos(seeRepo(list, root, repo));
+  } catch { /* never stops hx init / hx run */ }
+}
+
 // Slots: one shared worker cap across runners. A runner holds slot k while `<fleetDir>/slots/<k>.json` holds its pid.
 export interface SlotOwner { pid: number; repo: string; issue: number }
 

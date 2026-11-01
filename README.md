@@ -219,6 +219,7 @@ repo roots in `~/.hx/fleet.json`; each repo keeps its own `.hx/` (config, logs, 
 ```bash
 hx fleet add [<path>]     # add the hx repo containing <path> (default: here); it needs a .hx/config.json
 hx fleet remove <path>    # drop it from the fleet (its .hx/ is untouched)
+hx fleet forget <path>    # drop it from ~/.hx/repos.json, the repos hx init / hx run have seen
 hx fleet list             # the repos, and whether each root still exists
 hx fleet workers 3        # the cap shared by every repo (default 2), read by the next hx fleet run
 hx fleet run [--workers N] [--watch]
@@ -574,6 +575,9 @@ it reads. So Hx only works on text from **trusted accounts**: your `gh` login pl
 - `.hx/live.json` — the running `hx run`: its pid and live sessions (read by `hx status`)
 - `.hx/pause` — present while paused (`drain` or `now`)
 - `.hx/run.log` — the `hx run` log, `<ISO time> [#n] message` per line (rotated to `run.log.1` past 2 MiB), read by `hx dashboard`
+- `~/.hx/repos.json` — every repo `hx init` and `hx run` have seen (root, `owner/name`, last seen), written
+  at each `hx init` and each `hx run` start, for the fleet dashboard; `hx fleet forget <path>` removes an entry
+  (a file that cannot be parsed is left as it is)
 
 `.hx/` is added to `.git/info/exclude` by `hx init`, so it never shows up in `git status`.
 
