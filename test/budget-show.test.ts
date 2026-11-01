@@ -147,27 +147,28 @@ test('hx run: live.json has budget.windows (window, utilization, resetsAt, pairs
 });
 
 test('hx run: a reading recorded mid-session refreshes live.json budget at once', E2E, async () => {
-  const p = setup({ pollSeconds: 600 }); // no loop pass while the session runs
+  const p = setup({ pollSeconds: 600, maxIterations: 1 }); // no loop pass while the session runs; one slow turn
   process.env.FAKE_CLAUDE_RATES = '0.37:seven_day';
-  process.env.FAKE_CLAUDE_DELAY_MS = '6000';
+  // the session outlives any start-up delay a loaded full suite causes; the abort below ends it once the window shows
+  process.env.FAKE_CLAUDE_DELAY_MS = '60000';
   const stop = new AbortController();
-  let live: any = null;
+  let live: any = null, last: any = null;
   try {
     let ended = false;
     const done = capture(() => pooled((signal) => runPool(p, { workers: 1, watch: false, dryRun: false, signal }), stop.signal))
       .finally(() => { ended = true; });
-    // polled until the run ends, not for a fixed time: under a loaded full suite the session can start late
+    // polled until a window shows mid-session or the run ends, never for a fixed time
     while (!live && !ended) {
       await new Promise((r) => setTimeout(r, 100));
-      const l = readLiveFile();
-      if (l?.budget?.windows?.length) live = l;
+      last = readLiveFile() ?? last;
+      if (last?.budget?.windows?.length && last.sessions?.length === 1) live = last;
     }
     stop.abort();
     await done;
   } finally { delete process.env.FAKE_CLAUDE_RATES; delete process.env.FAKE_CLAUDE_DELAY_MS; }
-  assert.ok(live, 'live.json got a budget window while the session ran');
+  assert.ok(live, `live.json got a budget window while the session ran; last seen: ${JSON.stringify(last)}`);
   assert.deepEqual(live.budget.windows, [{ window: 'seven_day', utilization: 0.37, resetsAt: RESET, pairs: 0 }]);
-  assert.ok(live.sessions.length === 1, 'still mid-session');
+  assert.equal(live.sessions.length, 1, 'still mid-session');
 });
 
 // the dashboard
