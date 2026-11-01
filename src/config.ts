@@ -207,7 +207,8 @@ export function loadProject(from: string = process.cwd()): Project {
   return { root, stateDir, config };
 }
 
-export function saveConfig(stateDir: string, config: Config): void {
+/** Writes config as given: a key left out (e.g. worktreeSetup not yet set) stays out of the file. */
+export function saveConfig(stateDir: string, config: Partial<Config>): void {
   mkdirSync(stateDir, { recursive: true });
   writeFileSync(path.join(stateDir, 'config.json'), JSON.stringify(config, null, 2) + '\n');
 }

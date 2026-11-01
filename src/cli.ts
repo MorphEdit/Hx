@@ -104,7 +104,29 @@ async function init(args: string[]): Promise<number> {
   const repo = await gh.repoSlug(root);
   const config: Config = existing ? loadProject(root).config
     : { ...DEFAULTS, repo, defaultBranch: await gh.defaultBranch(repo), worktreeRoot: defaultWorktreeRoot(root, repo) };
-  saveConfig(path.join(root, STATE_DIR), config);
+  // a key absent from the file is "not set": detect it; a present key ('' and [] included) is left alone
+  const raw = existing ? readRawConfig(root) : {};
+  const notes: string[] = [];
+  const saved: Partial<Config> = { ...config };
+  if (!('worktreeSetup' in raw)) {
+    const found = detectSetup(root);
+    if (found) {
+      config.worktreeSetup = saved.worktreeSetup = found.command;
+      notes.push(`worktree setup: ${found.command} (from ${found.lockfile}) — change worktreeSetup in .hx/config.json`);
+    } else {
+      delete saved.worktreeSetup;
+      notes.push('worktree setup: no lockfile found — set worktreeSetup in .hx/config.json to run a command in each new worktree, e.g. "worktreeSetup": "npm ci"');
+    }
+  }
+  if (!('worktreeCopy' in raw)) {
+    const copy = await detectCopy(root);
+    if (copy) {
+      config.worktreeCopy = saved.worktreeCopy = copy;
+      notes.push(`worktree copy: ${copy.join(', ')} (git-ignored) is copied into each new worktree — change worktreeCopy in .hx/config.json`);
+    } else delete saved.worktreeCopy;
+  }
+  saveConfig(path.join(root, STATE_DIR), saved);
+  for (const n of notes) console.log(n);
 
   // keep .hx/ out of git without touching the project's own .gitignore
   const exclude = path.join((await runOk('git', ['-C', root, 'rev-parse', '--git-common-dir'])).trim(), 'info', 'exclude');
@@ -124,6 +146,37 @@ async function init(args: string[]): Promise<number> {
 
 Next: file a PRD with  hx prd <file.md>  or label an issue '${L.ready}', then run  hx status  and  hx run`);
   return initRtdd(root, effectiveRtddBin(config), args.includes('--rtdd'));
+}
+
+/** The lockfiles hx init looks for in the repo root, in order, and the setup command each one implies. */
+export const SETUP_LOCKFILES: readonly (readonly [lockfile: string, command: string])[] = [
+  ['pnpm-lock.yaml', 'pnpm install --frozen-lockfile'],
+  ['yarn.lock', 'yarn install --frozen-lockfile'],
+  ['package-lock.json', 'npm ci'],
+  ['bun.lockb', 'bun install --frozen-lockfile'],
+  ['composer.lock', 'composer install --no-interaction'],
+  ['poetry.lock', 'poetry install'],
+  ['uv.lock', 'uv sync'],
+  ['Gemfile.lock', 'bundle install'],
+  ['go.sum', 'go mod download'],
+  ['Cargo.lock', 'cargo fetch'],
+];
+
+/** The worktree setup command implied by the first lockfile in the repo root, or null when there is none. */
+export function detectSetup(root: string): { command: string; lockfile: string } | null {
+  for (const [lockfile, command] of SETUP_LOCKFILES) if (existsSync(path.join(root, lockfile))) return { command, lockfile };
+  return null;
+}
+
+/** ['.env'] when the repo root has a git-ignored .env (worth copying into each worktree), else null. */
+export async function detectCopy(root: string): Promise<string[] | null> {
+  if (!existsSync(path.join(root, '.env'))) return null;
+  return (await run('git', ['-C', root, 'check-ignore', '-q', '.env'])).code === 0 ? ['.env'] : null;
+}
+
+/** .hx/config.json as written (BOM stripped, no defaults merged), to tell a key not set from one set to empty. */
+function readRawConfig(root: string): Record<string, unknown> {
+  return JSON.parse(readFileSync(path.join(root, STATE_DIR, 'config.json'), 'utf8').replace(/^﻿/, ''));
 }
 
 /** hx init --rtdd runs `rtdd init` in the repo root (not committed); without it, a hint when rtdd is
@@ -322,6 +375,8 @@ async function status(p = loadProject()): Promise<number> {
   const gate = readGate(p.stateDir).last;
   if (c.gate && gate) console.log(`gate     ${gate.ok ? 'green' : 'RED'} at ${gate.sha.slice(0, 7)} (${gate.command})${gate.ok ? '' : ' — only its fix issue is claimed'}`);
   if (paused) console.log(`paused   ${paused} — hx resume to clear`);
+  if (c.worktreeSetup) console.log(`setup    ${c.worktreeSetup} (timeout ${c.worktreeSetupMinutes} min)`);
+  if (c.worktreeCopy?.length) console.log(`copy     ${c.worktreeCopy.join(', ')}`);
   // from the files, so it shows whether or not a runner is up
   for (const w of readBudgetWindows(p.stateDir, c.budgetMinPairs, new Date())) console.log(budgetLine(w, c.budgetMinPairs));
   console.log(`model    ${c.model}${c.effort ? ` (${c.effort} effort)` : ''}\n`);
