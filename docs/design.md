@@ -169,6 +169,26 @@ running sessions are never stopped. No forecast or no calibrated window means no
 history Hx claims exactly as before. The pure functions live in `src/budget.ts`; the claim loop reads the
 two files once per pass.
 
+## Worktree setup
+
+A worktree holds only tracked files, so in a normal project the first session and the gate start
+without dependencies or a `.env` (PRD #137). `worktreeCopy` copies named untracked files in and
+`worktreeSetup` runs one command (`npm ci`) in each worktree hx creates; `src/setup.ts` does both.
+Decisions:
+- Setup runs after `addWorktree` returns, outside the worktree queue: an install can take minutes, and
+  holding the queue would stall every other worker's add and remove. Parallel setups each run their own
+  command.
+- A per-directory record (`.hx/logs/setup-<name>.json`) is written when a session's setup finishes, so
+  only a setup that succeeded counts as done: a reused impl worktree whose record is missing (interrupted)
+  or failed is set up again. A failed setup does not block the session; its prompt gets a setup note.
+- The gate retries a failed setup immediately, within one `gateCheck`, up to 3 times at one sha. Waiting
+  for the next poll would not help: the next merge moves the sha, and a flaky install should not turn the
+  base red. Three failures at one sha make it red with a fix issue that names the setup command.
+- Copied files are added to the shared `info/exclude`, never committed: they are local (secrets, machine
+  config), and a session must not ship them.
+- No shared dependency folders (a symlinked `node_modules` and the like): each worktree installs its own,
+  and the package manager's cache makes that fast enough without one worktree's install breaking another.
+
 ## Token optimisation (phase 4)
 
 Measured before (see the [benchmark](../README.md#benchmark), `bench/results/phase3/`):
