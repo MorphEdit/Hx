@@ -13,11 +13,14 @@ import { clearLive, otherRunner, readLive, readPause, writeLive, type LiveSessio
 import { fmt, recordUsage, totalTokens } from './usage.ts';
 import { readingOf, recordReading } from './budget.ts';
 import { gateIssueBody, gateIssueTitle, readGate, remoteSha, runGate, writeGate, type GateResult } from './gate.ts';
+import { setupLine, type SetupResult } from './setup.ts';
 import { run as runCmd } from './exec.ts';
 import { acquireSlot, DEFAULT_FLEET_WORKERS, readHold, releaseSlot, writeHold } from './fleet.ts';
 import { appendSkills, resolveSkills, rtddCheck, rtddEnv, SKILL_CHECKS, skillNames, skillsLogLine, type Skill } from './skills.ts';
 
 const PROMPTS = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'prompts');
+/** Tries in a row at one sha before a failing worktree setup turns the gate red. */
+const SETUP_TRIES = 3;
 // the one-call commit → rebase → test → push → PR → merge → close routine (forward slashes: the agent's shell may be bash)
 const SHIP = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'scripts', 'ship.mjs').replace(/\\/g, '/');
 // how agents read an issue: it prints only the comments by accounts in HX_TRUSTED
@@ -281,16 +284,31 @@ export async function runPool(p: Project, o: PoolOptions): Promise<number> {
     }
     if (gateRunning) { gateAgain = true; return gateRunning; }
     gateRunning = (async () => {
+      // a failed worktree setup is retried at once, up to SETUP_TRIES in a row at one sha (counted here only, never written)
+      let setupSha = '', setupTries = 0;
+      let lastSetup: SetupResult | undefined;
+      const setup = { stateDir: p.stateDir, config: c, log: (m: string) => log(`gate: ${m}`),
+        onSetup: (s: SetupResult) => { lastSetup = s; if (s.ok && s.command) log(`gate: ${setupLine(s, s.command)}`); } };
       do {
         gateAgain = false;
         if (o.signal.aborted) break;
         // Ctrl+C (o.signal) aborts the gate; `hx pause --now` (stop) does not
-        const r = await runGate(p.root, c.worktreeRoot, c.defaultBranch, cmd, undefined, o.signal).catch((e) => ({ sha: '', ok: true, command: cmd, output: String(e.message), at: new Date().toISOString(), error: true }));
+        const r = await runGate(p.root, c.worktreeRoot, c.defaultBranch, cmd, undefined, o.signal, setup).catch((e) => ({ sha: '', ok: true, command: cmd, output: String(e.message), at: new Date().toISOString(), error: true }));
         if ('aborted' in r && r.aborted) break; // discarded: no log, no gate.json, no fix issue
         if ('error' in r) { log(`gate: could not run (${r.output.slice(0, 160)}) — retried after the next merge`); continue; }
+        if ('setupFailed' in r && r.setupFailed) {
+          setupTries = r.sha === setupSha ? setupTries + 1 : 1;
+          setupSha = r.sha;
+          if (lastSetup) log(`gate: ${setupLine(lastSetup, r.command, { suffix: `try ${setupTries} of ${SETUP_TRIES}`, minutes: c.worktreeSetupMinutes })}`);
+          // between tries gs.last, gate.json and live.gate keep the previous result
+          if (setupTries < SETUP_TRIES) { gateAgain = true; continue; }
+        } else setupTries = 0;
         const wasRed = gateRed();
         gs.last = r;
-        if (!r.ok) {
+        if (!r.ok && r.setupFailed) {
+          log(`gate RED ✗ — the worktree setup \`${r.command}\` ${r.timedOut ? 'timed out' : 'fails'} on ${c.defaultBranch} at ${r.sha.slice(0, 7)} (${SETUP_TRIES} tries); claiming only its fix`);
+          await fileGateIssue(r).catch((e) => log(`gate: filing the fix issue failed: ${e.message}`));
+        } else if (!r.ok) {
           log(`gate RED ✗ — \`${cmd}\` ${r.timedOut ? 'timed out' : 'fails'} on ${c.defaultBranch} at ${r.sha.slice(0, 7)}; claiming only its fix`);
           await fileGateIssue(r).catch((e) => log(`gate: filing the fix issue failed: ${e.message}`));
         } else {
