@@ -72,6 +72,9 @@ export interface Config {
   roleModels: Record<string, { model?: string; effort?: string }>;
   skillMaxChars: number; // a skill whose stripped SKILL.md body is longer is skipped
   rtddBin: string; // HX_RTDD_BIN overrides it (see effectiveRtddBin)
+  worktreeSetup: string; // a shell command run in each new worktree, e.g. `npm ci` ('' = none)
+  worktreeSetupMinutes: number; // the setup command is killed (with its tree) after this long
+  worktreeCopy: string[]; // untracked paths (relative to the repo root) copied from the checkout into each new worktree
   labels: Labels;
 }
 
@@ -106,6 +109,9 @@ export const DEFAULTS: Omit<Config, 'repo' | 'defaultBranch' | 'worktreeRoot'> =
   roleModels: {},
   skillMaxChars: 12000,
   rtddBin: 'rtdd',
+  worktreeSetup: '',
+  worktreeSetupMinutes: 10,
+  worktreeCopy: [],
   labels: { ready: 'ready-for-agent', working: 'agent-working', blocked: 'agent-blocked', prd: 'prd', reviewed: 'prd-reviewed', hardened: 'prd-hardened', secured: 'security-reviewed', security: 'security', gateFix: 'hx-gate-fix', bug: 'bug', triaged: 'bug-triaged' },
 };
 
@@ -150,6 +156,20 @@ export function roleModelsError(roleModels: unknown): string | null {
     if (model !== undefined && (typeof model !== 'string' || !model.trim())) return `roleModels.${role}.model: must be a non-empty string (omit it to use the top-level model)`;
     if (effort !== undefined && !(EFFORTS as readonly unknown[]).includes(effort))
       return `roleModels.${role}.effort: ${JSON.stringify(effort)} is not one of ${EFFORTS.join(', ')} (omit it to use the top-level effort)`;
+  }
+  return null;
+}
+
+/** What is wrong with config.worktreeCopy, or null when it is valid: plain relative paths inside the repo only. */
+export function worktreeCopyError(worktreeCopy: unknown): string | null {
+  if (worktreeCopy === undefined) return null;
+  if (!Array.isArray(worktreeCopy) || worktreeCopy.some((e) => typeof e !== 'string')) return 'worktreeCopy: must be an array of paths relative to the repo root';
+  for (const e of worktreeCopy as string[]) {
+    const q = JSON.stringify(e);
+    if (!e.trim()) return `worktreeCopy: ${q} must be a non-empty path`;
+    if (path.posix.isAbsolute(e) || path.win32.isAbsolute(e) || /^[a-z]:/i.test(e)) return `worktreeCopy: ${q} must be a path relative to the repo root`;
+    if (e.split(/[\\/]/).includes('..')) return `worktreeCopy: ${q} must be a path inside the repo (no "..")`;
+    if (/[*?[\]{}]/.test(e)) return `worktreeCopy: ${q} must be a plain path (no glob characters)`;
   }
   return null;
 }

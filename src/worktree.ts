@@ -26,11 +26,14 @@ function serial<T>(fn: () => Promise<T>): Promise<T> {
   return next;
 }
 
+/** `created`: this call ran `git worktree add` (false when an existing impl worktree was reused). */
+export interface AddedWorktree { dir: string; resumed: boolean; created: boolean }
+
 /**
  * A worktree on `spec.branch` from origin/<base>. Unless `fresh`, an existing worktree on that branch
  * is reused, and a branch already on the remote (an earlier run pushed WIP) is continued.
  */
-export function addWorktree(checkout: string, root: string, spec: WorktreeSpec): Promise<{ dir: string; resumed: boolean }> {
+export function addWorktree(checkout: string, root: string, spec: WorktreeSpec): Promise<AddedWorktree> {
   return serial(() => addWorktreeNow(checkout, root, spec));
 }
 
@@ -38,13 +41,13 @@ export function removeWorktree(checkout: string, dir: string): Promise<void> {
   return serial(() => removeWorktreeNow(checkout, dir));
 }
 
-async function addWorktreeNow(checkout: string, root: string, { name, branch, base, fresh }: WorktreeSpec): Promise<{ dir: string; resumed: boolean }> {
+async function addWorktreeNow(checkout: string, root: string, { name, branch, base, fresh }: WorktreeSpec): Promise<AddedWorktree> {
   const dir = path.join(root, name);
   mkdirSync(root, { recursive: true });
   // A worktree left by an interrupted run (Ctrl+C, usage limit) may hold uncommitted work: keep it.
   if (existsSync(dir)) {
     const head = await run(GIT, ['-C', dir, 'rev-parse', '--abbrev-ref', 'HEAD']);
-    if (!fresh && head.code === 0 && head.stdout.trim() === branch) return { dir, resumed: true };
+    if (!fresh && head.code === 0 && head.stdout.trim() === branch) return { dir, resumed: true, created: false };
     await removeWorktreeNow(checkout, dir);
   }
   const lp = await run(GIT, ['-C', checkout, 'config', '--get', 'core.longpaths']);
@@ -60,7 +63,7 @@ async function addWorktreeNow(checkout: string, root: string, { name, branch, ba
   const resumed = !!remote && remote.code === 0 && remote.stdout.trim() !== '';
   if (resumed) await runOk(GIT, ['-C', checkout, 'fetch', '-q', 'origin', `${branch}:refs/remotes/origin/${branch}`]);
   await runOk(GIT, ['-C', checkout, 'worktree', 'add', '-f', '--no-track', '-B', branch, dir, resumed ? `origin/${branch}` : `origin/${base}`]);
-  return { dir, resumed };
+  return { dir, resumed, created: true };
 }
 
 /** Deletes a worktree directory; replaceable so tests can simulate Windows holding a file open. */

@@ -2,11 +2,11 @@ import { execFile } from 'node:child_process';
 import { appendFileSync, mkdirSync, readFileSync, renameSync, statSync, unwatchFile, watchFile, type Stats } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { effectiveRtddBin, formatRoleModels, labelSpecs, modelMatches, roleModel, roleModelMap, roleModelsError, workerArgs, type LabelSpec, type Project } from './config.ts';
+import { effectiveRtddBin, formatRoleModels, labelSpecs, modelMatches, roleModel, roleModelMap, roleModelsError, workerArgs, worktreeCopyError, type LabelSpec, type Project } from './config.ts';
 import * as gh from './github.ts';
 import type { Issue } from './github.ts';
 import { claimable, externalRefs, fenceFindings, isTrusted, issueKey, parseParent, plan, prdKey, refKey, render, TRIAGE_MARKER, triageVerdict, trustedSet, type Action, type Plan } from './state.ts';
-import { addWorktree, auditWorktree, cleanStaleWorktrees, implWorktree, prdWorktree, removeWorktree, repairBrokenRefs, triageWorktree } from './worktree.ts';
+import { addWorktree, auditWorktree, cleanStaleWorktrees, implWorktree, prdWorktree, removeWorktree, repairBrokenRefs, triageWorktree, type AddedWorktree } from './worktree.ts';
 import { runGoal, runTurn, type GoalResult, type RateLimit } from './agent.ts';
 import { agentFor, type AgentCli } from './agents/index.ts';
 import { clearLive, otherRunner, readLive, readPause, writeLive, type LiveSession, type LiveState } from './runstate.ts';
@@ -223,6 +223,8 @@ export async function runPool(p: Project, o: PoolOptions): Promise<number> {
   // a bad roleModels stops the run before anything reads or claims the board
   const badModels = roleModelsError(c.roleModels);
   if (badModels) { log(`STOPPED: ${badModels}`); return 2; }
+  const badCopy = worktreeCopyError(c.worktreeCopy);
+  if (badCopy) { log(`STOPPED: ${badCopy}`); return 2; }
   // who may put work on the board: looked up once per run; without it nothing is read or claimed
   let trusted: Set<string>;
   try { trusted = await lookupTrusted(c); } catch (e: any) { log(`STOPPED: ${e.message}`); return 2; }
@@ -521,7 +523,7 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
 
   await gh.editLabels(c.repo, n, [c.labels.working]);
   log(`${a.kind}${round ? ` (round ${round})` : ''}: ${title}`, n);
-  let wt: { dir: string; resumed: boolean };
+  let wt: AddedWorktree;
   try {
     wt = await addWorktree(p.root, c.worktreeRoot, a.kind === 'impl' ? implWorktree(n, c.defaultBranch)
       : a.kind === 'triage' ? triageWorktree(n, c.defaultBranch) : prdWorktree(n, c.defaultBranch));
