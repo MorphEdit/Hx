@@ -72,7 +72,7 @@ export function runShell(command: string, opts: { cwd?: string; timeoutMs: numbe
     const onAbort = () => {
       if (settled || aborted) return;
       aborted = true; clearTimeout(timer);
-      killTree(child.pid, true);
+      killTree(child.pid); // async: a sync taskkill under load blocks the event loop for seconds
       setTimeout(() => done(130), 1000).unref(); // do not wait on a grandchild holding the pipes open
     };
     if (opts.signal?.aborted) onAbort();
