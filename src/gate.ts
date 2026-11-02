@@ -56,7 +56,7 @@ const tailOf = (s: string, n: number) => s.trim().split('\n').slice(-n).join('\n
  * With `setup`, the worktree setup runs first; when it fails the command does not run and the result has
  * `setupFailed`. The gate never writes a setup record.
  */
-export async function runGate(checkout: string, root: string, base: string, command: string, timeoutMs = 20 * 60_000,
+export async function runGate(checkout: string, root: string, base: string, command: string, timeoutMs = 45 * 60_000,
   signal?: AbortSignal, setup?: GateSetup): Promise<GateResult> {
   const wt = await addWorktree(checkout, root, { name: 'gate', branch: 'hx/gate', base, fresh: true });
   let aborted = false;

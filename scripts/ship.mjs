@@ -14,7 +14,7 @@
 //
 // Exit codes, each with a one-line reason on stderr:
 //   0 shipped · 2 bad arguments · 3 rebase conflict (rebase aborted; resolve by hand, then re-run)
-//   4 tests failed on the rebased branch, or ran past --test-timeout <minutes> (default 15; the whole
+//   4 tests failed on the rebased branch, or ran past --test-timeout <minutes> (default 45; the whole
 //     process tree is killed) — output tail printed · 5 a git/gh step failed
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
 
@@ -32,7 +32,7 @@ if (args.includes('--resume')) {
 }
 const repo = opt('repo') ?? saved.repo, base = opt('base') ?? saved.base ?? 'main', issue = opt('issue') ?? saved.issue,
   title = opt('title') ?? saved.title, testCmd = opt('test') ?? saved.test;
-const testTimeout = Number(opt('test-timeout') ?? saved.testTimeout ?? 15); // minutes, fractions allowed
+const testTimeout = Number(opt('test-timeout') ?? saved.testTimeout ?? 45); // minutes, fractions allowed
 if (!repo || !issue || !title || !testCmd || !(testTimeout > 0)) {
   console.error('usage: ship.mjs --repo owner/name --base main --issue N --title "type: summary" --test "<test command>" [--test-timeout <minutes>] [--no-merge | --resume]');
   process.exit(2);

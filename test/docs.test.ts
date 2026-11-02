@@ -223,3 +223,12 @@ test('worktree setup: README section and config rows, design records the decisio
   const c = read('CLAUDE.md');
   assert.ok(c.slice(c.indexOf('## Where things are'), c.indexOf('## Conventions')).includes('`setup.ts`'), 'setup.ts in the file map');
 });
+
+test('CI gate: gateMinutes config row with its default, and the CI gate section names it (#180)', () => {
+  const r = read('README.md');
+  assert.ok(hasRow(r, 'gateMinutes', `\`${DEFAULTS.gateMinutes}\``), 'gateMinutes row');
+  const start = r.indexOf('## CI gate');
+  const sec = r.slice(start, r.indexOf('\n## ', start + 1));
+  assert.ok(sec.includes('`gateMinutes` (default 45)'), sec);
+  assert.ok(sec.includes('`--test-timeout` minutes (default 45'), sec);
+});
