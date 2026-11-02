@@ -9,7 +9,7 @@ import type { GhBudget } from './ghlimit.ts';
 import { claimable, externalRefs, fenceFindings, isTrusted, issueKey, parseParent, plan, prdKey, refKey, render, TRIAGE_MARKER, triageVerdict, trustedSet, type Action, type Plan } from './state.ts';
 import { addWorktree, auditWorktree, cleanStaleWorktrees, implWorktree, prdWorktree, removeWorktree, repairBrokenRefs, triageWorktree, type AddedWorktree } from './worktree.ts';
 import { emptyUsage, runGoal, runTurn, type GoalResult, type RateLimit } from './agent.ts';
-import { readSetupRecord, setupLine, setupNote, setupWorktree, writeSetupRecord, type SetupResult } from './setup.ts';
+import { clearSetupRecord, readSetupRecord, setupLine, setupNote, setupWorktree, writeSetupRecord, type SetupResult } from './setup.ts';
 import { agentFor, type AgentCli } from './agents/index.ts';
 import { clearLive, otherRunner, readLive, readPause, writeLive, type LiveSession, type LiveState } from './runstate.ts';
 import { fmt, recordUsage, totalTokens } from './usage.ts';
@@ -681,10 +681,12 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
   /**
    * Copies and sets up a session worktree before its first turn (a reused impl worktree only when its last
    * setup did not succeed). Returns its {{SETUP_NOTE}} ('' unless the setup failed), or null when ctx.signal
-   * stopped it: then nothing is recorded or logged.
+   * stopped it: then nothing is recorded or logged. A record left by an earlier worktree of the same name is
+   * removed first, so an interrupted setup leaves none and the next reuse sets the worktree up again.
    */
   const setup = async (w: AddedWorktree, name: string): Promise<string | null> => {
     if (!w.created && (readSetupRecord(p.stateDir, name)?.ok || (!c.worktreeSetup && !c.worktreeCopy?.length))) return '';
+    clearSetupRecord(p.stateDir, name);
     const r = await setupWorktree({ checkout: p.root, dir: w.dir, name, stateDir: p.stateDir, config: c, signal: ctx.signal, log: (m) => log(m, n) });
     if (!r) return '';
     if (r.aborted) return null;

@@ -20,7 +20,7 @@ mkdirSync(process.env.HX_FAKE_DIR);
 
 const { DEFAULTS, worktreeCopyError } = await import('../src/config.ts');
 const { addWorktree, removeWorktree, implWorktree } = await import('../src/worktree.ts');
-const { setupWorktree, setupLine, setupNote, readSetupRecord, writeSetupRecord } = await import('../src/setup.ts');
+const { setupWorktree, setupLine, setupNote, readSetupRecord, writeSetupRecord, clearSetupRecord } = await import('../src/setup.ts');
 const { runPool } = await import('../src/pool.ts');
 
 const git = (cwd: string, ...args: string[]) => execFileSync('git', args, { cwd, stdio: 'pipe' }).toString();
@@ -150,6 +150,9 @@ test('a failing command: ok false, exit 1, the last 20 lines; setupNote and setu
   assert.deepEqual({ ...rec, at: undefined }, { command: cmd, ok: false, exit: 1, timedOut: false, tail: s.res!.tail, at: undefined });
   assert.ok(!Number.isNaN(Date.parse(rec!.at)));
   assert.equal(readSetupRecord(stateDir, 'none'), undefined);
+  clearSetupRecord(stateDir, s.name);
+  assert.equal(readSetupRecord(stateDir, s.name), undefined, 'cleared');
+  clearSetupRecord(stateDir, 'none'); // no record: nothing to do, no throw
 });
 
 test('a command that hangs is killed with its tree after worktreeSetupMinutes: timedOut, not ok', E2E, async () => {

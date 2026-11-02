@@ -238,4 +238,28 @@ test('an abort during an impl setup kills it: no record, no FAILED line, label r
   assert.equal(byNum(50).state, 'CLOSED');
 });
 
+test('a stale ok:true record from an earlier worktree of the same name is removed before setup: an abort leaves none, the reuse sets up again', E2E, async () => {
+  // e.g. #60 was built, merged and its worktree removed; it is reopened and claimed again
+  writeSetupRecord(stateDir, 'i60', { ok: true, exit: 0, timedOut: false, aborted: false, tail: 'installed', command: OK, ms: 0 });
+  assert.ok(!existsSync(path.join(wtRoot, 'i60')));
+  board([issue(60)]);
+  rmSync(started, { force: true });
+  const ac = new AbortController();
+  const wait = setInterval(() => { if (existsSync(started)) { clearInterval(wait); ac.abort(); } }, 50);
+  let res;
+  try { res = await run({ worktreeSetup: HANG }, ac.signal); } finally { clearInterval(wait); }
+  assert.ok(ac.signal.aborted, 'the setup started');
+  assert.equal(res.prompts.length, 0, 'no turn ran');
+  assert.equal(readSetupRecord(stateDir, 'i60'), undefined, 'the stale record is gone');
+  assert.ok(existsSync(path.join(wtRoot, 'i60')), 'worktree kept');
+  await new Promise((r) => setTimeout(r, 1500)); // killTree is asynchronous on Windows
+
+  const again = await run({ worktreeSetup: OK });
+  assert.equal(again.rc, 0, again.lines.join('\n'));
+  assert.equal(runs('i60'), 1, 'the reused worktree was set up again');
+  assert.ok(again.lines.some((l) => /\[#60\] setup: /.test(l)), again.lines.join('\n'));
+  assert.equal(readSetupRecord(stateDir, 'i60')?.ok, true);
+  assert.equal(byNum(60).state, 'CLOSED');
+});
+
 test.after(() => { try { rmSync(tmp, { recursive: true, force: true, maxRetries: 3 }); } catch {} });
