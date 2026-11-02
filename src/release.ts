@@ -119,6 +119,19 @@ export function prdsInRange<T extends ClosedPrd>(prds: T[], after?: string, notA
   });
 }
 
+export type Due = { due: true; bump?: BumpKind } | { due: false; why: string }; // no bump: release() decides
+
+/** Whether `hx run` releases now (autoRelease, PRD #139 §D10): minor when a PRD closed since the last tag; else
+ *  patch when the last tag is older than `patchHours` (or there is none) and a fix merged since it. */
+export function releaseDue(o: { last?: string; lastDate?: string; prdsSince: number[]; subjects: string[]; patchHours: number; now: Date }): Due {
+  if (o.prdsSince.length) return { due: true, bump: 'minor' };
+  const since = o.last ?? 'the start';
+  if (!isFixDue(o.subjects)) return { due: false, why: `no PRD closed and no fix merged since ${since}` };
+  const age = o.lastDate ? o.now.getTime() - Date.parse(o.lastDate) : Infinity;
+  if (age <= o.patchHours * 3_600_000) return { due: false, why: `fixes merged, but ${since} is less than ${o.patchHours} h old` };
+  return { due: true, bump: 'patch' };
+}
+
 /** package.json text with its (first) `"version"` value set, everything else kept byte for byte. */
 export function setPackageVersion(text: string, version: string): string {
   const re = /("version"\s*:\s*")[^"]*(")/;
@@ -149,11 +162,24 @@ export async function firstParentCommits(checkout: string, range: string): Promi
     .map((r) => { const [subject, body] = r.split('\0'); return { subject: subject.trim(), body: body.trim() }; });
 }
 
+/** releaseDue on origin's tags, commits and closed PRDs; also due (no bump: release() makes it) when the last tag on
+ *  origin has no GitHub release, e.g. after a failed `gh release create`. */
+export async function dueRelease(p: { root: string }, c: Config, now = new Date()): Promise<Due> {
+  const tags = await originTags(p.root, c.defaultBranch);
+  const last = lastTag(tags.map((t) => t.name));
+  const lastDate = last ? tags.find((t) => t.name === last)?.date : undefined;
+  const prdsSince = prdsInRange(await gh.closedWithLabel(c.repo, c.labels.prd), lastDate).map((x) => x.number);
+  const subjects = (await firstParentCommits(p.root, last ? `${tagRef(last)}..origin/${c.defaultBranch}` : `origin/${c.defaultBranch}`)).map((x) => x.subject);
+  const due = releaseDue({ last, lastDate, prdsSince, subjects, patchHours: c.autoReleasePatchHours, now });
+  if (!due.due && last && !(await gh.releaseExists(c.repo, last))) return { due: true };
+  return due;
+}
+
 export interface ReleasePaths { root: string; stateDir: string }
 
 /** The gate `hx release` uses: the recorded result when it is for origin's head, else a gate run that is never
  *  recorded (gate.json untouched, no fix issue) — even with `gate` off. null: no gate command known. */
-export function releaseGate(paths: ReleasePaths, c: Config, log: (m: string) => void): () => Promise<GateResult | null> {
+export function releaseGate(paths: ReleasePaths, c: Config, log: (m: string) => void, signal?: AbortSignal): () => Promise<GateResult | null> {
   return async () => {
     const gs = readGate(paths.stateDir);
     const head = await remoteSha(paths.root, c.defaultBranch);
@@ -161,7 +187,7 @@ export function releaseGate(paths: ReleasePaths, c: Config, log: (m: string) => 
     const cmd = c.gateCommand || gs.command;
     if (!cmd) return null;
     log(`gate: running \`${cmd}\` on ${c.defaultBranch}`);
-    return runGate(paths.root, c.worktreeRoot, c.defaultBranch, cmd, c.gateMinutes * 60_000, undefined,
+    return runGate(paths.root, c.worktreeRoot, c.defaultBranch, cmd, c.gateMinutes * 60_000, signal,
       { stateDir: paths.stateDir, config: c, log: (m) => log(`gate: ${m}`) });
   };
 }
@@ -175,6 +201,8 @@ export interface ReleaseOptions {
   gate: () => Promise<GateResult | null>; // null: no gate command known
   log: (m: string) => void;
   confirm: (question: string) => Promise<boolean>;
+  inRun?: boolean; // called by hx run (autoRelease): the run is the runner, so no live-runner check
+  planned?: (tag: string) => void; // told the tag before anything that can fail is pushed or created
 }
 /** `released`: the tag of the release made (a new one or the missing one), if any; `prds`: the PRDs in its notes. */
 export interface ReleaseOutcome { code: number; released?: string; prds?: number[] }
@@ -183,7 +211,7 @@ export interface ReleaseOutcome { code: number; released?: string; prds?: number
 export async function release(o: ReleaseOptions): Promise<ReleaseOutcome> {
   const { paths: p, config: c, log } = o;
   const base = c.defaultBranch;
-  if (!o.dryRun) {
+  if (!o.dryRun && !o.inRun) {
     const other = otherRunner(p.stateDir);
     if (other) { log(`hx is already running for this repo (pid ${other.pid}): stop it first, or set autoRelease`); return { code: 3 }; }
   }
@@ -198,6 +226,7 @@ export async function release(o: ReleaseOptions): Promise<ReleaseOutcome> {
     const commits = await firstParentCommits(p.root, prev ? `${tagRef(prev)}..${tagRef(last)}` : tagRef(last));
     const inRange = prdsInRange(prds, dateOf(prev), dateOf(last));
     const notes = buildNotes({ repo: c.repo, commits, prds: inRange, previousTag: prev, newTag: last });
+    o.planned?.(last);
     if (o.dryRun) { log(`${last} is on origin with no GitHub release: hx release would create it with these notes\n\n${notes}`); return { code: 0 }; }
     await publish(p, c, last, notes);
     log(`created the missing release ${last}`);
@@ -216,6 +245,7 @@ export async function release(o: ReleaseOptions): Promise<ReleaseOutcome> {
   }
   const current = currentVersion(sorted, pkgVersion);
   const tag = `v${bump(current, kind)}`;
+  o.planned?.(tag);
   const notesFor = (commits: Commit[]) => buildNotes({ repo: c.repo, commits, prds: since, previousTag: last, newTag: tag });
   log(`release ${tag}: ${kind} bump from ${current}, ${merged.length} PR(s) merged since ${last ?? 'the start'}\n\n${notesFor(merged)}`);
 

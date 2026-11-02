@@ -18,7 +18,7 @@ process.env.HX_FAKE_STATE = board;
 const { DEFAULTS } = await import('../src/config.ts');
 const { writeGate } = await import('../src/gate.ts');
 const gh = await import('../src/github.ts');
-const { firstParentCommits, originTags, release, releaseGate } = await import('../src/release.ts');
+const { dueRelease, firstParentCommits, originTags, release, releaseGate } = await import('../src/release.ts');
 
 const git = (cwd: string, ...a: string[]) => execFileSync('git', a, { cwd, encoding: 'utf8', stdio: 'pipe' }).trim();
 const gitAt = (date: string, cwd: string, ...a: string[]) =>
@@ -71,6 +71,17 @@ test('gh helpers: closed PRDs by label with closedAt and stateReason; release vi
   assert.deepEqual(rel.args, ['release', 'create', 'v0.2.0', '-R', 'me/app', '--title', 'v0.2.0', '--notes-file', notes, '--latest', '--verify-tag']);
   setBoard({ releaseViewFails: true });
   await assert.rejects(gh.releaseExists('me/app', 'v0.1.0'), /gh release view v0\.1\.0 failed/);
+});
+
+test('dueRelease: minor for a PRD completed after the last tag; else due with no bump when that tag has no GitHub release', E2E, async () => {
+  const prd = (closedAt: string, stateReason = 'COMPLETED') => ({ number: 5, title: 'PRD: X', body: '', state: 'CLOSED', labels: ['prd'], closedAt, stateReason });
+  const now = new Date('2026-06-01T00:00:00Z');
+  setBoard({ issues: [prd('2026-03-01T00:00:00Z')], releases: [{ tag: 'v0.1.1' }] });
+  assert.deepEqual(await dueRelease(paths, config, now), { due: true, bump: 'minor' });
+  setBoard({ issues: [prd('2026-03-01T00:00:00Z', 'NOT_PLANNED'), prd('2026-01-15T00:00:00Z')], releases: [{ tag: 'v0.1.1' }] });
+  assert.deepEqual(await dueRelease(paths, config, now), { due: false, why: 'no PRD closed and no fix merged since v0.1.1' });
+  setBoard({ issues: [] });
+  assert.deepEqual(await dueRelease(paths, config, now), { due: true });
 });
 
 test('releaseGate: the recorded result for the head; else null with no command known', E2E, async () => {

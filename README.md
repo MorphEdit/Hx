@@ -575,6 +575,8 @@ and the dashboard's per-model numbers use it). To spot one:
 | `gate` | `true` | test the default branch after every merge; while red, claim only its fix |
 | `gateCommand` | `""` | the gate's test command (empty: learned from the first audited merge) |
 | `gateMinutes` | `45` | the gate's test run is killed, with its process tree, after this long and counts as red |
+| `autoRelease` | `false` | `hx run` releases by itself, as `hx release` does: `minor` once a PRD closed since the last tag, `patch` once the last tag is older than `autoReleasePatchHours` and a `fix:` merged since; with `gate` on it uses the run's recorded gate result |
+| `autoReleasePatchHours` | 24 | how old the last tag must be before merged fixes make a patch release due |
 | `usagePauseAt` | 0.9 | claim nothing new once a usage window is this full (0..1) |
 | `ghReservePct` | 0.2 | claim nothing new while the GitHub API `core` or `graphql` budget has less than this share left, until it resets (0..1, 0 = off) |
 | `budgetGate` | `true` | before claiming a session, skip it while its forecast would take a calibrated usage window past `usagePauseAt` (see Budget gate) |

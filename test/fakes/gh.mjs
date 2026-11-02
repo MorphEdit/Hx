@@ -153,7 +153,10 @@ if (a[0] === 'issue' && a[1] === 'list') {
   withStdin((body) => mutate((cur) => { cur.comments.push({ issue: Number(a[2]), body, author: LOGIN }); }));
 } else if (a[0] === 'issue' && a[1] === 'close') {
   mutate((cur) => {
-    find(cur, a[2]).state = 'CLOSED';
+    const i = find(cur, a[2]);
+    i.state = 'CLOSED';
+    i.closedAt = new Date().toISOString();
+    i.stateReason = /not.planned/i.test(opt('--reason') ?? '') ? 'NOT_PLANNED' : 'COMPLETED';
     if (opt('--comment')) cur.comments.push({ issue: Number(a[2]), body: opt('--comment'), author: LOGIN });
   });
 } else if (a[0] === 'release' && a[1] === 'view') {
