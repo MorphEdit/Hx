@@ -67,6 +67,7 @@ role prompts, promise-based completion.
 | 4 | Token optimisation: lean workers, one-call `ship` script, shorter prompts — **−84% tokens** on the benchmark | done |
 | 5 | Auditor per issue (#1) + CI gate (#4): audit eval 6/6 planted defects caught; benchmark 6/6 with the auditor on | done |
 | 6 | Gauntlet (#3): a critic → reviser loop hardens a PRD before decompose; a security pass checks its merged work before it closes — critic eval 3/3 defects, security eval 3/3 vulnerabilities, no false alarms | done |
+| 7 | GitHub rate limits (PRD #138): a budget reserve (`ghReservePct`), the `github` line, rate-limited calls waited out in `hx run` and (briefly) in the worker scripts, a shared fleet hold | done |
 
 ### Next: the rest of Harness's features, ordered by how much they improve the quality of what Hx ships
 
@@ -150,6 +151,34 @@ The agent CLI is a seam, not a feature: `AgentCli` in `src/agents/` (the argv of
 per-turn output parser, the interactive argv for `hx grill` / `hx issue`) is all `agent.ts`, `pool.ts`
 and `cli.ts` know about the CLI, and `agentCli` in the config names the adapter. `claude` is the only
 adapter; a second one is added when there is a real need for it, not before.
+
+## GitHub rate limits (PRD #138)
+
+Every runner, every worker and every fleet child uses one `gh` login, so they share one account's
+GitHub API budget (5000 core and 5000 graphql points an hour). A busy fleet used to run it dry, and
+then every `gh` call failed at once: claims, merges and the workers' `ship.mjs` alike. `src/ghlimit.ts`
+holds the pure rules (parse `gh api rate_limit`, the `github` line, classify a failure as a primary or
+secondary limit, how long to wait), so hx and the scripts cannot drift apart.
+
+- **Reserve, not a race to zero.** `gh api rate_limit` costs nothing, so a run reads it at most once a
+  minute. Below `ghReservePct` (default 0.2) of either bucket the runner is budget-low until that bucket's
+  reset: no claims (engine steps included) and no board reads, while running sessions carry on with the
+  rest. It wakes every 2 × `pollSeconds` to re-read the budget. The reserve exists for the sessions
+  already running: a worker that cannot push or open its PR wastes the whole session. `0` turns it off.
+- **Waiting only inside a real `hx run`.** `github.ts` waits and retries a rate-limited call only while a
+  wait signal is set, and only `hx run` sets it, after `--dry-run` has returned. Every other command
+  (`hx status`, `hx issue`, `hx run --dry-run`, …) is run by a person who is watching and should see the
+  error now, not a silent hang until the reset. Ctrl+C ends a wait without a retry.
+- **90 s cap for the worker scripts.** `ship.mjs` and `issue.mjs` (`scripts/ghwait.mjs`) apply the same
+  waits, but a worker runs them through Claude Code's Bash tool, which kills a command after a few
+  minutes, and a killed `ship.mjs` leaves the session not knowing what happened. So the total wait per
+  script run is capped at `HX_GH_WAIT_MAX_SECONDS` (default 90 s): a short secondary limit is ridden
+  out, while a wait that would pass the cap is not started and the script fails with its usual code
+  (`rate limited until HH:MM`), leaving the long wait to the runner.
+- **One shared fleet hold.** The budget is per account, not per repo, so a runner that goes budget-low
+  or waits out a limit writes `github-hold.json` in the fleet dir and every other runner copies it into
+  its own budget-low state. It is kept apart from the usage hold (`hold.json`): the two have different
+  causes and resets, and lifting one must not lift the other.
 
 ## Models per role
 

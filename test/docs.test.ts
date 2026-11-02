@@ -245,3 +245,34 @@ test('CI gate: gateMinutes config row with its default, and the CI gate section 
   assert.ok(sec.includes('`gateMinutes` (default 45)'), sec);
   assert.ok(sec.includes('`--test-timeout` minutes (default 45'), sec);
 });
+
+test('GitHub rate limits: README paragraph, ghReservePct row, Files entry, design decision, CLAUDE.md (#173)', () => {
+  const r = read('README.md');
+  assert.ok(hasRow(r, 'ghReservePct', String(DEFAULTS.ghReservePct)), 'ghReservePct row');
+  assert.equal(DEFAULTS.ghReservePct, 0.2);
+  const row = r.split('\n').find((l) => l.startsWith('| `ghReservePct`'))!;
+  for (const w of ['0..1', '0 = off']) assert.ok(row.includes(w), w);
+  const at = r.indexOf('**GitHub rate limits:**');
+  assert.ok(at >= 0 && at < r.indexOf('## PRD flow'), 'GitHub rate limits paragraph in Stopping and resuming');
+  const para = r.slice(at, r.indexOf('\n\n', at));
+  for (const w of ['one `gh` login', 'gh api rate_limit', '`github` line', '`hx status`', 'dashboard', '`hx fleet status`',
+    'ghReservePct', '2 × `pollSeconds`', 'Retry-After', 'HX_GH_WAIT_MAX_SECONDS', '(default 90)', 'github-hold.json',
+    'github rate limited — waiting until 22:41', 'rate limited until 22:41', 'fails at once']) assert.ok(para.includes(w), w);
+  // the log lines quoted in the README are the ones the code prints
+  const pool = read('src/pool.ts');
+  for (const l of ['github rate limited — waiting until ', 'github budget low: ', ' — no new claims until ', 'github budget restored']) assert.ok(pool.includes(l), l);
+  assert.ok(read('scripts/ghwait.mjs').includes('rate limited until ') && read('scripts/ghwait.mjs').includes(': 90)'));
+  assert.ok(read('src/ghlimit.ts').includes('`github   core '));
+  assert.ok(r.includes('`github budget low: graphql 812/5000 — no new claims until 22:41`'));
+  assert.ok(r.includes('github   core 4123/5000, graphql 4800/5000 (resets 22:41)'));
+  const files = r.slice(r.indexOf('## Files'), r.indexOf('\n## ', r.indexOf('## Files') + 1));
+  assert.ok(read('src/fleet.ts').includes("path.join(dir, 'github-hold.json')"));
+  for (const f of ['`~/.hx/fleet/hold.json`', '`~/.hx/fleet/github-hold.json`']) assert.ok(files.includes(f), f);
+  const d = read('docs/design.md');
+  const ds = d.slice(d.indexOf('## GitHub rate limits'), d.indexOf('\n## ', d.indexOf('## GitHub rate limits') + 1));
+  assert.ok(d.includes('## GitHub rate limits'), 'design section');
+  for (const w of ['ghReservePct', 'wait signal', '`hx run`', '--dry-run', '90 s', 'Bash tool', 'github-hold.json', 'one account']) assert.ok(ds.includes(w), w);
+  assert.match(d, /\| 7 \| GitHub rate limits[^\n]*\| done \|/);
+  const c = read('CLAUDE.md');
+  assert.ok(c.slice(c.indexOf('## Where things are'), c.indexOf('## Conventions')).includes('`ghlimit.ts`'), 'ghlimit.ts in the file map');
+});
