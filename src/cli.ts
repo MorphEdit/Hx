@@ -24,6 +24,11 @@ import { fmt, localDay, mismatchedSessions, readUsage, summarize, totalTokens, t
 
 const HELP = `usage: hx <command> [options]
 
+  start ["idea" | idea.md] [--workers N] [--yes]
+                           everything to get going, in this repo: doctor, init (if .hx/config.json is
+                           missing), grill the idea into a PRD (without one: skipped when the board has
+                           an open PRD or ready issue, else it asks), the dry-run plan, then
+                           hx run --watch (--yes: answer yes to every question)
   init [--rtdd]            set up hx in the current repo (.hx/config.json + GitHub labels); --rtdd also
                            runs rtdd init in the repo root (commit .rtdd/ yourself)
   prd <file.md> [--title T] file a PRD issue from a markdown file (title: --title or its first '# ' line)
@@ -105,6 +110,7 @@ export function hxVersion(): string {
 export async function main(argv: string[]): Promise<number> {
   const [cmd, ...args] = argv;
   switch (cmd) {
+    case 'start': return start(args);
     case 'init': return init(args);
     case 'prd': return prd(args);
     case 'bug': return bug(args);
@@ -130,6 +136,62 @@ async function doctorCmd(): Promise<number> {
   const { checks, code } = await doctor();
   console.log(render(checks));
   return code;
+}
+
+/** `hx start`: doctor → init → PRD (grill) → the dry-run plan → hx run --watch, each step skipped when already done. */
+async function start(args: string[]): Promise<number> {
+  const yes = args.includes('--yes');
+  const workersArg = flag(args, '--workers');
+  let idea = args.find((a, i) => !a.startsWith('--') && args[i - 1] !== '--workers');
+
+  // 1. doctor: never skipped; a missing .hx/config.json is a note, since init comes next
+  const doc = await doctor({ configOptional: true });
+  console.log(render(doc.checks));
+  if (doc.code !== 0) { console.log('\nhx start stopped: fix the ✗ above, then run hx start again'); return doc.code; }
+
+  // 2. init
+  const top = (await runOk('git', ['rev-parse', '--show-toplevel'])).trim().replace(/\//g, path.sep);
+  if (existsSync(path.join(top, STATE_DIR, 'config.json'))) console.log('\ninit: already done');
+  else {
+    console.log('\ninit: no .hx/config.json — running hx init');
+    const code = await init([]);
+    if (code !== 0) return code;
+  }
+  const p = loadProject(top);
+
+  // 3. PRD: an idea is always grilled; without one, an open PRD or ready issue on the board means done
+  if (idea === undefined) {
+    let trusted: Set<string>;
+    try { trusted = await lookupTrusted(p.config); } catch (e: any) { console.error(`hx: ${e.message}`); return 2; }
+    const L = p.config.labels;
+    const work = (await gh.listIssues(p.config.repo)).filter((i) => i.state === 'OPEN' && trusted.has(i.author)
+      && (i.labels.includes(L.prd) || i.labels.includes(L.ready)));
+    if (work.length) console.log(`\nPRD: already done (${work.map((i) => `#${i.number}`).join(', ')} on the board)`);
+    else {
+      idea = (await ask('\nWhat should hx build? ')).trim();
+      if (!idea) { console.log('nothing to build — hx start stopped'); return 1; }
+    }
+  }
+  if (idea !== undefined) {
+    console.log('\nPRD: grilling the idea');
+    const r = await interview(yes ? [idea, '--yes'] : [idea], GRILL);
+    if (r.code !== 0 || !r.filed) return r.code;
+  }
+
+  // 4. plan
+  const workers = Number(workersArg ?? p.config.workers);
+  if (!Number.isInteger(workers) || workers < 1) throw new Error('--workers must be a positive integer');
+  console.log('\nplan:');
+  const planCode = await runPool(p, { workers, watch: false, dryRun: true, signal: new AbortController().signal });
+  if (planCode !== 0) return planCode;
+  if (!yes && /^n(o)?$/i.test((await ask(`\nStart ${workers} worker(s) now? [Y/n] `)).trim())) {
+    console.log('not started — run  hx run --watch  when you are ready');
+    return 0;
+  }
+
+  // 5. run
+  console.log(`\nrun: hx run --watch --workers ${workers}`);
+  return runCmd(['--watch', '--workers', String(workers)]);
 }
 
 async function init(args: string[]): Promise<number> {
@@ -288,13 +350,13 @@ interface Interview {
  * Run an interactive session that writes one markdown file, show it, ask, and file it.
  * Shared by `hx grill` and `hx issue`.
  */
-async function interview(args: string[], iv: Interview): Promise<number> {
+async function interview(args: string[], iv: Interview): Promise<{ code: number; filed: boolean }> {
   const p = loadProject();
   const c = p.config;
   const agent = agentFor(c.agentCli);
   // the session reads issues with scripts/issue.mjs, which needs the trusted set
   let trusted: Set<string>;
-  try { trusted = await lookupTrusted(c); } catch (e: any) { console.error(`hx: ${e.message}`); return 2; }
+  try { trusted = await lookupTrusted(c); } catch (e: any) { console.error(`hx: ${e.message}`); return { code: 2, filed: false }; }
   // a fresh name: a file left from an earlier session in the same second must not be taken for this one's
   let t = Date.now(), paths = sessionPaths(p.stateDir, iv.dir, iv.role, new Date(t));
   while (existsSync(paths.out) || existsSync(paths.promptFile)) paths = sessionPaths(p.stateDir, iv.dir, iv.role, new Date(t += 1000));
@@ -308,24 +370,26 @@ async function interview(args: string[], iv: Interview): Promise<number> {
     child.on('error', reject).on('exit', () => resolve());
   });
   const text = existsSync(paths.out) ? readFileSync(paths.out, 'utf8') : '';
-  if (!text.trim()) { console.log(`no ${iv.noun} written — nothing filed`); return 1; }
+  if (!text.trim()) { console.log(`no ${iv.noun} written — nothing filed`); return { code: 1, filed: false }; }
   console.log(`
 ${text.trimEnd()}
 `);
   if (!args.includes('--yes') && !/^y(es)?$/i.test((await ask(`File this ${iv.noun} on ${c.repo}? [y/N] `)).trim())) {
     console.log(`not filed. The ${iv.noun} is in ${paths.out} — edit it if you like and file it later with  ${iv.later}`);
-    return 0;
+    return { code: 0, filed: false };
   }
   const url = await iv.file(c, paths.out);
   writeWake(p.stateDir);
   console.log(`filed ${url}
 ${nextLine(p.stateDir, iv.lane)}`);
-  return 0;
+  return { code: 0, filed: true };
 }
 
-function grill(args: string[]): Promise<number> {
-  return interview(args, { role: 'grill', dir: 'prds', noun: 'PRD', later: 'hx prd <file>', lane: 'decompose',
-    file: (c, out) => filePrd(c, out) });
+const GRILL: Interview = { role: 'grill', dir: 'prds', noun: 'PRD', later: 'hx prd <file>', lane: 'decompose',
+  file: (c, out) => filePrd(c, out) };
+
+async function grill(args: string[]): Promise<number> {
+  return (await interview(args, GRILL)).code;
 }
 
 /** `hx issue`: grill one small task into one issue (or `--file` an existing one) and file it ready-for-agent, or with --bug as a bug. */
@@ -343,7 +407,7 @@ async function issue(args: string[]): Promise<number> {
 ${nextLine(p.stateDir, lane)}`);
     return 0;
   }
-  return interview(args, { role: 'issue', dir: 'issues', noun: 'issue', later: `hx issue --file <file>${bugLane ? ' --bug' : ''}`, lane, file });
+  return (await interview(args, { role: 'issue', dir: 'issues', noun: 'issue', later: `hx issue --file <file>${bugLane ? ' --bug' : ''}`, lane, file })).code;
 }
 
 /** One line from stdin ('' when stdin closes first). */
