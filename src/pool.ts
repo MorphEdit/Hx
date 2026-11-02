@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { effectiveRtddBin, formatRoleModels, labelSpecs, modelMatches, roleModel, roleModelMap, roleModelsError, workerArgs, worktreeCopyError, type LabelSpec, type Project } from './config.ts';
 import * as gh from './github.ts';
 import type { Issue } from './github.ts';
+import type { GhBudget } from './ghlimit.ts';
 import { claimable, externalRefs, fenceFindings, isTrusted, issueKey, parseParent, plan, prdKey, refKey, render, TRIAGE_MARKER, triageVerdict, trustedSet, type Action, type Plan } from './state.ts';
 import { addWorktree, auditWorktree, cleanStaleWorktrees, implWorktree, prdWorktree, removeWorktree, repairBrokenRefs, triageWorktree, type AddedWorktree } from './worktree.ts';
 import { emptyUsage, runGoal, runTurn, type GoalResult, type RateLimit } from './agent.ts';
@@ -21,6 +22,8 @@ import { appendSkills, resolveSkills, rtddCheck, rtddEnv, SKILL_CHECKS, skillNam
 const PROMPTS = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'prompts');
 /** Tries in a row at one sha before a failing worktree setup turns the gate red. */
 const SETUP_TRIES = 3;
+/** How often a run reads the GitHub API budget (gh api rate_limit), at most. */
+const GH_BUDGET_READ_MS = 60_000;
 // the one-call commit → rebase → test → push → PR → merge → close routine (forward slashes: the agent's shell may be bash)
 const SHIP = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'scripts', 'ship.mjs').replace(/\\/g, '/');
 // how agents read an issue: it prints only the comments by accounts in HX_TRUSTED
@@ -271,6 +274,16 @@ export async function runPool(p: Project, o: PoolOptions): Promise<number> {
   await recoverStaleClaims(p);
   // a removal that failed last run (a file held open on Windows) left its directory behind; no session runs yet
   for (const d of await cleanStaleWorktrees(p.root, c.worktreeRoot).catch(() => [])) log(`removed leftover directory ${d}`);
+  // the GitHub API budget: read now, then at most once a minute before a claim. A failed read keeps the last value.
+  let lastBudget: GhBudget | null = null;
+  let budgetReadAt = 0;
+  const readGithub = async () => {
+    if (Date.now() - budgetReadAt < GH_BUDGET_READ_MS) return;
+    budgetReadAt = Date.now();
+    const b = await gh.rateLimit();
+    if (b) { lastBudget = b; live.github = b; save(); }
+  };
+  await readGithub();
   save();
 
   let wake = () => {}; // set while the loop waits; called to wake it early
@@ -412,6 +425,7 @@ export async function runPool(p: Project, o: PoolOptions): Promise<number> {
       checkPause(); // the 1 s watcher may not have seen a pause written as a session ended: it must win over the next claim
       sharedHold(); // another fleet runner's usage hold
       showBudget();
+      await readGithub();
       const held = Date.now() < (live.pausedUntil ?? 0);
       let slotBlocked = false; // no fleet slot free: no more sessions this pass, look again within 5 s
       let budgetBlocked = false; // the budget gate skipped an action: wait for a reading or a reset instead of finishing

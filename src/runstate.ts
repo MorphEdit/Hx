@@ -7,6 +7,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync 
 import path from 'node:path';
 import type { RateLimit } from './agent.ts';
 import type { BudgetWindow } from './budget.ts';
+import type { GhBudget } from './ghlimit.ts';
 
 export interface LiveSession {
   key: string; // issue:<n> | prd:<n>
@@ -32,6 +33,7 @@ export interface LiveState {
   models?: Record<string, { model: string; effort: string }>; // every known role → the model and effort its sessions run with
   gate?: { ok: boolean; sha: string; at: string; fixIssue?: number };
   budget?: { windows: BudgetWindow[] }; // per usage window: utilization, resetsAt, pairs, usdPerPct once calibrated
+  github?: GhBudget; // the GitHub API budget, read at start and at most once a minute
 }
 
 export type PauseMode = 'drain' | 'now';
