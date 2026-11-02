@@ -101,6 +101,23 @@ export function registerRepo(root: string, repo: string): void {
   } catch { /* never stops hx init / hx run */ }
 }
 
+// The fleet dashboard's list: the union of fleet.json and repos.json repos. k (the index) always names the same root.
+export interface ListedRepo { root: string; repo: string | null }
+
+/** current with the unseen roots appended: fleet.json repos in file order, then repos.json repos in file order.
+ *  An entry's repo is its repos.json name when it has one. Entries without a string root are skipped. */
+export function listRepos(fleetRepos: unknown[], seenRepos: unknown[], current: ListedRepo[]): ListedRepo[] {
+  const rooted = (r: any): r is { root: string; repo?: unknown } => !!r && typeof r.root === 'string' && r.root !== '';
+  const seen = seenRepos.filter(rooted);
+  const list = [...current];
+  for (const r of [...fleetRepos.filter(rooted), ...seen]) {
+    if (list.some((e) => sameRoot(e.root, r.root))) continue;
+    const name = seen.find((s) => sameRoot(s.root, r.root))?.repo;
+    list.push({ root: path.resolve(r.root), repo: typeof name === 'string' ? name : null });
+  }
+  return list;
+}
+
 // Slots: one shared worker cap across runners. A runner holds slot k while `<fleetDir>/slots/<k>.json` holds its pid.
 export interface SlotOwner { pid: number; repo: string; issue: number }
 

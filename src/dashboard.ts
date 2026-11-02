@@ -8,7 +8,8 @@ import type { AddressInfo } from 'node:net';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { budgetLine } from './budget.ts';
-import type { Project } from './config.ts';
+import { loadProject, type Project, STATE_DIR } from './config.ts';
+import { DEFAULT_FLEET_WORKERS, type Fleet, fleetDir, fleetWorkers, type ListedRepo, listRepos, readFleet, readHold, readRepos, slotsInUse } from './fleet.ts';
 import { githubLine } from './ghlimit.ts';
 import { readGate } from './gate.ts';
 import { parseOutcomes } from './outcomes.ts';
@@ -18,6 +19,7 @@ import type { Plan } from './state.ts';
 import { localDay, readUsage, summarize, totalTokens, type UsageRecord, type UsageRow } from './usage.ts';
 
 export const HTML_FILE = path.join(path.dirname(fileURLToPath(import.meta.url)), 'dashboard.html');
+export const FLEET_HTML_FILE = path.join(path.dirname(fileURLToPath(import.meta.url)), 'dashboard-fleet.html');
 export const DEFAULT_PORT = 4777;
 export const BOARD_TTL_MS = 30_000;
 const HOST = '127.0.0.1';
@@ -31,7 +33,8 @@ export interface BoardSeen { plan?: Plan; error?: string }
 
 /** The board, fetched at most once per ttl; concurrent callers share one fetch; a failure is cached too.
  *  `seen()` never fetches: the last successful plan (kept across later failures) and the latest error. */
-function boardCache(p: Project, ttl = BOARD_TTL_MS): { fetch(): Promise<BoardEntry>; seen(): BoardSeen } {
+export interface BoardCache { fetch(): Promise<BoardEntry>; seen(): BoardSeen }
+export function boardCache(p: Project, ttl = BOARD_TTL_MS): BoardCache {
   let entry: BoardEntry | null = null;
   let lastPlan: Plan | undefined;
   let inFlight: Promise<BoardEntry> | null = null;
@@ -132,28 +135,30 @@ function listen(server: Server, port: number): Promise<number> {
   });
 }
 
-export async function serveDashboard(p: Project, opts: { port?: number; open?: boolean } = {}):
-  Promise<{ url: string; port: number; address(): AddressInfo; close(): Promise<void> }> {
-  const html = readFileSync(HTML_FILE, 'utf8');
-  const board = boardCache(p);
-  let port = 0;
+export interface DashboardServer { url: string; port: number; address(): AddressInfo; close(): Promise<void> }
 
-  const handle = async (req: IncomingMessage, res: ServerResponse) => {
+/** `/`, `/api/state` and `/api/board` of one repo's dashboard; false when route is none of them. */
+async function repoRoute(p: Project, board: BoardCache, html: string, route: string, res: ServerResponse): Promise<boolean> {
+  if (route === '/') { send(res, 200, 'text/html; charset=utf-8', html, { 'Content-Security-Policy': CSP }); return true; }
+  if (route === '/api/state') { json(res, 200, dashboardState(p, board.seen)); return true; }
+  if (route === '/api/board') {
+    const b = await board.fetch();
+    json(res, 200, { at: new Date(b.at).toISOString(), repo: p.config.repo, prds: b.plan?.prds ?? [], board: b.plan?.board ?? [],
+      ...(b.error !== undefined ? { error: b.error } : {}) });
+    return true;
+  }
+  return false;
+}
+
+/** The server both dashboards run on: 127.0.0.1 only, the Host check, GET only, opts.port (default 4777) or the next free one. */
+async function serve(handle: (route: string, res: ServerResponse) => Promise<void>, opts: { port?: number; open?: boolean }): Promise<DashboardServer> {
+  let port = 0;
+  const server = createServer((req: IncomingMessage, res: ServerResponse) => {
     const host = req.headers.host;
     if (host !== `${HOST}:${port}` && host !== `localhost:${port}`) return send(res, 403, TEXT, 'forbidden host\n');
     if (req.method !== 'GET') return send(res, 405, TEXT, 'method not allowed\n', { Allow: 'GET' });
-    const route = (req.url ?? '/').split('?')[0];
-    if (route === '/') return send(res, 200, 'text/html; charset=utf-8', html, { 'Content-Security-Policy': CSP });
-    if (route === '/api/state') return json(res, 200, dashboardState(p, board.seen));
-    if (route === '/api/board') {
-      const b = await board.fetch();
-      return json(res, 200, { at: new Date(b.at).toISOString(), repo: p.config.repo, prds: b.plan?.prds ?? [], board: b.plan?.board ?? [],
-        ...(b.error !== undefined ? { error: b.error } : {}) });
-    }
-    send(res, 404, TEXT, 'not found\n');
-  };
-  const server = createServer((req, res) => {
-    handle(req, res).catch((e) => { if (!res.headersSent) json(res, 500, { error: String(e?.message ?? e) }); else res.end(); });
+    handle((req.url ?? '/').split('?')[0], res)
+      .catch((e) => { if (!res.headersSent) json(res, 500, { error: String(e?.message ?? e) }); else res.end(); });
   });
 
   const first = opts.port ?? DEFAULT_PORT;
@@ -174,6 +179,113 @@ export async function serveDashboard(p: Project, opts: { port?: number; open?: b
       server.closeAllConnections();
     }),
   };
+}
+
+export async function serveDashboard(p: Project, opts: { port?: number; open?: boolean } = {}): Promise<DashboardServer> {
+  const html = readFileSync(HTML_FILE, 'utf8');
+  const board = boardCache(p);
+  return serve(async (route, res) => { if (!(await repoRoute(p, board, html, route, res))) send(res, 404, TEXT, 'not found\n'); }, opts);
+}
+
+// hx dashboard --fleet: /api/fleet over every known repo, each repo's dashboard under /repo/<k>/, the overview at /.
+
+export interface BoardCounts { ready: number; working: number; blocked: number; prdsOpen: number }
+
+/** A repo's board summary on the fleet page; triage and untrusted rows are in no count. */
+export function boardCounts(plan: Pick<Plan, 'board' | 'prds'>): BoardCounts {
+  const n = (s: string) => plan.board.filter((r) => r.status === s).length;
+  return { ready: n('claimable'), working: n('working'), blocked: n('blocked-label') + n('waiting'),
+    prdsOpen: plan.prds.filter((r) => r.status !== 'done').length };
+}
+
+/** The repo at root, or null when it is missing: no .hx/config.json at root itself, or loadProject throws. */
+function projectAt(root: string): Project | null {
+  if (!existsSync(path.join(root, STATE_DIR, 'config.json'))) return null;
+  try { return loadProject(root); } catch { return null; }
+}
+
+/** fleet.json and its cap; no repos and the default cap when it cannot be used. */
+function fleetOrEmpty(): { fleet: Fleet; workers: number } {
+  try {
+    const fleet = readFleet();
+    const w = fleetWorkers(fleet);
+    return { fleet, workers: Number.isInteger(w) && w > 0 ? w : DEFAULT_FLEET_WORKERS };
+  } catch { return { fleet: { repos: [] }, workers: DEFAULT_FLEET_WORKERS }; }
+}
+
+/** One repo's /api/fleet entry (missing on any error). Its usage days are added to byDay only once the entry is built. */
+function fleetEntry(k: number, e: ListedRepo, board: (p: Project) => BoardCache, byDay: Map<string, number>, today: string): object {
+  const missing = { k, root: e.root, repo: e.repo, missing: true };
+  try {
+    const p = projectAt(e.root);
+    if (!p) return missing;
+    const dir = p.stateDir;
+    const live = readLive(dir);
+    const running = !!live && pidAlive(live.pid);
+    const g = readGate(dir).last;
+    const days = new Map<string, number>();
+    let total = 0, todayTokens = 0;
+    for (const r of readUsage(dir)) { // one pass feeds this repo's tokens and the fleet's tokens by day
+      if (!r?.usage) continue;
+      const t = totalTokens(r.usage), day = localDay(r.ts);
+      total += t;
+      if (day === today) todayTokens += t;
+      days.set(day, (days.get(day) ?? 0) + t);
+    }
+    const cache = board(p);
+    const seen = cache.seen();
+    cache.fetch().catch(() => {}); // never awaited: a later request shows it
+    for (const [d, t] of days) byDay.set(d, (byDay.get(d) ?? 0) + t);
+    return {
+      k, root: e.root, repo: p.config.repo, missing: false, running,
+      pid: running ? live.pid : null, workers: running ? live.workers : null,
+      sessions: running ? live.sessions.map((s) => ({ issue: s.number, role: s.kind, since: s.since })) : [],
+      paused: readPause(dir), gate: g ? { ok: g.ok, sha: g.sha, at: g.at } : null,
+      rateLimit: running ? live.rateLimit ?? null : null,
+      tokens: { today: todayTokens, total },
+      board: seen.plan ? boardCounts(seen.plan) : null,
+      ...(seen.error !== undefined ? { boardError: seen.error } : {}),
+    };
+  } catch { return missing; }
+}
+
+/** The list only grows while the server runs, so k always names the same root; k is an index, never a path. */
+export async function serveFleetDashboard(opts: { port?: number; open?: boolean } = {}): Promise<DashboardServer> {
+  const html = readFileSync(HTML_FILE, 'utf8');
+  const fleetHtml = readFileSync(FLEET_HTML_FILE, 'utf8');
+  let list: ListedRepo[] = [];
+  const caches = new Map<number, BoardCache>(); // one per entry, shared by /api/fleet and /repo/<k>/api/...
+  const board = (k: number) => (p: Project) => caches.get(k) ?? caches.set(k, boardCache(p)).get(k)!;
+  const refresh = () => {
+    const f = fleetOrEmpty();
+    let seen: unknown[] = [];
+    try { seen = readRepos()?.repos ?? []; } catch {}
+    list = listRepos(f.fleet.repos, seen, list);
+    return f;
+  };
+  refresh();
+
+  return serve(async (route, res) => {
+    if (route === '/') return send(res, 200, 'text/html; charset=utf-8', fleetHtml, { 'Content-Security-Policy': CSP });
+    if (route === '/api/fleet') {
+      const f = refresh();
+      const byDay = new Map<string, number>();
+      const today = localDay(new Date().toISOString());
+      const repos = list.map((e, k) => fleetEntry(k, e, board(k), byDay, today));
+      const dir = fleetDir();
+      return json(res, 200, {
+        at: new Date().toISOString(),
+        fleet: { slotsInUse: slotsInUse(dir), fleetWorkers: f.workers, hold: readHold(dir),
+          tokensByDay: [...byDay].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)).map(([key, tokens]) => ({ key, tokens })) },
+        repos,
+      });
+    }
+    const m = /^\/repo\/(\d+)(\/.*)$/.exec(route);
+    const k = m ? Number(m[1]) : -1;
+    const e = k >= 0 && k < list.length ? list[k] : undefined;
+    const p = e ? projectAt(e.root) : null;
+    if (!m || !p || !(await repoRoute(p, board(k)(p), html, m[2], res))) send(res, 404, TEXT, 'not found\n');
+  }, opts);
 }
 
 /** Open the page in the default browser: no shell, and only the URL we built. */
