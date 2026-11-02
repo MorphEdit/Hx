@@ -148,3 +148,26 @@ export async function listLabels(repo: string): Promise<Set<string>> {
 export async function ensureLabel(repo: string, name: string, color: string, description: string): Promise<void> {
   await run(GH, ['label', 'create', name, '-R', repo, '--color', color, '--description', description, '--force']);
 }
+
+export interface ClosedIssue { number: number; title: string; closedAt: string | null; stateReason: string | null }
+
+/** The closed issues labelled `label` (closed PRDs for the release notes), with when and why they closed. */
+export async function closedWithLabel(repo: string, label: string): Promise<ClosedIssue[]> {
+  const out = await runOk(GH, ['issue', 'list', '-R', repo, '--label', label, '--state', 'closed', '--limit', '1000',
+    '--json', 'number,title,closedAt,stateReason']);
+  return JSON.parse(out).map((r: any) => ({ number: r.number, title: r.title ?? '', closedAt: r.closedAt ?? null, stateReason: r.stateReason ?? null }));
+}
+
+/** Whether GitHub has a release for `tag`: false only when gh says it is not found; any other failure throws. */
+export async function releaseExists(repo: string, tag: string): Promise<boolean> {
+  const r = await run(GH, ['release', 'view', tag, '-R', repo, '--json', 'tagName']);
+  if (r.code === 0) return true;
+  const err = (r.stderr || r.stdout).trim();
+  if (/not found/i.test(err)) return false;
+  throw new Error(`gh release view ${tag} failed (${r.code}): ${err.slice(0, 200)}`);
+}
+
+/** Creates the release for an existing tag, marked latest; the notes come from a file (never a shell or argv). */
+export async function createRelease(repo: string, tag: string, notesFile: string): Promise<void> {
+  await runOk(GH, ['release', 'create', tag, '-R', repo, '--title', tag, '--notes-file', notesFile, '--latest', '--verify-tag']);
+}

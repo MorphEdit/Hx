@@ -24,7 +24,9 @@ if (a[0] === 'issue' && a[1] === 'list') {
   // state.listFails: true, or the one repo (-R) whose list fails; an issue with a `repo` is listed only for that repo
   if (s.listFails === true || (s.listFails && s.listFails === opt('-R'))) { process.stderr.write('HTTP 502: Bad Gateway'); process.exit(1); }
   const state = opt('--state') ?? 'open';
-  const out = s.issues.filter((i) => (state === 'all' || i.state === state.toUpperCase()) && (!i.repo || i.repo === opt('-R'))).map((i) => ({ ...i, labels: ghLabels(i), author: author(i) }));
+  const label = opt('--label'); // --label L: only issues carrying L (an issue may store closedAt and stateReason)
+  const out = s.issues.filter((i) => (state === 'all' || i.state === state.toUpperCase()) && (!i.repo || i.repo === opt('-R'))
+    && (!label || i.labels.includes(label))).map((i) => ({ ...i, labels: ghLabels(i), author: author(i) }));
   // state.slowList = { add, wake, ms }: a slow read — once the list is taken, `add` joins the board and `wake` is
   // written, then the answer (without it) comes ms later (a wake that lands while hx reads the board)
   const slow = s.slowList && mutate((cur) => { const x = cur.slowList; delete cur.slowList; if (x) cur.issues.push(x.add); return x; });
@@ -129,6 +131,19 @@ if (a[0] === 'issue' && a[1] === 'list') {
     find(cur, a[2]).state = 'CLOSED';
     if (opt('--comment')) cur.comments.push({ issue: Number(a[2]), body: opt('--comment'), author: LOGIN });
   });
+} else if (a[0] === 'release' && a[1] === 'view') {
+  // state.releases = [{ tag, title, notes, args }]; state.releaseViewFails: any error other than not-found
+  if (s.releaseViewFails) { process.stderr.write('HTTP 502: Bad Gateway'); process.exit(1); }
+  const r = (s.releases ?? []).find((x) => x.tag === a[2]);
+  if (!r) { process.stderr.write('release not found'); process.exit(1); }
+  process.stdout.write(JSON.stringify({ tagName: r.tag }));
+} else if (a[0] === 'release' && a[1] === 'create') {
+  // records the args and the notes file's content; state.releaseCreateFails makes it fail
+  if (s.releaseCreateFails) { process.stderr.write('HTTP 422: Validation Failed'); process.exit(1); }
+  if ((s.releases ?? []).some((x) => x.tag === a[2])) { process.stderr.write('a release with the same tag name already exists'); process.exit(1); }
+  const notes = opt('--notes-file') ? readFileSync(opt('--notes-file'), 'utf8') : undefined;
+  mutate((cur) => { (cur.releases ??= []).push({ tag: a[2], title: opt('--title'), notes, latest: a.includes('--latest'), args: a }); });
+  process.stdout.write(`https://github.com/me/app/releases/tag/${a[2]}\n`);
 } else if (a[0] === 'issue' && a[1] === 'create') {
   withStdin((body) => {
     const number = mutate((cur) => {
