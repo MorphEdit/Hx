@@ -34,6 +34,20 @@ if (limit) {
   process.exit(1);
 }
 const LOGIN = s.login ?? 'me';
+// state.authStatus: 'out' = gh auth status answers logged out, 'offline' = it fails on the network (logged in by default)
+// state.repoViewFails: 'notfound' = no GitHub remote, 'offline' = a network failure; state.labelListFails: label list fails
+if (a[0] === 'auth' && a[1] === 'status') {
+  if (s.authStatus === 'out') { process.stderr.write('You are not logged into any GitHub hosts. To log in, run: gh auth login\n'); process.exit(1); }
+  if (s.authStatus === 'offline') { process.stderr.write('error connecting to api.github.com\ncheck your internet connection or https://githubstatus.com\n'); process.exit(1); }
+  process.stdout.write(`github.com\n  ✓ Logged in to github.com account ${LOGIN} (keyring)\n`);
+  process.exit(0);
+}
+if (a[0] === 'repo' && a[1] === 'view' && s.repoViewFails) {
+  process.stderr.write(s.repoViewFails === 'notfound' ? 'none of the git remotes configured for this repository point to a known GitHub host\n'
+    : 'error connecting to api.github.com\n');
+  process.exit(1);
+}
+if (a[0] === 'label' && a[1] === 'list' && s.labelListFails) { process.stderr.write('error connecting to api.github.com\n'); process.exit(1); }
 const author = (x) => ({ login: x.author ?? LOGIN });
 if (a[0] === 'issue' && a[1] === 'list') {
   // state.listFails: true, or the one repo (-R) whose list fails; an issue with a `repo` is listed only for that repo

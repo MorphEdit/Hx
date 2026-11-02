@@ -17,7 +17,12 @@ import { DEFAULT_PORT, serveDashboard, serveFleetDashboard } from './dashboard.t
 import { fileBug, filePrd } from './prd.ts';
 import { agentFor } from './agents/index.ts';
 import { ideaFrom, sessionPaths, sessionPrompt } from './grill.ts';
+<<<<<<< HEAD
 import { formatSkills, installSkill } from './skills.ts';
+=======
+import { formatSkills } from './skills.ts';
+import { doctor, render } from './doctor.ts';
+>>>>>>> 954ae60 (wip: checkpoint (#209))
 import { addRepo, type Fleet, fleetDir, fleetFile, fleetWorkers, readFleet, readGithubHold, readHold, readRepos, registerRepo, removeRepo, sameRoot, slotsInUse, startFleetRun, writeFleet, writeRepos } from './fleet.ts';
 import { fmt, localDay, mismatchedSessions, readUsage, summarize, totalTokens, type UsageRow } from './usage.ts';
 
@@ -67,8 +72,14 @@ const HELP = `usage: hx <command> [options]
   fleet run [--workers N] [--watch]
                            one hx run per fleet repo (output prefixed [owner/name]), sharing one worker
                            cap (--workers, else fleet workers); Ctrl+C asks every repo to checkpoint
+<<<<<<< HEAD
   install-skill            write the /hx Claude Code skill to ~/.claude/skills/hx/SKILL.md (HX_SKILLS_HOME
                            instead of ~), replacing any copy there: ask Claude Code to build with hx
+=======
+  doctor                   check the prerequisites (node, git, gh and its login, the agent CLI, the repo's
+                           GitHub origin, .hx/config.json, labels, gate, rtdd), each with a fix for this OS;
+                           exit 1 when a required one fails
+>>>>>>> 954ae60 (wip: checkpoint (#209))
   help
   --version                print hx's version (from its package.json)
 
@@ -113,12 +124,19 @@ export async function main(argv: string[]): Promise<number> {
     case 'resume': return resume();
     case 'usage': return usage(args);
     case 'dashboard': return dashboard(args);
+    case 'doctor': return doctorCmd();
     case 'fleet': return args[0] === 'dashboard' ? fleetDashboard(args.slice(1)) : args[0] === 'run' ? fleetRun(args.slice(1)) : args[0] === 'forget' ? fleetForget(args[1]) : fleet(args);
     case 'install-skill': console.log(installSkill()); return 0;
     case undefined: case 'help': case '-h': case '--help': console.log(HELP); return 0;
     case '--version': case '-v': console.log(hxVersion()); return 0;
     default: console.error(`unknown command: ${cmd}\n\n${HELP}`); return 2;
   }
+}
+
+async function doctorCmd(): Promise<number> {
+  const { checks, code } = await doctor();
+  console.log(render(checks));
+  return code;
 }
 
 async function init(args: string[]): Promise<number> {

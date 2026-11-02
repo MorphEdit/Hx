@@ -29,6 +29,8 @@ import path from 'node:path';
 import { loadJson, locked, saveJson } from './lock.mjs';
 
 const a = process.argv.slice(2);
+// `claude --version` (hx doctor)
+if (a[0] === '--version') { process.stdout.write('2.0.0 (Claude Code)\n'); process.exit(0); }
 const sid = a[a.indexOf(a.includes('--resume') ? '--resume' : '--session-id') + 1];
 const mode = process.env.FAKE_CLAUDE_MODE || 'work';
 const out = (o) => process.stdout.write(JSON.stringify({ ...o, session_id: sid }) + '\n');
