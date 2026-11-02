@@ -2,10 +2,10 @@ import { execFile } from 'node:child_process';
 import { appendFileSync, mkdirSync, readFileSync, renameSync, statSync, unwatchFile, watchFile, type Stats } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { effectiveRtddBin, formatRoleModels, labelSpecs, modelMatches, roleModel, roleModelMap, roleModelsError, workerArgs, worktreeCopyError, type Config, type LabelSpec, type Project } from './config.ts';
+import { DEFAULTS, effectiveRtddBin, formatRoleModels, ghReservePctError, labelSpecs, modelMatches, roleModel, roleModelMap, roleModelsError, workerArgs, worktreeCopyError, type Config, type LabelSpec, type Project } from './config.ts';
 import * as gh from './github.ts';
 import type { Issue } from './github.ts';
-import type { GhBudget } from './ghlimit.ts';
+import { hhmm, reserveState, type GhBudget } from './ghlimit.ts';
 import { claimable, externalRefs, fenceFindings, isTrusted, issueKey, parseParent, plan, prdKey, refKey, render, TRIAGE_MARKER, triageVerdict, trustedSet, type Action, type Plan } from './state.ts';
 import { addWorktree, auditWorktree, cleanStaleWorktrees, implWorktree, prdWorktree, removeWorktree, repairBrokenRefs, triageWorktree, type AddedWorktree } from './worktree.ts';
 import { emptyUsage, runGoal, runTurn, type GoalResult, type RateLimit } from './agent.ts';
@@ -16,7 +16,7 @@ import { fmt, recordUsage, totalTokens } from './usage.ts';
 import { actionBudget, budgetFilter, newSkipLines, readBudget, readBudgetWindows, readingOf, recordReading, type Budget } from './budget.ts';
 import { gateIssueBody, gateIssueTitle, readGate, remoteSha, runGate, writeGate, type GateResult } from './gate.ts';
 import { run as runCmd } from './exec.ts';
-import { acquireSlot, DEFAULT_FLEET_WORKERS, readHold, releaseSlot, writeHold } from './fleet.ts';
+import { acquireSlot, DEFAULT_FLEET_WORKERS, readGithubHold, readHold, releaseSlot, writeGithubHold, writeHold } from './fleet.ts';
 import { appendSkills, resolveSkills, rtddCheck, rtddEnv, SKILL_CHECKS, skillNames, skillsLogLine, type Skill } from './skills.ts';
 
 const PROMPTS = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'prompts');
@@ -240,6 +240,8 @@ export async function runPool(p: Project, o: PoolOptions): Promise<number> {
   if (badModels) { log(`STOPPED: ${badModels}`); return 2; }
   const badCopy = worktreeCopyError(c.worktreeCopy);
   if (badCopy) { log(`STOPPED: ${badCopy}`); return 2; }
+  const badReserve = ghReservePctError(c.ghReservePct);
+  if (badReserve) { log(`STOPPED: ${badReserve}`); return 2; }
   // who may put work on the board: looked up once per run; without it nothing is read or claimed
   let trusted: Set<string>;
   try { trusted = await lookupTrusted(c); } catch (e: any) { log(`STOPPED: ${e.message}`); return 2; }
@@ -274,14 +276,39 @@ export async function runPool(p: Project, o: PoolOptions): Promise<number> {
   await recoverStaleClaims(p);
   // a removal that failed last run (a file held open on Windows) left its directory behind; no session runs yet
   for (const d of await cleanStaleWorktrees(p.root, c.worktreeRoot).catch(() => [])) log(`removed leftover directory ${d}`);
-  // the GitHub API budget: read now, then at most once a minute before a claim. A failed read keeps the last value.
+  // HX_FLEET_DIR: every session also holds one of HX_FLEET_WORKERS file slots shared with the other runners
+  const fleetDir = process.env.HX_FLEET_DIR || undefined;
+  const fleetCap = Number(process.env.HX_FLEET_WORKERS) || DEFAULT_FLEET_WORKERS;
+  // budget-low: the GitHub API budget is below ghReservePct. Before `until` (ms epoch) nothing is claimed, engine steps
+  // included, and the board is not read. Kept apart from the usage hold (live.pausedUntil): anything that learns the
+  // budget is short calls githubLow(until, reason). shared: copied from github-hold.json, never written back.
+  let ghLow: { until: number; reason: string; shared: boolean } | null = null;
+  let ghLowLogged = 0; // the until last logged: the low line is written once per reset
+  const githubLowNow = () => ghLow !== null && Date.now() < ghLow.until;
+  const githubLow = (until: number, reason: string, shared = false) => {
+    if (until <= Date.now() || (githubLowNow() && until <= ghLow!.until)) return;
+    ghLow = { until, reason, shared }; live.githubLow = { until, reason }; save();
+    if (fleetDir && !shared) writeGithubHold(fleetDir, { until, reason, repo: c.repo });
+    if (until !== ghLowLogged) { ghLowLogged = until; log(`github budget low: ${reason} — no new claims until ${hhmm(until / 1000)}`); }
+  };
+  const sharedGithubHold = () => {
+    const h = fleetDir ? readGithubHold(fleetDir) : null;
+    if (h) githubLow(h.until, `shared hold from ${h.repo}: ${h.reason}`, true);
+  };
+  // the GitHub API budget: read now, then at most once a minute before a claim, and on every wake while budget-low.
+  // A failed read keeps the last value, and a budget-low state until its `until`.
   let lastBudget: GhBudget | null = null;
   let budgetReadAt = 0;
   const readGithub = async () => {
-    if (Date.now() - budgetReadAt < GH_BUDGET_READ_MS) return;
+    if (!ghLow && Date.now() - budgetReadAt < GH_BUDGET_READ_MS) return;
     budgetReadAt = Date.now();
     const b = await gh.rateLimit();
-    if (b) { lastBudget = b; live.github = b; save(); }
+    if (!b) return;
+    lastBudget = b; live.github = b; save();
+    const r = reserveState(b, c.ghReservePct ?? DEFAULTS.ghReservePct);
+    if (r.low) githubLow(r.until, `${r.bucket} ${r.remaining}/${r.limit}`);
+    // the budget is back (reset, or raised early); a shared hold still in force is left to expire
+    else if (ghLow && (!ghLow.shared || !githubLowNow())) { ghLow = null; live.githubLow = undefined; save(); log('github budget restored'); }
   };
   await readGithub();
   save();
@@ -351,9 +378,6 @@ export async function runPool(p: Project, o: PoolOptions): Promise<number> {
   await gateCheck();
 
   const inFlight = new Map<string, Promise<void>>();
-  // HX_FLEET_DIR: every session also holds one of HX_FLEET_WORKERS file slots shared with the other runners
-  const fleetDir = process.env.HX_FLEET_DIR || undefined;
-  const fleetCap = Number(process.env.HX_FLEET_WORKERS) || DEFAULT_FLEET_WORKERS;
   let idleLogged = false;
   const skipped = new Set<number>(); // untrusted issues / PRDs already logged this run
   const budgetLogged = new Set<string>(); // budget skips already logged: once per action per window reset
@@ -424,9 +448,10 @@ export async function runPool(p: Project, o: PoolOptions): Promise<number> {
       const finishedBefore = finished;
       checkPause(); // the 1 s watcher may not have seen a pause written as a session ended: it must win over the next claim
       sharedHold(); // another fleet runner's usage hold
+      sharedGithubHold(); // another fleet runner's GitHub budget-low state
       showBudget();
       await readGithub();
-      const held = Date.now() < (live.pausedUntil ?? 0);
+      const held = Date.now() < (live.pausedUntil ?? 0) || githubLowNow();
       let slotBlocked = false; // no fleet slot free: no more sessions this pass, look again within 5 s
       let budgetBlocked = false; // the budget gate skipped an action: wait for a reading or a reset instead of finishing
       if (!held && !live.draining) {
@@ -454,7 +479,8 @@ export async function runPool(p: Project, o: PoolOptions): Promise<number> {
 
       for (const a of actions) {
         if (a.kind !== 'close-prd' && a.kind !== 'label-ready') sharedHold();
-        if (stop.signal.aborted || fatal || live.draining || Date.now() < (live.pausedUntil ?? 0)) break; // fatal may land during readPlan
+        sharedGithubHold();
+        if (stop.signal.aborted || fatal || live.draining || Date.now() < (live.pausedUntil ?? 0) || githubLowNow()) break; // fatal may land during readPlan
         if (a.kind === 'close-prd' || a.kind === 'label-ready') { await engineStep(p, a).catch((e) => log(`${a.kind} failed: ${e.message}`, target(a))); continue; }
         if (inFlight.size >= o.workers || slotBlocked) continue; // engine steps further down still run
         const slot = fleetDir ? acquireSlot(fleetDir, fleetCap, { pid: process.pid, repo: c.repo, issue: target(a) }) : null;
@@ -476,7 +502,7 @@ export async function runPool(p: Project, o: PoolOptions): Promise<number> {
       if (!inFlight.size && !slotBlocked) {
         if (live.draining) { log('paused — every session has finished'); break; }
         if (finished !== finishedBefore) continue; // the plan predates a session ending: read it again
-        const limited = Date.now() < (live.pausedUntil ?? 0) || budgetBlocked;
+        const limited = Date.now() < (live.pausedUntil ?? 0) || githubLowNow() || budgetBlocked;
         // an engine step (PRD closed, child labelled) may have unlocked work: re-read before giving up
         const engineOnly = !budgetBlocked && actions.length > 0 && actions.every((a) => a.kind === 'close-prd' || a.kind === 'label-ready');
         engineRetries = engineOnly ? engineRetries + 1 : 0;
@@ -486,12 +512,16 @@ export async function runPool(p: Project, o: PoolOptions): Promise<number> {
           break;
         }
         if (engineOnly) { await sleep(2000, stop.signal); continue; }
-        if (!idleLogged) { log(budgetBlocked ? 'budget: waiting for usage to leave room for the next session…' : limited ? 'waiting for the usage limit to reset…' : 'board empty — watching for new issues'); idleLogged = true; }
+        if (!idleLogged) { log(budgetBlocked ? 'budget: waiting for usage to leave room for the next session…' : githubLowNow() ? 'waiting for the GitHub API budget to reset…' : limited ? 'waiting for the usage limit to reset…' : 'board empty — watching for new issues'); idleLogged = true; }
       }
       // wake on the first finished task, a pause, or after a poll interval (new / unblocked issues, a limit reset)
       if (wakePending) { wakePending = false; continue; } // woken while not waiting: re-read the board now
+      // a hold wakes at its end; budget-low alone polls half as often (each wake re-reads the budget)
       const holdLeft = (live.pausedUntil ?? 0) - Date.now();
-      const pollMs = holdLeft > 0 ? Math.max(1000, Math.min(c.pollSeconds * 1000, holdLeft)) : c.pollSeconds * 1000;
+      const ghLeft = githubLowNow() ? ghLow!.until - Date.now() : 0;
+      const every = (ghLeft > 0 && holdLeft <= 0 ? 2 : 1) * c.pollSeconds * 1000;
+      const left = Math.min(...[holdLeft, ghLeft].filter((x) => x > 0));
+      const pollMs = left < Infinity ? Math.max(1000, Math.min(every, left)) : every;
       const waitMs = slotBlocked ? Math.min(pollMs, 5000) : pollMs;
       await waitAny(waitMs, stop.signal, [new Promise<void>((r) => { wake = r; }), ...inFlight.values()]);
     }

@@ -127,3 +127,18 @@ test('hx help lists fleet status', E2E, () => {
   const r = spawnSync(process.execPath, [HX, 'help'], { encoding: 'utf8' });
   assert.match(r.stdout, /fleet status/);
 });
+
+test('the fleet line shows a future github hold (github-hold.json) but not an expired one', E2E, () => {
+  const s = setup();
+  const until = Date.now() + 3_600_000;
+  writeFileSync(path.join(s.fleetDir, 'github-hold.json'), JSON.stringify({ until, reason: 'graphql 812/5000', repo: 'me/alpha' }));
+  const r = hx(s, ['fleet', 'status']);
+  assert.equal(r.code, 0, r.out + r.err);
+  const line = r.out.split(/\r?\n/).find((l) => l.startsWith('fleet'))!;
+  assert.match(line, /0\/3 slot\(s\) in use · github hold until .+ \(graphql 812\/5000, me\/alpha\)$/);
+  assert.ok(line.includes(new Date(until).toLocaleString()), line);
+
+  writeFileSync(path.join(s.fleetDir, 'github-hold.json'), JSON.stringify({ until: Date.now() - 1000, reason: 'old', repo: 'me/beta' }));
+  const line2 = hx(s, ['fleet', 'status']).out.split(/\r?\n/).find((l) => l.startsWith('fleet'))!;
+  assert.match(line2, /^fleet\s+0\/3 slot\(s\) in use$/);
+});

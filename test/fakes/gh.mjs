@@ -85,10 +85,20 @@ if (a[0] === 'issue' && a[1] === 'list') {
 ` : JSON.stringify({ login: LOGIN }));
 } else if (a[0] === 'api' && a[1] === 'rate_limit') {
   // state.rateLimit = { core: {limit, remaining, reset}, graphql: {...} } (default: both 5000/5000, reset an hour from now);
-  // state.rateLimitFails: true makes it fail
+  // state.rateLimitFails: true makes it fail.
+  // state.rateLimit may also be a list of phases { for (s), core: {limit, remaining, resetIn?}, graphql }, timed from the
+  // first read (whole seconds, kept in state.rateLimitStart): a bucket resets as its phase ends, or resetIn s after the
+  // start; a phase without `for` lasts forever (a budget that resets, whatever a runner's start costs)
   if (s.rateLimitFails) { process.stderr.write('HTTP 502: Bad Gateway'); process.exit(1); }
   const full = { limit: 5000, remaining: 5000, reset: Math.floor(Date.now() / 1000) + 3600 };
-  const rl = s.rateLimit ?? {};
+  let rl = s.rateLimit ?? {};
+  if (Array.isArray(rl)) {
+    const start = s.rateLimitStart ?? mutate((cur) => (cur.rateLimitStart ??= Math.ceil(Date.now() / 1000)));
+    let end = start, phase = rl.at(-1);
+    for (const p of rl) { if (p.for === undefined) { phase = p; end = undefined; break; } end += p.for; if (Date.now() / 1000 < end) { phase = p; break; } }
+    const b = (x) => x && { limit: x.limit, remaining: x.remaining, reset: x.resetIn !== undefined ? start + x.resetIn : end ?? full.reset };
+    rl = { core: b(phase.core), graphql: b(phase.graphql) };
+  }
   process.stdout.write(JSON.stringify({ resources: { core: rl.core ?? full, graphql: rl.graphql ?? full } }));
 } else if (a[0] === 'api') {
   const path = a.find((x) => x.startsWith('repos/'));

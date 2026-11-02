@@ -237,6 +237,9 @@ hx fleet dashboard [--port N] [--open]   # = hx dashboard --fleet: every repo of
 - **Shared usage hold.** A usage limit is per account, not per repo: when one runner hits it (or its
   usage window passes `usagePauseAt`), it writes `~/.hx/fleet/hold.json` and every other runner stops
   claiming until the same time. `hx fleet status` shows the hold.
+- **Shared GitHub hold.** The GitHub API budget is per account too: a runner whose budget falls below
+  `ghReservePct` writes `~/.hx/fleet/github-hold.json`, and every other runner claims nothing until its
+  reset. `hx fleet status` shows it next to the usage hold.
 - **Ctrl+C** in `hx fleet run` asks every repo to checkpoint, exactly like Ctrl+C in `hx run`; twice
   force-quits them all. `hx pause` / `hx resume` still work per repo.
 - **Dashboards.** `hx dashboard` shows one repo: run one per repo, on different ports
@@ -275,6 +278,15 @@ that unpushed work may be lost (`git fsck --lost-found`). Packed refs and `hx/ga
 **Usage limits:** Hx reads Claude's usage-window events. Once a window is `usagePauseAt` full (90% by
 default), it claims nothing new until the window resets; running sessions carry on. If a session hits
 the limit anyway, its issue is handed back and picked up again after the reset.
+
+**GitHub budget reserve:** Hx reads the GitHub API budget (`gh api rate_limit`, which costs nothing).
+While the `core` or `graphql` bucket has less than `ghReservePct` of its limit left (20% by default), it
+claims nothing new, engine steps included, and stops reading the board until that bucket resets; running
+sessions carry on, the rest of the budget stays for them. The run log gets one line per reset, e.g.
+`github budget low: graphql 812/5000 — no new claims until 22:41`, and `github budget restored` once the
+budget is back (after the reset, or earlier if GitHub raises it). While low it wakes every
+2 × `pollSeconds` to re-read the budget; without `--watch` it waits instead of finishing.
+`ghReservePct: 0` turns the reserve off.
 
 **Budget gate:** every usage-window reading is kept in `.hx/usage-readings.jsonl`. Once a window has
 `budgetMinPairs` pairs of rising readings, each with the usage cost spent between them, it is calibrated:
@@ -540,6 +552,7 @@ and the dashboard's per-model numbers use it). To spot one:
 | `gateCommand` | `""` | the gate's test command (empty: learned from the first audited merge) |
 | `gateMinutes` | `45` | the gate's test run is killed, with its process tree, after this long and counts as red |
 | `usagePauseAt` | 0.9 | claim nothing new once a usage window is this full (0..1) |
+| `ghReservePct` | 0.2 | claim nothing new while the GitHub API `core` or `graphql` budget has less than this share left, until it resets (0..1, 0 = off) |
 | `budgetGate` | `true` | before claiming a session, skip it while its forecast would take a calibrated usage window past `usagePauseAt` (see Budget gate) |
 | `budgetMinPairs` | 5 | pairs of rising usage-window readings (each with the usage cost spent between them) a window needs before its dollars-per-1% rate is calibrated and used to forecast |
 | `checkpointMinutes` | 10 | time a stopped session gets to commit, push and write its handoff |

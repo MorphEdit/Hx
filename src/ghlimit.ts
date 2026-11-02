@@ -30,7 +30,8 @@ export function parseRateLimit(json: string, now = new Date()): GhBudget | null 
 }
 
 const share = (b: Bucket) => (b.limit > 0 ? b.remaining / b.limit : 0);
-const hhmm = (epochSec: number) => {
+/** Local `HH:MM` of an epoch-seconds time. */
+export const hhmm = (epochSec: number) => {
   const d = new Date(epochSec * 1000);
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 };
@@ -50,4 +51,16 @@ export function classifyLimit(stderr: string): LimitKind | null {
     return m ? { kind: 'secondary', retryAfter: Number(m[1]) } : { kind: 'secondary' };
   }
   return null;
+}
+
+export type Reserve = { low: false } | { low: true; bucket: 'core' | 'graphql'; remaining: number; limit: number; until: number /* ms epoch */ };
+
+/** Budget-low when core or graphql has less than `pct` of its limit left; `until` = that bucket's reset (both: the later
+ *  one, which `bucket` names). `pct <= 0` turns the reserve off. */
+export function reserveState(b: GhBudget, pct: number): Reserve {
+  if (!(pct > 0)) return { low: false };
+  const below = (['core', 'graphql'] as const).filter((k) => share(b[k]) < pct);
+  if (!below.length) return { low: false };
+  const k = below.reduce((x, y) => (b[y].reset > b[x].reset ? y : x));
+  return { low: true, bucket: k, remaining: b[k].remaining, limit: b[k].limit, until: b[k].reset * 1000 };
 }

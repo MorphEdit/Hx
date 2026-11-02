@@ -55,6 +55,7 @@ export interface Config {
   gateMinutes: number; // the gate's test run is killed (with its tree) after this long and counts as red
   usagePauseAt: number; // 0..1: claim nothing new once a usage window is this full, until it resets
   budgetGate: boolean; // before claiming a session, skip it when its forecast would take a calibrated usage window past usagePauseAt
+  ghReservePct: number; // 0..1: claim nothing new while the GitHub API core or graphql budget has less than this share left (0 = off)
   budgetMinPairs: number; // usable reading pairs a usage window needs before its dollars-per-1% rate is trusted (calibrated)
   checkpointMinutes: number; // time a stopped session gets to commit, push and write its handoff
   turnTimeoutMinutes: number;
@@ -100,6 +101,7 @@ export const DEFAULTS: Omit<Config, 'repo' | 'defaultBranch' | 'worktreeRoot'> =
   gateMinutes: 45,
   usagePauseAt: 0.9,
   budgetGate: true,
+  ghReservePct: 0.2,
   budgetMinPairs: 5,
   checkpointMinutes: 10,
   turnTimeoutMinutes: 60, // above ship's 45-min test timeout + 5: the worker's shell may wait on it
@@ -164,6 +166,13 @@ export function roleModelsError(roleModels: unknown): string | null {
       return `roleModels.${role}.effort: ${JSON.stringify(effort)} is not one of ${EFFORTS.join(', ')} (omit it to use the top-level effort)`;
   }
   return null;
+}
+
+/** What is wrong with config.ghReservePct (a share 0..1), or null when it is valid. */
+export function ghReservePctError(pct: unknown): string | null {
+  if (pct === undefined) return null;
+  if (typeof pct === 'number' && Number.isFinite(pct) && pct >= 0 && pct <= 1) return null;
+  return `ghReservePct: ${JSON.stringify(pct)} must be a number from 0 to 1 (0 turns the GitHub budget reserve off)`;
 }
 
 /** What is wrong with config.worktreeCopy, or null when it is valid: plain relative paths inside the repo only. */
