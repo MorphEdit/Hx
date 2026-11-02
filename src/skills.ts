@@ -3,9 +3,10 @@
 //   1. its availability check, if it has one (a dropped skill is never read from disk)
 //   2. the first SKILL.md of <repo>/.claude/skills/x, <home>/.claude/skills/x, <repo>/.agents/skills/x
 //   3. front matter and HTML comments stripped; a body over skillMaxChars is skipped
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { run } from './exec.ts';
 
 export interface Skill {
@@ -21,6 +22,17 @@ export type SkillCheck = () => Promise<string | null>;
 export const SKILL_CHECKS: Record<string, SkillCheck> = {};
 
 export const skillsHome = (): string => process.env.HX_SKILLS_HOME || os.homedir();
+
+/** The /hx Claude Code skill hx install-skill writes (not under prompts/skills/: those are notes, not skills). */
+export const HX_SKILL_TEMPLATE = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'templates', 'hx-skill.md');
+
+/** Write the /hx skill to <home>/.claude/skills/hx/SKILL.md, replacing any file there; returns the path. */
+export function installSkill(home: string = skillsHome()): string {
+  const file = path.join(home, '.claude', 'skills', 'hx', 'SKILL.md');
+  mkdirSync(path.dirname(file), { recursive: true });
+  writeFileSync(file, readFileSync(HX_SKILL_TEMPLATE, 'utf8'));
+  return file;
+}
 
 /** The SKILL.md locations for `name`, in precedence order. */
 export function skillPaths(repo: string, name: string, home: string = skillsHome()): string[] {
