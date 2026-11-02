@@ -150,6 +150,8 @@ hx run --watch          # keep running and pick up new or unblocked work
 hx run --issue 12,15    # only these issues / PRDs
 hx pause [--now]        # from another terminal: stop a running hx run (see below)
 hx resume               # clear a pause
+hx release --dry-run    # the next version, its notes and the gate it would use (see Releases); without
+                        # --dry-run it asks, then releases (--yes: no question; patch|minor|major by hand)
 hx usage --by role      # recorded token usage (by issue | role | model | day)
 hx dashboard [--open]   # a read-only page on http://127.0.0.1:4777/ (localhost only; --port N)
 hx dashboard --fleet [--open]   # one page over every hx repo on this machine (alias: hx fleet dashboard)
@@ -405,6 +407,57 @@ Claude Code caps one shell command at 10 minutes, so each session gets `BASH_MAX
 `BASH_DEFAULT_TIMEOUT_MS` of ship's test timeout + 5 min (kept below `turnTimeoutMinutes`; a higher value
 already in the environment is kept), and the stall timer waits as long while a tool call runs. A PR opened
 outside ship is still merged after the audit: `ship --resume` rebuilds its state from the branch's PR.
+
+## Releases
+
+```bash
+hx release [patch|minor|major] [--dry-run] [--yes]
+```
+
+`hx release` tags the next version of the default branch and publishes its GitHub release.
+
+- **The version.** The current version is the highest `vX.Y.Z` tag on origin (local tags never count),
+  else `version` in `package.json` on the default branch, else `0.0.0`. The bump is `minor` when a PRD
+  closed (as completed) since the last tag, else `patch`; `major` is only ever chosen by hand, like any
+  bump given on the command line. With no commit since the last tag: `nothing to release since vX.Y.Z`.
+- **A green gate first.** The release is made only on a green CI gate for the default branch: the
+  recorded result when it is for origin's head, else a fresh gate run of `gateCommand` (or the learned
+  command) — even when `gate` is off. That run is never recorded: `gate.json` is untouched and no fix
+  issue is filed. With no command known it stops with `no gate command known: set gateCommand` (exit 1);
+  a red or timed-out gate prints its output and exits 1. `hx release` refuses while `hx run` is running
+  for the repo (`hx is already running for this repo (pid N)`, exit 3): stop it first, or set `autoRelease`.
+- **The atomic push.** In a worktree on the gated commit, `package.json` gets the new version
+  (`chore: release vX.Y.Z`), the commit gets an annotated tag, and both go to origin in one `--atomic`
+  push. If the default branch moved on in the meantime the push is rejected, and there is no rebase (a
+  rebased commit would hold ungated changes): the tag goes on the gated commit itself and `package.json`
+  is not bumped — `package.json was not bumped (push rejected): tagged vX.Y.Z at <sha>`. A repo with no
+  `package.json` gets only the tag.
+- **A missing release.** When the last tag on origin has no GitHub release (say `gh release create`
+  failed after the push), the next `hx release` makes only that release, from that tag's own range, and
+  prints `created the missing release vX.Y.Z`. Running it again is safe: nothing is pushed twice.
+- **The notes** are built from git and GitHub, with no AI and no changelog file: one `PRD #N: <title>` line
+  per PRD closed in the range, then `## Features` (`feat:`), `## Fixes` (`fix:`), `## Docs` (`docs:`) and
+  `## Other` from the first-parent commit subjects (empty groups left out, release commits skipped), each
+  line ending `(#issue, #PR)` from its `closes #N` and `(#PR)`, then a `Full diff` compare link from the
+  previous tag.
+
+`--dry-run` prints the version, the notes and the gate result it would use, and changes nothing.
+
+**autoRelease.** With `autoRelease` on, `hx run` releases by itself, the same way, after a merge, when a
+PRD closes and while `--watch` waits for work: a `minor` release once a PRD closed since the last tag, and a
+daily `patch` release once the last tag is older than `autoReleasePatchHours` (default 24) and a `fix:` merged since. Whether
+one is due is read from origin's tags, the commits and GitHub on every check; nothing is stored. With
+`gate` on it uses the run's own gate result (waiting for, or starting, a run for the head); with `gate`
+off, a release-only gate run. A check never blocks claims; a failed one is retried on the next check.
+The log says what happened:
+
+```
+released v1.4.0 (PRD #139)
+released v1.4.1 (fixes)
+release: none due — fixes merged, but v1.4.1 is less than 24 h old
+```
+
+`release: none due — …` is logged once, when `hx run` finishes; a failure logs `release vX.Y.Z failed: …`.
 
 ## Worktree setup
 

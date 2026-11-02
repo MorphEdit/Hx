@@ -44,6 +44,7 @@ const HELP = `usage: hx <command> [options]
   release [patch|minor|major] [--dry-run] [--yes]
                            tag the next version on a green default branch: bump package.json, push the
                            tag, write notes from the merged PRs and closed PRDs, create the GitHub release
+                           (autoRelease: hx run releases by itself, minor per closed PRD, patch for fixes)
   status                   the runner, its live sessions, usage limits, and the board
   pause [--now]            stop claiming new work; running sessions finish (--now: they commit,
                            push and leave a handoff note, then stop). Works on a running hx run.
