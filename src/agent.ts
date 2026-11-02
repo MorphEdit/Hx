@@ -78,8 +78,9 @@ export function runTurn(o: TurnOptions): Promise<TurnResult> {
   const started = Date.now();
   return new Promise((resolve) => {
     const [cmd, argv] = resolveCmd(o.bin, args);
+    const extra = { ...agent.env?.(o, process.env), ...o.env };
     const child = spawn(cmd, argv, { cwd: o.cwd, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'],
-      detached: process.platform !== 'win32', ...(o.env ? { env: { ...process.env, ...o.env } } : {}) });
+      detached: process.platform !== 'win32', ...(Object.keys(extra).length ? { env: { ...process.env, ...extra } } : {}) });
     if (child.pid) live.add(child.pid);
     const res: TurnResult = { ok: false, text: '', usage: emptyUsage(), costUsd: 0, durationMs: 0, numTurns: 0 };
     let stderr = '';
@@ -90,15 +91,15 @@ export function runTurn(o: TurnOptions): Promise<TurnResult> {
     const armStall = () => {
       if (!o.stallMs) return;
       clearTimeout(stall);
-      stall = setTimeout(() => { res.stalled = true; killTree(child.pid); }, o.stallMs);
+      stall = setTimeout(() => { res.stalled = true; killTree(child.pid); }, Math.max(o.stallMs, turn.waitMs?.() ?? 0));
     };
     armStall();
     const onAbort = () => killTree(child.pid);
     o.signal?.addEventListener('abort', onAbort, { once: true });
 
     createInterface({ input: child.stdout! }).on('line', (line) => {
-      armStall();
       const out = turn.line(line, res);
+      armStall(); // after the line: a tool call it starts may need longer
       if (!out) return;
       if (out.event !== undefined) o.onEvent?.(out.event);
       if (out.rateLimit) o.onRateLimit?.(out.rateLimit);

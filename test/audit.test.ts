@@ -79,6 +79,23 @@ test('audit PASS: hx merges the PR the implementer left open', E2E, async () => 
   for (const e of envs) assert.equal(e.trusted, 'me', JSON.stringify(e));
 });
 
+test('audit PASS with no hx-ship.json (a PR opened outside ship): hx rebuilds the state from the PR and merges it', E2E, async () => {
+  board([issue(11, 'SHIPNOSTATE')]);
+  const lines: string[] = [];
+  const orig = console.log;
+  console.log = (m: string) => { lines.push(m); orig(m); };
+  let rc: number;
+  try {
+    rc = await pooled((signal) => runPool(project({ gateCommand: 'node -e "process.exit(0)"', gate: false }), { workers: 1, watch: false, dryRun: false, only: [11], signal }));
+  } finally { console.log = orig; }
+  assert.equal(rc, 0, lines.join('\n'));
+  const s = read();
+  assert.equal(s.issues[0].state, 'CLOSED', lines.join('\n'));
+  assert.equal(s.prs[0].state, 'MERGED');
+  assert.ok(lines.some((l) => /DONE ✓ audited and merged/.test(l)), lines.join('\n'));
+  assert.ok(!s.issues[0].labels.includes(L.blocked));
+});
+
 test('audit FAIL: the findings go back to a fresh implementer, then PASS and merge', E2E, async () => {
   board([issue(2, 'AUDITFAIL')]);
   const before = new Set(readdirSync(fakeDir));

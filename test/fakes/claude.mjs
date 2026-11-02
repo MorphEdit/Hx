@@ -18,9 +18,11 @@
 // FAKE_CLAUDE_TIMES=<file>: each turn appends {sid, start, end} (ms) as one line when it exits.
 // FAKE_CLAUDE_MODE=limit / crash for the error paths; =stall prints one event, starts a sleeping child, writes both pids
 // to HX_FAKE_DIR/stall-<pid>.json and sleeps FAKE_CLAUDE_SLEEP_MS (default 10 min), then replies.
+// FAKE_CLAUDE_TOOL=1: the stall mode's one event is a tool call (an assistant tool_use), answered when it wakes up.
+// FAKE_CLAUDE_ENV_OUT=<file>: writes its BASH_MAX_TIMEOUT_MS and BASH_DEFAULT_TIMEOUT_MS there as it starts.
 // FAKE_CLAUDE_START_MS delays the stall mode's start, as a slow node startup on a loaded machine does.
 import { spawn, spawnSync } from 'node:child_process';
-import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { loadJson, locked, saveJson } from './lock.mjs';
 
@@ -39,6 +41,9 @@ const file = (b, title, body, labels) => {
   b.issues.push({ number, title, body, state: 'OPEN', labels, author: b.login ?? 'me' }); // filed as the gh login
   return number;
 };
+
+if (process.env.FAKE_CLAUDE_ENV_OUT) writeFileSync(process.env.FAKE_CLAUDE_ENV_OUT, JSON.stringify({
+  max: process.env.BASH_MAX_TIMEOUT_MS ?? null, def: process.env.BASH_DEFAULT_TIMEOUT_MS ?? null }));
 
 const grillPrompt = a.at(-1) ?? '';
 const session = /^Role: (grill|issue)\b/m.exec(grillPrompt)?.[1];
@@ -65,8 +70,14 @@ process.stdin.on('data', (d) => (prompt += d)).on('end', () => {
     setTimeout(() => {
       const kid = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 600000)'], { stdio: 'ignore' });
       writeFileSync(path.join(process.env.HX_FAKE_DIR, `stall-${process.pid}.json`), JSON.stringify({ pid: process.pid, child: kid.pid }));
-      out({ type: 'system', subtype: 'init' });
-      setTimeout(() => { kid.kill(); reply('woke up'); }, Number(process.env.FAKE_CLAUDE_SLEEP_MS ?? 600000));
+      const tool = !!process.env.FAKE_CLAUDE_TOOL;
+      out(tool ? { type: 'assistant', message: { content: [{ type: 'tool_use', id: 'tu1', name: 'Bash', input: { command: 'npm test' } }] } }
+        : { type: 'system', subtype: 'init' });
+      setTimeout(() => {
+        kid.kill();
+        if (tool) out({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 'tu1', content: 'ok' }] } });
+        reply('woke up');
+      }, Number(process.env.FAKE_CLAUDE_SLEEP_MS ?? 600000));
     }, Number(process.env.FAKE_CLAUDE_START_MS ?? 0));
     return;
   }
@@ -147,6 +158,9 @@ function finish(st, checkpoint, prompt) {
     writeFileSync(path.join(process.cwd(), `impl-${st.n}.txt`), `attempt ${Date.now()}\n`);
     const r = spawnSync(process.execPath, [ship, '--repo', repo, '--base', 'main', '--issue', String(st.n), '--title', `feat: issue ${st.n}`,
       '--test', 'node -e "process.exit(0)"', '--no-merge'], { encoding: 'utf8', env: { ...process.env, ...GIT_ID } });
+    // SHIPNOSTATE in the issue body: the PR is open but hx-ship.json is gone, as after a PR opened outside ship
+    if (/SHIPNOSTATE/.test(loadBoard().issues.find((i) => i.number === st.n)?.body ?? ''))
+      rmSync(path.join(spawnSync('git', ['rev-parse', '--absolute-git-dir'], { encoding: 'utf8' }).stdout.trim(), 'hx-ship.json'), { force: true });
     return reply(r.status === 0 ? `${r.stdout.trim()}\n${done()}` : `ship failed ${r.status}: ${r.stderr}`);
   }
   // the fix for a red default branch: really repair main (remove BROKEN) and push it

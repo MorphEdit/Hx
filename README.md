@@ -365,6 +365,10 @@ or the test command the first audited merge used. `hx status` shows the gate.
 A hung test run cannot block anything: `ship.mjs` gives the tests `--test-timeout` minutes (default 45,
 remembered for `--resume`) and the gate `gateMinutes` (default 45); past that the whole process tree is killed and the
 run counts as failed (exit 4 / a red gate marked "timed out").
+Claude Code caps one shell command at 10 minutes, so each session gets `BASH_MAX_TIMEOUT_MS` and
+`BASH_DEFAULT_TIMEOUT_MS` of ship's test timeout + 5 min (kept below `turnTimeoutMinutes`; a higher value
+already in the environment is kept), and the stall timer waits as long while a tool call runs. A PR opened
+outside ship is still merged after the audit: `ship --resume` rebuilds its state from the branch's PR.
 
 ## Worktree setup
 
@@ -539,7 +543,7 @@ and the dashboard's per-model numbers use it). To spot one:
 | `budgetGate` | `true` | before claiming a session, skip it while its forecast would take a calibrated usage window past `usagePauseAt` (see Budget gate) |
 | `budgetMinPairs` | 5 | pairs of rising usage-window readings (each with the usage cost spent between them) a window needs before its dollars-per-1% rate is calibrated and used to forecast |
 | `checkpointMinutes` | 10 | time a stopped session gets to commit, push and write its handoff |
-| `turnTimeoutMinutes` | 45 | wall-clock limit for one turn |
+| `turnTimeoutMinutes` | 60 | wall-clock limit for one turn; above ship's test timeout, since one shell command may run ship's test timeout + 5 min (`BASH_MAX_TIMEOUT_MS`) |
 | `stallMinutes` | 15 | a turn with no stdout for this long is killed (0 = off) |
 | `pollSeconds` | 60 | how often the board is re-read |
 | `worktreeRoot` | `<drive>:\hx-wt\<repo>` | keep it short: Windows path-length limits |

@@ -155,3 +155,34 @@ test('ship: a fork PR from a branch of the same name is never taken or merged; o
   assert.equal(ours.state, 'MERGED');
   assert.equal(ours.mergedHead, git(env.wt, 'rev-parse', 'HEAD'), 'merged with --match-head-commit = the tested commit');
 });
+
+test('ship --resume with no hx-ship.json and an open PR for the branch writes the state from the PR and merges it', E2E, () => {
+  const env = setup();
+  // a PR opened by hand (not by ship): pushed, PR on the board, no state file
+  writeFileSync(path.join(env.wt, 'c.txt'), 'mine\n');
+  git(env.wt, 'add', '-A'); git(env.wt, ...gitId, 'commit', '-q', '-m', 'feat: by hand'); git(env.wt, 'push', '-q', 'origin', 'HEAD:issue/7');
+  const b0 = board(env);
+  b0.prs.push({ number: 181, head: 'issue/7', base: 'main', title: 'feat: by hand', state: 'OPEN', hide: 0 });
+  writeFileSync(env.board, JSON.stringify(b0));
+  const r = shipWith(env, ['--resume', '--repo', 'me/app', '--base', 'main', '--test', 'node -e "process.exit(0)"'],
+    { GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' });
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /state written from PR #181/);
+  assert.match(r.stdout, /SHIPPED #7 via PR #181/);
+  const b = board(env);
+  assert.equal(b.prs[0].state, 'MERGED');
+  assert.equal(b.issues[0].state, 'CLOSED');
+  const saved = JSON.parse(readFileSync(path.join(env.wt, '.git', 'hx-ship.json'), 'utf8'));
+  assert.deepEqual({ repo: saved.repo, base: saved.base, issue: saved.issue, title: saved.title, test: saved.test, pr: saved.pr },
+    { repo: 'me/app', base: 'main', issue: '7', title: 'feat: by hand', test: 'node -e "process.exit(0)"', pr: '181' });
+});
+
+test('ship --resume with no hx-ship.json and no PR for the branch fails as before', E2E, () => {
+  const env = setup();
+  const r = shipWith(env, ['--resume', '--repo', 'me/app', '--base', 'main', '--test', 'node -e "process.exit(0)"']);
+  assert.equal(r.status, 2, r.stderr);
+  assert.match(r.stderr, /--resume: no .*hx-ship\.json; run ship --no-merge first/);
+  const bare = shipWith(env, ['--resume']);
+  assert.equal(bare.status, 2, bare.stderr);
+  assert.match(bare.stderr, /run ship --no-merge first/);
+});

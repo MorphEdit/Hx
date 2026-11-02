@@ -28,8 +28,24 @@ export function mainModel(modelUsage: unknown): string | undefined {
   return best;
 }
 
+/** ship.mjs's default --test-timeout (minutes): one shell command of a worker must be able to run that long. */
+export const SHIP_TEST_MINUTES = 45;
+const SHELL_VARS = ['BASH_MAX_TIMEOUT_MS', 'BASH_DEFAULT_TIMEOUT_MS'];
+
+/**
+ * BASH_MAX_TIMEOUT_MS and BASH_DEFAULT_TIMEOUT_MS for a session: ship's test timeout + 5 min, kept a minute
+ * below the turn timeout (Claude Code caps one command at 10 min otherwise). A higher value in `env` is kept.
+ */
+export function shellEnv(turnTimeoutMs: number, env: NodeJS.ProcessEnv = process.env): Record<string, string> {
+  const want = Math.min((SHIP_TEST_MINUTES + 5) * 60_000, turnTimeoutMs - 60_000);
+  if (!(want > 0)) return {};
+  return Object.fromEntries(SHELL_VARS.map((k) => [k, String(Math.max(want, Number(env[k]) || 0))]));
+}
+
 function claudeTurn(o: TurnOptions): AgentTurn {
   const texts: string[] = [];
+  const pending = new Set<string>(); // tool calls started and not answered yet
+  const shellMs = Number(shellEnv(o.timeoutMs).BASH_MAX_TIMEOUT_MS) || 0;
   let gotResult = false;
   let rejectedLimit: { resetsAt?: number } | undefined;
   return {
@@ -38,7 +54,12 @@ function claudeTurn(o: TurnOptions): AgentTurn {
       try { ev = JSON.parse(line); } catch { return; }
       const rl = rateLimitOf(ev);
       if (ev.type === 'assistant') {
-        for (const c of ev.message?.content ?? []) if (c.type === 'text' && c.text) texts.push(c.text);
+        for (const c of ev.message?.content ?? []) {
+          if (c.type === 'text' && c.text) texts.push(c.text);
+          else if (c.type === 'tool_use' && c.id) pending.add(c.id);
+        }
+      } else if (ev.type === 'user') {
+        for (const c of Array.isArray(ev.message?.content) ? ev.message.content : []) if (c.type === 'tool_result') pending.delete(c.tool_use_id);
       } else if (rl?.status === 'rejected') {
         rejectedLimit = { resetsAt: rl.resetsAt };
       } else if (ev.type === 'result') {
@@ -59,6 +80,8 @@ function claudeTurn(o: TurnOptions): AgentTurn {
       }
       return rl ? { event: ev, rateLimit: rl } : { event: ev };
     },
+    // a shell command prints nothing on stdout until it ends: give it its whole timeout (and a minute) before a stall
+    waitMs: () => (pending.size && shellMs ? shellMs + 60_000 : 0),
     finish(res, code, stderr) {
       res.text = texts.join('\n');
       if (!gotResult) {
@@ -77,6 +100,7 @@ export const claude: AgentCli = {
   bin: (config) => config.claudeBin,
   args: (o) => ['-p', '--output-format', 'stream-json', '--verbose', '--permission-mode', 'bypassPermissions',
     '--model', o.model, ...(o.effort ? ['--effort', o.effort] : []), ...(o.resume ? ['--resume', o.sessionId] : ['--session-id', o.sessionId]), ...o.extraArgs],
+  env: (o, parent) => shellEnv(o.timeoutMs, parent),
   turn: claudeTurn,
   // an interactive session the user talks to: none of the worker flags (-p, stream-json, bypassPermissions, the lean set)
   interactiveArgs: (model, effort, prompt) => ['--model', model, ...(effort ? ['--effort', effort] : []), prompt],

@@ -6,6 +6,7 @@ export interface AgentCli {
   name: string; // 'claude'
   bin(config: Config): string; // the binary to spawn; claude: config.claudeBin
   args(o: TurnOptions): string[]; // argv for one headless turn
+  env?(o: TurnOptions, parent: NodeJS.ProcessEnv): Record<string, string>; // added to the turn's env (below TurnOptions.env)
   turn(o: TurnOptions): AgentTurn; // fresh parser state for one turn
   interactiveArgs(model: string, effort: string | undefined, prompt: string): string[]; // for hx grill / hx issue
 }
@@ -13,6 +14,8 @@ export interface AgentCli {
 export interface AgentTurn {
   /** One stdout line: fill `res` (`actualModel` too, when the CLI reports it); an `event` goes to the per-issue log, a `rateLimit` to the pool. */
   line(line: string, res: TurnResult): { event?: unknown; rateLimit?: RateLimit } | void;
+  /** How long the stall timer must allow right now (a tool call still running), or 0 for TurnOptions.stallMs. */
+  waitMs?(): number;
   /** The process closed. runTurn has set durationMs, timedOut and stalled. */
   finish(res: TurnResult, code: number | null, stderr: string): void;
 }
