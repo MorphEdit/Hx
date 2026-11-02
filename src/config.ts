@@ -53,6 +53,8 @@ export interface Config {
   gate: boolean; // test the default branch after every merge; while red, claim only the fix
   gateCommand: string; // the gate's test command ('' = learned from the first audited merge)
   gateMinutes: number; // the gate's test run is killed (with its tree) after this long and counts as red
+  autoRelease: boolean; // hx run releases by itself: minor when a PRD closed since the last tag, patch for fixes
+  autoReleasePatchHours: number; // a patch release is due once the last tag is older than this and a fix merged since
   usagePauseAt: number; // 0..1: claim nothing new once a usage window is this full, until it resets
   budgetGate: boolean; // before claiming a session, skip it when its forecast would take a calibrated usage window past usagePauseAt
   ghReservePct: number; // 0..1: claim nothing new while the GitHub API core or graphql budget has less than this share left (0 = off)
@@ -99,6 +101,8 @@ export const DEFAULTS: Omit<Config, 'repo' | 'defaultBranch' | 'worktreeRoot'> =
   gate: true,
   gateCommand: '',
   gateMinutes: 45,
+  autoRelease: false,
+  autoReleasePatchHours: 24,
   usagePauseAt: 0.9,
   budgetGate: true,
   ghReservePct: 0.2,

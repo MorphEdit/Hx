@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  buildNotes, bump, compareSemver, currentVersion, isFix, isFixDue, isReleaseCommit, lastTag, noteLine, parseTag, prdDisplayTitle, prdsInRange, setPackageVersion, sortTags,
+  buildNotes, bump, compareSemver, currentVersion, isFix, isFixDue, isReleaseCommit, lastTag, noteLine, parseTag, prdDisplayTitle, prdsInRange, releaseDue, setPackageVersion, sortTags,
 } from '../src/release.ts';
 
 test('parseTag: only vX.Y.Z counts', () => {
@@ -130,4 +130,23 @@ test('setPackageVersion: only the version value changes, formatting kept; a miss
   assert.equal(setPackageVersion(pkg, '0.2.0'), pkg.replace('0.1.0', '0.2.0'));
   assert.equal(setPackageVersion('{"version":"1.0.0","x":{"version":"9"}}', '1.1.0'), '{"version":"1.1.0","x":{"version":"9"}}');
   assert.equal(setPackageVersion('{\n  "name": "a"\n}\n', '0.0.1'), '{\n  "version": "0.0.1",\n  "name": "a"\n}\n');
+});
+
+test('releaseDue: a PRD closed since the last tag → minor, whatever the tag\'s age', () => {
+  const now = new Date('2026-06-02T00:00:00Z');
+  assert.deepEqual(releaseDue({ last: 'v0.1.0', lastDate: '2026-06-01T23:00:00Z', prdsSince: [3], subjects: [], patchHours: 24, now }), { due: true, bump: 'minor' });
+});
+
+test('releaseDue: patch once the last tag is older than patchHours (or there is none) and a fix merged since', () => {
+  const now = new Date('2026-06-02T00:00:00Z');
+  const old = '2026-05-31T23:00:00Z', fresh = '2026-06-01T01:00:00Z';
+  const due = (subjects: string[], lastDate: string | undefined, patchHours = 24) =>
+    releaseDue({ last: lastDate ? 'v0.1.0' : undefined, lastDate, prdsSince: [], subjects, patchHours, now });
+  assert.deepEqual(due(['fix(parser): x (#2)'], old), { due: true, bump: 'patch' });
+  assert.deepEqual(due(['fix: x (#2)', 'feat: y (#3)'], undefined), { due: true, bump: 'patch' });
+  assert.equal(due(['fix: x (#2)'], fresh).due, false);
+  assert.equal(due(['fix: x (#2)'], fresh, 12).due, true);
+  assert.equal(due(['feat: y (#3)', 'docs: z (#4)', 'chore: w'], old).due, false);
+  assert.equal(due(['chore: release v0.1.1'], old).due, false);
+  assert.equal(due([], old).due, false);
 });

@@ -16,6 +16,7 @@ import { fmt, recordUsage, totalTokens } from './usage.ts';
 import { actionBudget, budgetFilter, newSkipLines, readBudget, readBudgetWindows, readingOf, recordReading, type Budget } from './budget.ts';
 import { gateIssueBody, gateIssueTitle, readGate, remoteSha, runGate, writeGate, type GateResult } from './gate.ts';
 import { run as runCmd } from './exec.ts';
+import { dueRelease, release, releaseGate } from './release.ts';
 import { acquireSlot, DEFAULT_FLEET_WORKERS, readGithubHold, readHold, releaseSlot, writeGithubHold, writeHold } from './fleet.ts';
 import { appendSkills, resolveSkills, rtddCheck, rtddEnv, SKILL_CHECKS, skillNames, skillsLogLine, type Skill } from './skills.ts';
 
@@ -401,6 +402,53 @@ async function pool(p: Project, o: PoolOptions): Promise<number> {
   };
   await gateCheck();
 
+  // autoRelease (PRD #139 §D10): due or not is derived from origin's tags, the commits and GitHub on every check,
+  // nothing stored. One check at a time, in the background: it never blocks claims; a failure is retried later.
+  let releasing: Promise<boolean> | null = null;
+  let releaseNoGate = false;
+  let releaseLast = ''; // the lines of the last check that made no release: the same lines again are not logged
+  // with gate on, only the run's gate: wait for a running one, start one when the recorded result is not for the head
+  const releaseGateInRun = async (): Promise<GateResult | null> => {
+    for (let i = 0; i < 3; i++) {
+      if (gateRunning) await gateRunning;
+      const head = await remoteSha(p.root, c.defaultBranch);
+      if (gs.last && gs.last.sha === head) return gs.last;
+      if (o.signal.aborted || i === 2) break;
+      await gateCheck();
+    }
+    throw new Error(`no gate result for ${c.defaultBranch} at its head`);
+  };
+  const releaseCheck = (final = false): Promise<boolean> => {
+    if (!c.autoRelease) return Promise.resolve(false);
+    if (releasing) return releasing;
+    releasing = (async () => {
+      if (!gateCommand()) {
+        if (!releaseNoGate) { log('release: no gate command known'); releaseNoGate = true; }
+        return false;
+      }
+      const lines: string[] = [];
+      const rlog = (m: string) => { if (!/^released v/.test(m)) lines.push(`release: ${m.split(/\r?\n/)[0]}`); };
+      const flush = () => { const all = lines.join(' | '); if (all !== releaseLast || final) for (const l of lines) log(l); releaseLast = all; };
+      let tag: string | undefined;
+      try {
+        const due = await dueRelease(p, c);
+        if (!due.due) { if (final) log(`release: none due — ${due.why}`); return false; }
+        const r = await release({ paths: p, config: c, bump: due.bump, yes: true, dryRun: false, inRun: true,
+          gate: c.gate ? releaseGateInRun : releaseGate(p, c, rlog, o.signal), log: rlog, confirm: async () => true,
+          planned: (t) => { tag = t; } });
+        if (!r.released) { flush(); return false; }
+        releaseLast = '';
+        log(`released ${r.released} (${r.prds?.length ? `PRD ${r.prds.map((n) => `#${n}`).join(', ')}` : 'fixes'})`);
+        return true;
+      } catch (e: any) {
+        releaseLast = '';
+        log(`${tag ? `release ${tag}` : 'release'} failed: ${String(e.message).split(/\r?\n/)[0].slice(0, 300)}`);
+        return false;
+      }
+    })().finally(() => { releasing = null; });
+    return releasing;
+  };
+
   const inFlight = new Map<string, Promise<void>>();
   let idleLogged = false;
   const skipped = new Set<number>(); // untrusted issues / PRDs already logged this run
@@ -434,6 +482,7 @@ async function pool(p: Project, o: PoolOptions): Promise<number> {
     merged: (testCommand) => {
       if (testCommand && !gs.command) { gs.command = testCommand; writeGate(p.stateDir, gs); }
       void gateCheck();
+      void releaseCheck();
     },
     progress: (key, turn, tokens) => { const s = live.sessions.find((x) => x.key === key); if (s) { s.turn = turn; s.tokens = tokens; save(); } },
     rateLimit: (rl) => {
@@ -505,7 +554,7 @@ async function pool(p: Project, o: PoolOptions): Promise<number> {
         if (a.kind !== 'close-prd' && a.kind !== 'label-ready') sharedHold();
         sharedGithubHold();
         if (stop.signal.aborted || fatal || live.draining || Date.now() < (live.pausedUntil ?? 0) || githubLowNow()) break; // fatal may land during readPlan
-        if (a.kind === 'close-prd' || a.kind === 'label-ready') { await engineStep(p, a).catch((e) => log(`${a.kind} failed: ${e.message}`, target(a))); continue; }
+        if (a.kind === 'close-prd' || a.kind === 'label-ready') { await engineStep(p, a).then(() => { if (a.kind === 'close-prd') void releaseCheck(); }).catch((e) => log(`${a.kind} failed: ${e.message}`, target(a))); continue; }
         if (inFlight.size >= o.workers || slotBlocked) continue; // engine steps further down still run
         const slot = fleetDir ? acquireSlot(fleetDir, fleetCap, { pid: process.pid, repo: c.repo, issue: target(a) }) : null;
         if (fleetDir && slot === null) { slotBlocked = true; continue; }
@@ -531,11 +580,17 @@ async function pool(p: Project, o: PoolOptions): Promise<number> {
         const engineOnly = !budgetBlocked && actions.length > 0 && actions.every((a) => a.kind === 'close-prd' || a.kind === 'label-ready');
         engineRetries = engineOnly ? engineRetries + 1 : 0;
         if (!o.watch && !limited && (!engineOnly || engineRetries > 3)) {
+          if (c.autoRelease) {
+            // one last attempt, after a running gate and release check
+            if (gateRunning) await gateRunning;
+            if (!(releasing && (await releasing))) await releaseCheck(true);
+          }
           log('nothing left to do — done');
           if (stuck.length) log(`WARNING: still labelled ${c.labels.working} with no session running: ${stuck.map((n) => `#${n}`).join(', ')} — remove the label to let hx pick ${stuck.length > 1 ? 'them' : 'it'} up again`);
           break;
         }
         if (engineOnly) { await sleep(2000, stop.signal); continue; }
+        if (o.watch) void releaseCheck();
         if (!idleLogged) { log(budgetBlocked ? 'budget: waiting for usage to leave room for the next session…' : githubLowNow() ? 'waiting for the GitHub API budget to reset…' : limited ? 'waiting for the usage limit to reset…' : 'board empty — watching for new issues'); idleLogged = true; }
       }
       // wake on the first finished task, a pause, or after a poll interval (new / unblocked issues, a limit reset)
@@ -550,6 +605,7 @@ async function pool(p: Project, o: PoolOptions): Promise<number> {
       await waitAny(waitMs, stop.signal, [new Promise<void>((r) => { wake = r; }), ...inFlight.values()]);
     }
     if (inFlight.size) { log(`stopping — waiting for ${inFlight.size} session(s) to hand back their issues…`); await Promise.allSettled(inFlight.values()); }
+    if (releasing) await releasing; // never leave a release half pushed
   } finally {
     clearInterval(watcher);
     unwatchFile(wakeFile, onWake);
