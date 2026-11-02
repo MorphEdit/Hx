@@ -119,7 +119,7 @@ test('hx help lists doctor', E2E, () => {
 
 const missing = { code: 1, stdout: '', stderr: 'spawn claude ENOENT', spawnFailed: true };
 
-test('checkAgent: claude missing → ✗ with the install command per OS', () => {
+test('checkAgent: claude missing → ✗ with the install command per OS', E2E, () => {
   const win = checkAgent(missing, 'claude', 'win32'), mac = checkAgent(missing, 'claude', 'darwin'), lin = checkAgent(missing, 'claude', 'linux');
   for (const c of [win, mac, lin]) { assert.equal(c.mark, '✗'); assert.match(c.detail!, /not installed/); assert.equal(c.required, true); }
   assert.match(win.fix!, /install\.ps1/);
@@ -128,7 +128,7 @@ test('checkAgent: claude missing → ✗ with the install command per OS', () =>
   assert.equal(exitCode([win]), 1);
 });
 
-test('checkGit / checkGh: not installed → the OS install fix', () => {
+test('checkGit / checkGh: not installed → the OS install fix', E2E, () => {
   assert.equal(checkGit(missing, 'win32').fix, 'winget install --id Git.Git');
   assert.equal(checkGh(missing, 'win32').fix, 'winget install --id GitHub.cli');
   assert.match(checkGit(missing, 'darwin').fix!, /brew install git/);
@@ -139,7 +139,7 @@ test('checkGit / checkGh: not installed → the OS install fix', () => {
   assert.deepEqual(checkGit({ code: 0, stdout: 'git version 2.47.1.windows.1\n', stderr: '' }, 'win32'), { mark: '✓', label: 'git', detail: '2.47.1.windows.1', required: true });
 });
 
-test('checkGh: logged in (both gh output styles), logged out, offline, timeout', () => {
+test('checkGh: logged in (both gh output styles), logged out, offline, timeout', E2E, () => {
   assert.equal(checkGh({ code: 0, stdout: '  ✓ Logged in to github.com account alice (keyring)', stderr: '' }, 'linux').detail, 'as alice');
   assert.equal(checkGh({ code: 0, stdout: '', stderr: '  ✓ Logged in to github.com as bob (oauth_token)' }, 'linux').detail, 'as bob');
   assert.equal(checkGh({ code: 1, stdout: '', stderr: 'You are not logged into any GitHub hosts. To log in, run: gh auth login' }, 'linux').fix, 'gh auth login');
@@ -147,7 +147,7 @@ test('checkGh: logged in (both gh output styles), logged out, offline, timeout',
   assert.equal(checkGh({ code: 1, stdout: '', stderr: '', timedOut: true }, 'linux').mark, '?');
 });
 
-test('checkOrigin, checkConfig, checkLabels, checkRtdd, checkNode', () => {
+test('checkOrigin, checkConfig, checkLabels, checkRtdd, checkNode', E2E, () => {
   assert.equal(checkOrigin({ code: 0, stdout: 'me/app\n', stderr: '' }).detail, 'me/app');
   assert.equal(checkOrigin({ code: 1, stdout: '', stderr: 'no git remotes found' }).mark, '✗');
   assert.equal(checkOrigin({ code: 1, stdout: '', stderr: 'HTTP 502' }).mark, '?');
@@ -165,7 +165,7 @@ test('checkOrigin, checkConfig, checkLabels, checkRtdd, checkNode', () => {
   assert.equal(checkNode('20.1.0', 'win32').fix, 'winget install --id OpenJS.NodeJS');
 });
 
-test('exitCode: 1 iff a required check is ✗; – and ? never; render shows a fix under every mark but ✓', () => {
+test('exitCode: 1 iff a required check is ✗; – and ? never; render shows a fix under every mark but ✓', E2E, () => {
   const c = (mark: Check['mark'], required = true): Check => ({ mark, label: 'x', fix: 'do it', required });
   assert.equal(exitCode([c('✓'), c('–'), c('?')]), 0);
   assert.equal(exitCode([c('✗', false)]), 0);
