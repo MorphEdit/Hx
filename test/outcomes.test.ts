@@ -55,6 +55,7 @@ test('parseOutcomes(fixture in the §1 format): every §5a count', () => {
     issues: { done: 4, medianMs: 25 * min },
     triage: { reproduced: 0, needsInfo: 0, failed: 0, gaveUp: 0 },
     modelMismatch: 0,
+    releases: { count: 0, latest: null },
   });
 });
 
@@ -73,6 +74,7 @@ test('empty input: zeros and nulls, no throw', () => {
     issues: { done: 0, medianMs: null },
     triage: { reproduced: 0, needsInfo: 0, failed: 0, gaveUp: 0 },
     modelMismatch: 0,
+    releases: { count: 0, latest: null },
   };
   assert.deepEqual(parseOutcomes([]), empty);
   assert.deepEqual(parseOutcomes(['garbage', 'more', '2026-10-31 not iso [#1] audit PASS ✓']), empty);
@@ -116,4 +118,19 @@ test('triage: the four outcome lines are counted, with or without [#n]; round ca
     'triage: REPRODUCED ✓',                                   // no timestamp: skipped
   ]);
   assert.deepEqual(o.triage, { reproduced: 2, needsInfo: 1, failed: 1, gaveUp: 2 });
+});
+
+test('releases: PRD and fixes releases count, with or without [#n]; latest is the last one; other release lines do not', () => {
+  const o = parseOutcomes([
+    '2026-01-01T00:00:00.000Z [#129] released v0.2.0 (PRD #129)',
+    '2026-01-01T00:01:00.000Z release v0.3.0 failed: gh release create exited 1',
+    '2026-01-01T00:02:00.000Z created the missing release v0.2.0',
+    '2026-01-01T00:03:00.000Z package.json was not bumped — no release',
+    '2026-01-01T00:04:00.000Z released v0.3.0 (PRD #129, #139)',
+    '2026-01-01T00:05:00.000Z released v0.3.1 (fixes)',
+    '2026-01-01T00:06:00.000Z [#7] release v0.4.0 failed: tag exists',
+    'released v9.9.9 (fixes)',                                  // no timestamp: skipped
+  ]);
+  assert.deepEqual(o.releases, { count: 3, latest: 'v0.3.1' });
+  assert.deepEqual(parseOutcomes(['2026-01-01T00:00:00.000Z [#1] impl: x']).releases, { count: 0, latest: null });
 });

@@ -51,6 +51,7 @@ writeFileSync(path.join(stateDir, 'usage.jsonl'), [
 const oldLog = [
   '2026-10-01T10:00:00.000Z [#11] impl: part a',
   '2026-10-01T10:30:00.000Z [#11] audit PASS ✓',
+  '2026-10-01T10:31:00.000Z released v0.1.0 (PRD #10)',
 ];
 const newLog = [
   '2026-10-01T10:31:00.000Z [#11] DONE ✓ audited and merged (1 round(s))',
@@ -58,6 +59,7 @@ const newLog = [
   '2026-10-01T11:20:00.000Z [#12] audit FAIL ✗ missing test',
   '2026-10-01T11:21:00.000Z gate RED ✗ at abc1234',
   '2026-10-01T11:31:00.000Z gate green ✓ again at def5678',
+  '2026-10-01T11:40:00.000Z released v0.1.1 (fixes)',
 ];
 writeFileSync(path.join(stateDir, 'run.log.1'), oldLog.join('\n') + '\n');
 writeFileSync(path.join(stateDir, 'run.log'), newLog.join('\n') + '\n');
@@ -138,6 +140,7 @@ test('/api/state: runner, sessions, gate, usage by role and by PRD, log, outcome
   assert.equal(s.outcomes.gate.red, 1);
   assert.deepEqual(s.outcomes.gate.redMs, [10 * 60_000]);
   assert.equal(s.outcomes.gate.recovered, 1);
+  assert.deepEqual(s.outcomes.releases, { count: 2, latest: 'v0.1.1' }, 'releases in run.log.1 and run.log both count');
 });
 
 test('no run.log.1: outcomes come from run.log alone', E2E, async () => {
