@@ -33,12 +33,13 @@ export async function runOk(cmd: string, args: string[], opts: { cwd?: string; i
 }
 
 /** Kill a process and everything it started (a shell's children outlive a plain kill of the shell). */
-export function killTree(pid: number | undefined, sync = false): void {
-  if (!pid) return;
+export function killTree(pid: number | undefined, sync = false, onKilled?: () => void): void {
+  if (!pid) { onKilled?.(); return; }
   if (process.platform === 'win32') {
     if (sync) try { execFileSync('taskkill', ['/pid', String(pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true }); } catch {}
-    else execFile('taskkill', ['/pid', String(pid), '/T', '/F'], { windowsHide: true }, () => {});
+    else { execFile('taskkill', ['/pid', String(pid), '/T', '/F'], { windowsHide: true }, () => onKilled?.()); return; }
   } else try { process.kill(-pid, 'SIGKILL'); } catch { try { process.kill(pid, 'SIGKILL'); } catch {} }
+  onKilled?.();
 }
 
 export interface ShellResult {
@@ -72,8 +73,10 @@ export function runShell(command: string, opts: { cwd?: string; timeoutMs: numbe
     const onAbort = () => {
       if (settled || aborted) return;
       aborted = true; clearTimeout(timer);
-      killTree(child.pid); // async: a sync taskkill under load blocks the event loop for seconds
-      setTimeout(() => done(130), 1000).unref(); // do not wait on a grandchild holding the pipes open
+      // async: a sync taskkill under load blocks the event loop for seconds; settle once the tree is gone,
+      // not on 'close' — a grandchild holding the pipes open would keep it from firing
+      killTree(child.pid, false, () => done(130));
+      setTimeout(() => done(130), 10_000).unref(); // in case taskkill itself hangs
     };
     if (opts.signal?.aborted) onAbort();
     else opts.signal?.addEventListener('abort', onAbort, { once: true });
