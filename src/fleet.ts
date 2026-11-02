@@ -189,29 +189,42 @@ export function releaseSlot(dir: string, k: number, pid = process.pid): void {
 }
 
 // The shared usage hold: `<fleetDir>/hold.json` holds { until (ms epoch), reason, repo }; no runner claims before `until`.
+// The shared GitHub hold, `<fleetDir>/github-hold.json`: the same shape and rules, written by a runner whose GitHub
+// API budget is below ghReservePct.
 export interface Hold { until: number; reason: string; repo: string }
 
 export const holdFile = (dir: string) => path.join(dir, 'hold.json');
+export const githubHoldFile = (dir: string) => path.join(dir, 'github-hold.json');
 
-/** The hold in force: null when the file is missing, unparsable or already expired. */
-export function readHold(dir: string, now = Date.now()): Hold | null {
+function readHoldFile(file: string, now: number): Hold | null {
   let h: any;
-  try { h = JSON.parse(readFileSync(holdFile(dir), 'utf8')); } catch { return null; }
+  try { h = JSON.parse(readFileSync(file, 'utf8')); } catch { return null; }
   if (!h || typeof h.until !== 'number' || !Number.isFinite(h.until) || h.until <= now) return null;
   return { until: h.until, reason: String(h.reason ?? ''), repo: String(h.repo ?? '') };
 }
 
-/** Write the hold unless the file already holds a later `until`; true when written. */
-export function writeHold(dir: string, h: Hold): boolean {
+function writeHoldFile(dir: string, file: string, h: Hold): boolean {
   let cur: unknown;
-  try { cur = JSON.parse(readFileSync(holdFile(dir), 'utf8')).until; } catch {}
+  try { cur = JSON.parse(readFileSync(file, 'utf8')).until; } catch {}
   if (typeof cur === 'number' && cur >= h.until) return false;
   mkdirSync(dir, { recursive: true });
-  const tmp = `${holdFile(dir)}.${process.pid}.tmp`;
+  const tmp = `${file}.${process.pid}.tmp`;
   writeFileSync(tmp, JSON.stringify({ until: h.until, reason: h.reason, repo: h.repo }));
-  try { renameSync(tmp, holdFile(dir)); } catch { try { unlinkSync(tmp); } catch {} return false; }
+  try { renameSync(tmp, file); } catch { try { unlinkSync(tmp); } catch {} return false; }
   return true;
 }
+
+/** The hold in force: null when the file is missing, unparsable or already expired. */
+export function readHold(dir: string, now = Date.now()): Hold | null { return readHoldFile(holdFile(dir), now); }
+
+/** Write the hold unless the file already holds a later `until`; true when written. */
+export function writeHold(dir: string, h: Hold): boolean { return writeHoldFile(dir, holdFile(dir), h); }
+
+/** The GitHub hold in force (github-hold.json): null when missing, unparsable or expired. */
+export function readGithubHold(dir: string, now = Date.now()): Hold | null { return readHoldFile(githubHoldFile(dir), now); }
+
+/** Write github-hold.json unless it already holds a later `until`; true when written. */
+export function writeGithubHold(dir: string, h: Hold): boolean { return writeHoldFile(dir, githubHoldFile(dir), h); }
 
 /** Slot files whose pid is alive (stale or unparsable files are not counted). */
 export function slotsInUse(dir: string): number {

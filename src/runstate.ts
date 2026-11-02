@@ -34,6 +34,7 @@ export interface LiveState {
   gate?: { ok: boolean; sha: string; at: string; fixIssue?: number };
   budget?: { windows: BudgetWindow[] }; // per usage window: utilization, resetsAt, pairs, usdPerPct once calibrated
   github?: GhBudget; // the GitHub API budget, read at start and at most once a minute
+  githubLow?: { until: number; reason: string }; // ms epoch: budget-low (below ghReservePct), no claims before this
 }
 
 export type PauseMode = 'drain' | 'now';

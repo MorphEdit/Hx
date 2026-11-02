@@ -128,6 +128,12 @@ named to the children by `HX_FLEET_DIR` (and the cap by `HX_FLEET_WORKERS`):
   passes `usagePauseAt`, writes it (only when its `until` is later, via a temp file and rename); every
   runner reads it each tick and copies it into its own hold (`live.pausedUntil`), never writing a copied
   hold back.
+- **Shared GitHub hold.** `github-hold.json`, the same shape and rules. A runner whose GitHub API budget
+  falls below `ghReservePct` becomes budget-low until the bucket's reset: no claims (engine steps
+  included), no board reads, a wake every 2 × `pollSeconds` that re-reads the free `rate_limit`. It is
+  kept apart from the usage hold, so a later caller (a call that hit the limit) can enter it too. Every
+  runner reads the file at the top of each pass and before each claim and copies a future `until` into
+  its own budget-low state, never writing it back.
 - **Ctrl+C over IPC.** The children are `detached` (their own console) so a console Ctrl+C does not hit
   them all twice, and on Windows `child.kill('SIGINT')` kills a process outright. So the parent sends
   `{ type: 'interrupt' }` over the IPC channel and the child runs the same handler as its own Ctrl+C:

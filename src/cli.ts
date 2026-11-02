@@ -17,7 +17,7 @@ import { fileBug, filePrd } from './prd.ts';
 import { agentFor } from './agents/index.ts';
 import { ideaFrom, sessionPaths, sessionPrompt } from './grill.ts';
 import { formatSkills } from './skills.ts';
-import { addRepo, type Fleet, fleetDir, fleetFile, fleetWorkers, readFleet, readHold, readRepos, registerRepo, removeRepo, sameRoot, slotsInUse, startFleetRun, writeFleet, writeRepos } from './fleet.ts';
+import { addRepo, type Fleet, fleetDir, fleetFile, fleetWorkers, readFleet, readGithubHold, readHold, readRepos, registerRepo, removeRepo, sameRoot, slotsInUse, startFleetRun, writeFleet, writeRepos } from './fleet.ts';
 import { fmt, localDay, mismatchedSessions, readUsage, summarize, totalTokens, type UsageRow } from './usage.ts';
 
 const HELP = `usage: hx <command> [options]
@@ -456,8 +456,10 @@ async function fleetStatus(f: Fleet): Promise<number> {
   const ghb = await gh.rateLimit();
   if (ghb) console.log(githubLine(ghb));
   const hold = readHold(fleetDir());
+  const ghHold = readGithubHold(fleetDir());
   console.log(`fleet    ${slotsInUse(fleetDir())}/${fleetWorkers(f)} slot(s) in use`
-    + (hold ? ` · hold until ${new Date(hold.until).toLocaleString()} (${hold.reason}, ${hold.repo})` : ''));
+    + (hold ? ` · hold until ${new Date(hold.until).toLocaleString()} (${hold.reason}, ${hold.repo})` : '')
+    + (ghHold ? ` · github hold until ${new Date(ghHold.until).toLocaleString()} (${ghHold.reason}, ${ghHold.repo})` : ''));
   return rc;
 }
 
