@@ -3,7 +3,7 @@ import { E2E, alive } from './isolate.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -93,10 +93,10 @@ test('ship: a test run past --test-timeout is killed with its whole tree and fai
   const env = setup();
   writeFileSync(path.join(env.wt, 'c.txt'), 'mine\n');
   const pidFile = path.join(env.tmp, 'test.pid');
-  const t0 = Date.now();
   const r = shipWith(env, ['--repo', 'me/app', '--base', 'main', '--issue', '7', '--title', 'feat: thing', '--test', hang(pidFile), '--test-timeout', '0.1']);
   assert.equal(r.status, 4, r.stderr);
-  assert.ok(Date.now() - t0 < 30_000, 'ship gave up within seconds');
+  // timed from the hanging test's start, not ship's: commit, fetch and rebase are slow under a loaded `npm test`
+  assert.ok(Date.now() - statSync(pidFile).mtimeMs < 30_000, 'ship gave up within seconds of the test starting');
   assert.match(r.stderr, /ship: tests timed out after 0\.1 min/);
   const pid = Number(readFileSync(pidFile, 'utf8'));
   assert.ok(pid > 0 && !alive(pid), `the test process ${pid} is not left running`);
