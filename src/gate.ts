@@ -2,9 +2,10 @@
 // nothing except the issue that fixes it — which hx files itself — so no worker builds on a broken base.
 // Hx repos usually have no hosted CI, so the gate is local: the project's test command on a fresh
 // checkout of origin/<base>.
-import { readFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { run, runShell } from './exec.ts';
+import { median } from './timing.ts';
 import { setupWorktree, type SetupOptions, type SetupResult } from './setup.ts';
 import { addWorktree, removeWorktree } from './worktree.ts';
 
@@ -16,6 +17,7 @@ export interface GateResult {
   timedOut?: boolean; // the command ran past the timeout: its process tree was killed
   aborted?: boolean; // the signal fired (Ctrl+C): the tree was killed and the result means nothing
   setupFailed?: boolean; // the worktree setup failed (`command` is then config.worktreeSetup): the test command never ran
+  durationMs?: number; // wall-clock time of the test command only (not the worktree add, setup or cleanup); absent when it never finished
   at: string;
 }
 
@@ -41,6 +43,48 @@ export function readGate(stateDir: string): GateState {
 
 export function writeGate(stateDir: string, s: GateState): void {
   writeFileSync(file(stateDir), JSON.stringify(s, null, 2));
+}
+
+/** One pool gate run whose test command ran to an end or timed out: a line of .hx/gate-runs.jsonl. */
+export interface GateRun { ts: string; sha: string; ok: boolean; durationMs: number; timedOut: boolean }
+
+const runsFile = (stateDir: string) => path.join(stateDir, 'gate-runs.jsonl');
+
+export function appendGateRun(stateDir: string, r: GateResult): void {
+  const line: GateRun = { ts: r.at, sha: r.sha, ok: r.ok, durationMs: r.durationMs ?? 0, timedOut: !!r.timedOut };
+  appendFileSync(runsFile(stateDir), JSON.stringify(line) + '\n');
+}
+
+/** The lines of .hx/gate-runs.jsonl, oldest first; malformed lines are skipped. */
+export function readGateRuns(stateDir: string): GateRun[] {
+  let text = '';
+  try { text = readFileSync(runsFile(stateDir), 'utf8'); } catch { return []; }
+  const out: GateRun[] = [];
+  for (const l of text.split('\n')) {
+    if (!l.trim()) continue;
+    try {
+      const r = JSON.parse(l);
+      if (r && typeof r.durationMs === 'number' && Number.isFinite(r.durationMs) && typeof r.ok === 'boolean') out.push(r);
+    } catch {}
+  }
+  return out;
+}
+
+/** `15m10s`, `20m`, `45s`. */
+export function fmtDuration(ms: number): string {
+  const s = Math.round(ms / 1000);
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60), r = s % 60;
+  return r ? `${m}m${String(r).padStart(2, '0')}s` : `${m}m`;
+}
+
+/** The slow-gate warning when the median duration of the last 5 runs is above 70% of gateMinutes, else undefined. */
+export function slowGateWarning(runs: GateRun[], gateMinutes: number): string | undefined {
+  if (runs.length < 5) return undefined;
+  const m = median(runs.slice(-5).map((r) => r.durationMs))!;
+  const limit = gateMinutes * 60_000;
+  if (m <= 0.7 * limit) return undefined;
+  return `gate is slow: median ${fmtDuration(m)} of a ${fmtDuration(limit)} timeout — tests may time out under load`;
 }
 
 /** The commit origin/<base> points at right now. */
@@ -72,12 +116,14 @@ export async function runGate(checkout: string, root: string, base: string, comm
       return { sha, ok: false, command: s.command, output: `worktree setup failed: ${tailOf(full + note, 60)}`, setupFailed: true,
         ...(s.timedOut ? { timedOut: true } : {}), at: new Date().toISOString() };
     }
+    const started = Date.now();
     const res = await runShell(command, { cwd: wt.dir, timeoutMs, signal });
+    const durationMs = Date.now() - started;
     aborted = !!res.aborted;
     if (res.aborted) return { sha, ok: false, command, output: res.output.trim().split('\n').slice(-60).join('\n'), aborted: true, at: new Date().toISOString() };
     const note = res.timedOut ? `\ngate: timed out after ${+(timeoutMs / 60_000).toFixed(2)} min — process tree killed` : '';
     return { sha, ok: res.code === 0 && !res.timedOut, command, output: (res.output.trim() + note).trim().split('\n').slice(-60).join('\n'),
-      ...(res.timedOut ? { timedOut: true } : {}), at: new Date().toISOString() };
+      ...(res.timedOut ? { timedOut: true } : {}), durationMs, at: new Date().toISOString() };
   } finally {
     // after Ctrl+C Windows may hold the killed tree's files for seconds: do not wait (the next gate's fresh add clears it)
     const removed = removeWorktree(checkout, wt.dir);

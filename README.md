@@ -738,6 +738,8 @@ it reads. So Hx only works on text from **trusted accounts**: your `gh` login pl
 - `.hx/logs/setup-<name>.log` / `.json` — a worktree's last setup output / result (see [Worktree setup](#worktree-setup))
 - `.hx/live.json` — the running `hx run`: its pid and live sessions (read by `hx status`)
 - `.hx/pause` — present while paused (`drain` or `now`)
+- `.hx/gate-runs.jsonl` — one line per pool gate run whose test command finished or timed out: `{ ts, sha, ok, durationMs, timedOut }`
+  (`durationMs` is the test command only). `hx run` logs `gate is slow: …` once when the median of the last 5 is above 70% of `gateMinutes`
 - `.hx/run.log` — the `hx run` log, `<ISO time> [#n] message` per line (rotated to `run.log.1` past 2 MiB), read by `hx dashboard`
 - `~/.hx/fleet/hold.json` — the shared usage hold of `hx fleet run` (`{ until, reason, repo }`); every runner copies it
 - `~/.hx/fleet/github-hold.json` — the shared GitHub hold, same shape: written by a runner whose GitHub API budget is
