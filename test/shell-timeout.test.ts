@@ -49,14 +49,19 @@ test('a fake claude sees BASH_MAX_TIMEOUT_MS and BASH_DEFAULT_TIMEOUT_MS from th
 });
 
 test('the stall timer does not kill a turn waiting on a running tool call; it still kills one that is not', E2E, async () => {
-  // silent 2.5 s, far past a 0.02 min (1.2 s) stall window
-  const waiting = await withEnv({ FAKE_CLAUDE_MODE: 'stall', FAKE_CLAUDE_TOOL: '1', FAKE_CLAUDE_SLEEP_MS: '2500' },
-    () => turn({ stallMs: 0.02 * 60_000, timeoutMs: 60 * 60_000 }));
-  assert.ok(!waiting.stalled, waiting.error);
-  assert.equal(waiting.ok, true, waiting.error);
-  assert.match(waiting.text, /woke up/);
-  const idle = await withEnv({ FAKE_CLAUDE_MODE: 'stall', FAKE_CLAUDE_SLEEP_MS: '2500' },
-    () => turn({ stallMs: 0.02 * 60_000, timeoutMs: 60 * 60_000 }));
+  // silent for twice the stall window after the tool call starts. A node so slow to start that the tool call comes after the
+  // window is a real stall: the window then grows (5, 15, 30 s)
+  let waiting;
+  for (const ms of [5000, 15000, 30000]) {
+    waiting = await withEnv({ FAKE_CLAUDE_MODE: 'stall', FAKE_CLAUDE_TOOL: '1', FAKE_CLAUDE_SLEEP_MS: String(2 * ms) },
+      () => turn({ stallMs: ms, timeoutMs: 60 * 60_000 }));
+    if (!waiting.stalled) break;
+  }
+  assert.ok(!waiting!.stalled, waiting!.error);
+  assert.equal(waiting!.ok, true, waiting!.error);
+  assert.match(waiting!.text, /woke up/);
+  const idle = await withEnv({ FAKE_CLAUDE_MODE: 'stall', FAKE_CLAUDE_SLEEP_MS: '10000' },
+    () => turn({ stallMs: 5000, timeoutMs: 60 * 60_000 }));
   assert.equal(idle.stalled, true);
 });
 
