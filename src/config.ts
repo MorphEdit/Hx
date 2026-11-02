@@ -52,6 +52,7 @@ export interface Config {
   auditRounds: number; // implement → audit attempts before the issue goes to a human
   gate: boolean; // test the default branch after every merge; while red, claim only the fix
   gateCommand: string; // the gate's test command ('' = learned from the first audited merge)
+  gateMinutes: number; // the gate's test run is killed (with its tree) after this long and counts as red
   usagePauseAt: number; // 0..1: claim nothing new once a usage window is this full, until it resets
   budgetGate: boolean; // before claiming a session, skip it when its forecast would take a calibrated usage window past usagePauseAt
   budgetMinPairs: number; // usable reading pairs a usage window needs before its dollars-per-1% rate is trusted (calibrated)
@@ -96,6 +97,7 @@ export const DEFAULTS: Omit<Config, 'repo' | 'defaultBranch' | 'worktreeRoot'> =
   auditRounds: 3,
   gate: true,
   gateCommand: '',
+  gateMinutes: 45,
   usagePauseAt: 0.9,
   budgetGate: true,
   budgetMinPairs: 5,

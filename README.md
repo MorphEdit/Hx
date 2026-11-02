@@ -357,8 +357,8 @@ the default branch. If it fails, Hx files one `hx-gate-fix` issue with the outpu
 else** until a later run is green — no worker builds on a broken base. The command is `gateCommand`,
 or the test command the first audited merge used. `hx status` shows the gate.
 
-A hung test run cannot block anything: `ship.mjs` gives the tests `--test-timeout` minutes (default 15,
-remembered for `--resume`) and the gate 20 minutes; past that the whole process tree is killed and the
+A hung test run cannot block anything: `ship.mjs` gives the tests `--test-timeout` minutes (default 45,
+remembered for `--resume`) and the gate `gateMinutes` (default 45); past that the whole process tree is killed and the
 run counts as failed (exit 4 / a red gate marked "timed out").
 
 ## Worktree setup
@@ -529,6 +529,7 @@ and the dashboard's per-model numbers use it). To spot one:
 | `auditRounds` | 3 | implement → audit attempts before the issue goes to a human |
 | `gate` | `true` | test the default branch after every merge; while red, claim only its fix |
 | `gateCommand` | `""` | the gate's test command (empty: learned from the first audited merge) |
+| `gateMinutes` | `45` | the gate's test run is killed, with its process tree, after this long and counts as red |
 | `usagePauseAt` | 0.9 | claim nothing new once a usage window is this full (0..1) |
 | `budgetGate` | `true` | before claiming a session, skip it while its forecast would take a calibrated usage window past `usagePauseAt` (see Budget gate) |
 | `budgetMinPairs` | 5 | pairs of rising usage-window readings (each with the usage cost spent between them) a window needs before its dollars-per-1% rate is calibrated and used to forecast |
