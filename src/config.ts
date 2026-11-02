@@ -102,7 +102,7 @@ export const DEFAULTS: Omit<Config, 'repo' | 'defaultBranch' | 'worktreeRoot'> =
   budgetGate: true,
   budgetMinPairs: 5,
   checkpointMinutes: 10,
-  turnTimeoutMinutes: 45,
+  turnTimeoutMinutes: 60, // above ship's 45-min test timeout + 5: the worker's shell may wait on it
   stallMinutes: 15,
   pollSeconds: 60,
   agentCli: 'claude',

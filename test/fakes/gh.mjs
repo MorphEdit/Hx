@@ -39,7 +39,7 @@ if (a[0] === 'issue' && a[1] === 'list') {
     .map((p) => { p.hide--; return p.number; }));
   const prs = (s.prs ?? []).filter((p) => p.head === opt('--head') && p.state === 'OPEN' && !hidden.includes(p.number));
   if (opt('-q')) process.stdout.write(prs[0] ? `${prs[0].number}\n` : '\n');
-  else process.stdout.write(JSON.stringify(prs.map((p) => ({ number: p.number, isCrossRepository: !!p.fork }))));
+  else process.stdout.write(JSON.stringify(prs.map((p) => ({ number: p.number, title: p.title, isCrossRepository: !!p.fork }))));
 } else if (a[0] === 'pr' && a[1] === 'create') {
   const number = mutate((cur) => {
     cur.prs ??= [];

@@ -2,7 +2,7 @@ import { execFile } from 'node:child_process';
 import { appendFileSync, mkdirSync, readFileSync, renameSync, statSync, unwatchFile, watchFile, type Stats } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { effectiveRtddBin, formatRoleModels, labelSpecs, modelMatches, roleModel, roleModelMap, roleModelsError, workerArgs, worktreeCopyError, type LabelSpec, type Project } from './config.ts';
+import { effectiveRtddBin, formatRoleModels, labelSpecs, modelMatches, roleModel, roleModelMap, roleModelsError, workerArgs, worktreeCopyError, type Config, type LabelSpec, type Project } from './config.ts';
 import * as gh from './github.ts';
 import type { Issue } from './github.ts';
 import type { GhBudget } from './ghlimit.ts';
@@ -837,7 +837,7 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
 
     let feedback: string, why: string;
     if (v.pass) {
-      const m = await mergeAudited(wt.dir);
+      const m = await mergeAudited(wt.dir, c, c.gateCommand || readGate(p.stateDir).command || '');
       // the repo only took an auto-merge: it lands within moments, wait for it rather than fail
       if (!m.ok && /AUTO-MERGE set/.test(m.output)) m.ok = await waitClosed(c.repo, n, 10 * 60_000);
       if (m.ok && (await gh.issueState(c.repo, n)) === 'CLOSED') {
@@ -893,9 +893,11 @@ async function shipInfo(cwd: string): Promise<{ test?: string } | null> {
 }
 
 /** Rebase, re-test, push and merge the audited branch (ship.mjs --resume, run by hx, not by an agent). */
-function mergeAudited(cwd: string): Promise<{ ok: boolean; retry: boolean; code: number; output: string }> {
+async function mergeAudited(cwd: string, c: Config, testCmd: string): Promise<{ ok: boolean; retry: boolean; code: number; output: string }> {
+  // no hx-ship.json (a PR opened outside ship): ship rebuilds it from the branch's PR with this repo and test command
+  const fallback = (await shipInfo(cwd)) ? [] : ['--repo', c.repo, '--base', c.defaultBranch, ...(testCmd ? ['--test', testCmd] : [])];
   return new Promise((resolve) => {
-    execFile(process.execPath, [SHIP, '--resume'], { cwd, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 }, (err, stdout, stderr) => {
+    execFile(process.execPath, [SHIP, '--resume', ...fallback], { cwd, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 }, (err, stdout, stderr) => {
       const code = err ? (typeof (err as any).code === 'number' ? (err as any).code : 1) : 0;
       // 3 = rebase conflict, 4 = tests fail after the rebase: the implementer can fix those
       resolve({ ok: code === 0 && /SHIPPED #/.test(stdout), retry: code === 3 || code === 4, code, output: `${stdout}\n${stderr}`.trim() });

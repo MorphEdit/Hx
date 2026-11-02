@@ -10,7 +10,9 @@
 //   --no-merge  stops after the PR is open, prints `READY #<issue> PR #<pr>`, and remembers its
 //               arguments in the worktree's git dir (hx-ship.json)
 //   --resume    run later by hx itself once the audit passed: the remembered arguments, then
-//               rebase → test → push → merge → close (a base that moved meanwhile is re-tested)
+//               rebase → test → push → merge → close (a base that moved meanwhile is re-tested).
+//               With no hx-ship.json but an open PR for the branch (a PR opened outside ship), the state is
+//               written from the PR: --repo, --base and --test come from hx, the issue from the branch name
 //
 // Exit codes, each with a one-line reason on stderr:
 //   0 shipped · 2 bad arguments · 3 rebase conflict (rebase aborted; resolve by hand, then re-run)
@@ -26,9 +28,27 @@ const opt = (n) => { const i = args.indexOf(`--${n}`); return i < 0 ? undefined 
 const noMerge = args.includes('--no-merge');
 const gitDir = spawnSync('git', ['rev-parse', '--absolute-git-dir'], { encoding: 'utf8' }).stdout.trim();
 const stateFile = path.join(gitDir || '.', 'hx-ship.json');
+// --resume without a state file: rebuild it from the branch's open PR, or fail as before
+function fromPr() {
+  const none = () => { console.error(`ship: --resume: no ${stateFile}; run ship --no-merge first`); return null; };
+  const repo = opt('repo'), branch = spawnSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { encoding: 'utf8' }).stdout.trim();
+  const issue = /^issue\/(\d+)$/.exec(branch)?.[1];
+  if (!repo || !issue || !opt('test')) return none();
+  const gh = process.env.HX_GH_BIN || 'gh';
+  const [cmd, pre] = /\.m?js$/i.test(gh) ? [process.execPath, [gh]] : [gh, []];
+  const r = spawnSync(cmd, [...pre, 'pr', 'list', '-R', repo, '--head', branch, '--state', 'open', '--json', 'number,title,isCrossRepository'], { encoding: 'utf8' });
+  let pr;
+  try { pr = JSON.parse(r.stdout || '[]').find((p) => p.isCrossRepository === false); } catch {}
+  if (r.status !== 0 || !pr) return none();
+  const state = { repo, base: opt('base') ?? 'main', issue, title: String(pr.title ?? '').replace(/ \(closes #\d+\)$/, '') || `issue #${issue}`,
+    test: opt('test'), testTimeout: Number(opt('test-timeout') ?? 45), pr: String(pr.number) };
+  writeFileSync(stateFile, JSON.stringify(state, null, 2));
+  console.log(`ship: no ${path.basename(stateFile)}: state written from PR #${pr.number}`);
+  return state;
+}
 let saved = {};
 if (args.includes('--resume')) {
-  try { saved = JSON.parse(readFileSync(stateFile, 'utf8')); } catch { console.error(`ship: --resume: no ${stateFile}; run ship --no-merge first`); process.exit(2); }
+  try { saved = JSON.parse(readFileSync(stateFile, 'utf8')); } catch { saved = fromPr() ?? process.exit(2); }
 }
 const repo = opt('repo') ?? saved.repo, base = opt('base') ?? saved.base ?? 'main', issue = opt('issue') ?? saved.issue,
   title = opt('title') ?? saved.title, testCmd = opt('test') ?? saved.test;
