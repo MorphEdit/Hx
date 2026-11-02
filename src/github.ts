@@ -1,5 +1,7 @@
 import { run, type ExecResult } from './exec.ts';
-import { classifyLimit, parseRateLimit, type GhBudget, type LimitKind } from './ghlimit.ts';
+import { classifyLimit, limitWaitMs, parseRateLimit, type GhBudget, type LimitKind } from './ghlimit.ts';
+
+export { limitWaitMs };
 
 export interface Issue {
   number: number;
@@ -20,22 +22,6 @@ let limitedListener: ((until: number, kind: LimitKind['kind']) => void) | undefi
 export function setGhWaitSignal(signal: AbortSignal | undefined): void { waitSignal = signal; }
 /** Hear about each wait: `until` = its end (ms epoch). undefined clears the listener. */
 export function onGhLimited(fn: ((until: number, kind: LimitKind['kind']) => void) | undefined): void { limitedListener = fn; }
-
-const MINUTE = 60_000;
-const MAX_SECONDARY_WAIT = 15 * MINUTE;
-/** How long a limited call waits (ms). primary: until the reset of the bucket at 0 remaining, else the later of the
- *  two resets (at least 1 s); no budget read, 60 s. secondary: Retry-After, else 60 s, doubled for each further
- *  secondary limit in a row (`streak` 1 = the first), up to 15 min. */
-export function limitWaitMs(k: LimitKind, budget: GhBudget | null, streak: number, now: number = Date.now()): number {
-  if (k.kind === 'secondary') {
-    const base = k.retryAfter !== undefined ? k.retryAfter * 1000 : MINUTE;
-    return Math.min(base * 2 ** Math.max(0, streak - 1), MAX_SECONDARY_WAIT);
-  }
-  if (!budget) return MINUTE;
-  const empty = [budget.core, budget.graphql].filter((b) => b.remaining <= 0);
-  const reset = Math.max(...(empty.length ? empty : [budget.core, budget.graphql]).map((b) => b.reset));
-  return Math.max(1000, reset * 1000 - now);
-}
 
 /** Resolves true after ms, false as soon as the signal aborts. */
 function waitOut(ms: number, signal: AbortSignal): Promise<boolean> {

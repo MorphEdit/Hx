@@ -7,6 +7,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { hhmm } from '../src/ghlimit.ts';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const SHIP = path.join(here, '..', 'scripts', 'ship.mjs');
@@ -185,4 +186,52 @@ test('ship --resume with no hx-ship.json and no PR for the branch fails as befor
   const bare = shipWith(env, ['--resume']);
   assert.equal(bare.status, 2, bare.stderr);
   assert.match(bare.stderr, /run ship --no-merge first/);
+});
+
+// #172: a rate-limited gh call is waited out briefly, capped by HX_GH_WAIT_MAX_SECONDS; git calls never wait
+const SHIP_ARGS = ['--repo', 'me/app', '--base', 'main', '--issue', '7', '--title', 'feat: thing', '--test', 'node -e "process.exit(0)"'];
+const limitBoard = (env: ReturnType<typeof setup>, state: object) => writeFileSync(env.board, JSON.stringify({ ...board(env), ...state }));
+const waits = (stderr: string) => stderr.split('\n').filter((l) => /^ship: github \w+ rate limit — waiting \d+s, then retrying$/.test(l));
+
+test('ship: a merge limited twice (secondary, Retry-After: 1) waits, retries and ships, one stderr line per wait', E2E, () => {
+  const env = setup();
+  writeFileSync(path.join(env.wt, 'c.txt'), 'mine\n');
+  limitBoard(env, { limitNext: { match: 'pr merge', kind: 'secondary', times: 2, retryAfter: 1 } });
+  const t0 = Date.now();
+  const r = shipWith(env, SHIP_ARGS);
+  assert.equal(r.status, 0, r.stderr);
+  assert.ok(Date.now() - t0 >= 3000, 'waited 1 s, then 2 s (doubled)');
+  assert.match(r.stdout, /SHIPPED #7 via PR #100/);
+  assert.equal(board(env).prs[0].state, 'MERGED');
+  assert.deepEqual(waits(r.stderr), ['ship: github secondary rate limit — waiting 1s, then retrying', 'ship: github secondary rate limit — waiting 2s, then retrying']);
+});
+
+test('ship: limited past HX_GH_WAIT_MAX_SECONDS fails with exit 5 and the reset time, without waiting past the cap', E2E, () => {
+  const env = setup();
+  writeFileSync(path.join(env.wt, 'c.txt'), 'mine\n');
+  limitBoard(env, { limitNext: { match: 'pr list', kind: 'secondary', times: 50, retryAfter: 1 } });
+  const t0 = Date.now();
+  const r = shipWith(env, SHIP_ARGS, { HX_GH_WAIT_MAX_SECONDS: '2' });
+  const took = Date.now() - t0;
+  assert.equal(r.status, 5, r.stderr);
+  assert.equal(waits(r.stderr).length, 1, 'waited 1 s; the next 2 s wait would pass the 2 s cap');
+  assert.match(r.stderr, /ship: github secondary rate limit — rate limited until \d\d:\d\d/);
+  assert.match(r.stderr, /ship: gh pr list failed: HTTP 403: You have exceeded a secondary rate limit/);
+  assert.ok(took < 20_000, `${took} ms`);
+  assert.deepEqual(board(env).prs, [], 'no PR opened');
+});
+
+test('ship: a primary limit whose reset is past the cap is not waited on at all: exit 5 at once, reset time printed', E2E, () => {
+  const env = setup();
+  writeFileSync(path.join(env.wt, 'c.txt'), 'mine\n');
+  const reset = Math.floor(Date.now() / 1000) + 3600;
+  limitBoard(env, { limitNext: { match: 'pr list', kind: 'primary', times: 1 },
+    rateLimit: { core: { limit: 5000, remaining: 0, reset }, graphql: { limit: 5000, remaining: 5000, reset: reset - 1800 } } });
+  const env2 = { ...process.env }; delete env2.HX_GH_WAIT_MAX_SECONDS; // the default cap, 90 s
+  const r = spawnSync(process.execPath, [SHIP, ...SHIP_ARGS], { cwd: env.wt, encoding: 'utf8', timeout: 60_000,
+    env: { ...env2, HX_FAKE_STATE: env.board, HX_GH_BIN: FAKE_GH } });
+  assert.equal(r.status, 5, r.stderr);
+  assert.deepEqual(waits(r.stderr), []);
+  assert.ok(r.stderr.includes(`ship: github primary rate limit — rate limited until ${hhmm(reset)}`), r.stderr);
+  assert.match(r.stderr, /ship: gh pr list failed: HTTP 403: API rate limit exceeded/);
 });

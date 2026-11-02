@@ -301,7 +301,10 @@ a primary limit until the bucket's reset (60 s when the budget cannot be read), 
 `Retry-After` (else 60 s, doubled for each further limit in a row, up to 15 min). The runner is budget-low
 meanwhile (no new claims, `github-hold.json` in a fleet) and logs `github rate limited — waiting until 22:41`
 once. Ctrl+C ends the wait without a retry. Every other command (`hx status`, `hx run --dry-run`, `hx issue`, …)
-fails at once, as before.
+fails at once, as before. The worker scripts (`ship.mjs`, `issue.mjs`) wait out short limits by the same rules,
+one stderr line per wait, but at most `HX_GH_WAIT_MAX_SECONDS` (default 90) per run: their shell call is killed after
+a few minutes. A wait that would pass the cap is not started; the script prints `rate limited until 22:41` and fails
+with its usual code.
 
 **Budget gate:** every usage-window reading is kept in `.hx/usage-readings.jsonl`. Once a window has
 `budgetMinPairs` pairs of rising readings, each with the usage cost spent between them, it is calibrated:
