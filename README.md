@@ -244,6 +244,14 @@ hx fleet dashboard [--port N] [--open]   # = hx dashboard --fleet: every repo of
   `hx dashboard --fleet` serves one page for all of them: `/api/fleet` (each repo's runner, sessions,
   gate, tokens and board counts, the slots in use and the hold) and each repo's own dashboard under
   `/repo/<k>/`.
+- **Fleet dashboard.** `hx dashboard --fleet [--port N] [--open]` (or `hx fleet dashboard`) opens one
+  page over every repo in `~/.hx/fleet.json` and `~/.hx/repos.json` (the repos `hx init` / `hx run`
+  have seen; `hx fleet forget <path>` drops one). At the top, the fleet line: slots in use / the cap and
+  the shared hold (until when, why, which repo), then a tokens-per-day chart over all repos. Below, one
+  card per repo, running ones first: pid and workers, current sessions, paused state, gate, the last
+  rate-limit reading, tokens today / total and the board (ready, working, blocked, PRDs open). Each card
+  links to that repo's full dashboard; a repo whose root is gone shows "missing". With no repos the page
+  says how to add one. It refreshes every 5 s, is read-only (GET only) and listens on localhost only.
 
 ## Agent CLIs
 

@@ -149,6 +149,19 @@ test('inject: README hx issue + running-fleet section with the wake and the clos
   for (const w of ['hx issue', 'issue [']) assert.ok(h.stdout.includes(w), w);
 });
 
+test('fleet dashboard: README Several repos says how to open it and what it shows; design.md records the decision', () => {
+  const r = read('README.md');
+  const at = r.indexOf('## Several repos');
+  const sec = r.slice(at, r.indexOf('\n## ', at + 1));
+  for (const w of ['hx dashboard --fleet', 'hx fleet dashboard', 'hx fleet forget', 'repos.json', 'fleet.json', 'tokens-per-day',
+    'slots in use', 'hold', 'missing', 'read-only', 'localhost only', "repo's full dashboard"]) assert.ok(sec.includes(w), w);
+  const d = read('docs/design.md');
+  const f0 = d.indexOf('## Fleet');
+  const fs = d.slice(f0, d.indexOf('\n## ', f0 + 1));
+  for (const w of ['fleet dashboard', 'one server', '/repo/<k>/', 'append-only', 'never a path from the request', 'repos.json', '`hx init`', '`hx run`'])
+    assert.ok(fs.includes(w), w);
+});
+
 test('fleet and agent CLIs: README sections and agentCli row, design #10 done, CLAUDE.md file map and next up', () => {
   const r = read('README.md');
   const at = r.indexOf('## Several repos');

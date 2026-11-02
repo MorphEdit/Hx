@@ -233,3 +233,126 @@ test('a back link to ../../ shows only when the page is at /repo/<k>/', E2E, asy
   }
   assert.match(html, /<nav id="back"[^>]*\bhidden\b/, 'hidden in the markup, so plain hx dashboard looks as before');
 });
+
+// ---- the fleet page (dashboard-fleet.html), run against the same fake DOM ----
+const fleetHtml = readFileSync(path.join(src, 'dashboard-fleet.html'), 'utf8');
+const fleetScript = fleetHtml.slice(fleetHtml.indexOf('<script>') + 8, fleetHtml.lastIndexOf('</script>'));
+function fleetPage(data: object | null | (() => object | null)) {
+  const root = new E('body');
+  const ids = new Map<string, E>();
+  for (const id of ['status', 'fleet-body', 'repos']) ids.set(id, root.appendChild(new E('div')) as E);
+  const timers: (() => void)[] = [];
+  const fetched: string[] = [];
+  const document = { getElementById: (id: string) => ids.get(id) ?? null,
+    createElement: (t: string) => new E(t), createElementNS: (ns: string, t: string) => new E(t, ns), createTextNode: (s: string) => new T(s) };
+  const fetch = async (url: string) => {
+    fetched.push(url);
+    const body = typeof data === 'function' ? data() : data;
+    if (!body) throw new Error('offline');
+    return { ok: true, status: 200, json: async () => JSON.parse(JSON.stringify(body)) };
+  };
+  const ctx: any = { document, fetch, Node: N, setInterval: (f: () => void) => { timers.push(f); return 0; }, console };
+  vm.runInNewContext(fleetScript, ctx);
+  return { ctx, ids, fetched, tick: () => timers.forEach((f) => f()), flush: () => new Promise((r) => setTimeout(r, 20)) };
+}
+const cards = (p: ReturnType<typeof fleetPage>) => p.ids.get('repos')!.childNodes as E[];
+
+test('dashboard-fleet.html: no markup sinks, no external resource, only the relative api/fleet fetch, links built from k', E2E, () => {
+  for (const w of ['innerHTML', 'outerHTML', 'insertAdjacentHTML', 'document.write']) assert.ok(!fleetHtml.includes(w), w);
+  assert.doesNotMatch(fleetHtml, /\b(?:src|href)\s*=\s*["']?\s*(?:https?:)?\/\//i);
+  assert.doesNotMatch(fleetHtml, /@import|url\(|<link\b|<img\b|<iframe\b/i);
+  for (const u of fleetHtml.match(/https?:\/\/[^\s'"`)]*/g) ?? []) assert.equal(u, 'http://www.w3.org/2000/svg');
+  const urls = [...fleetScript.matchAll(/\bfetch\(\s*(['"`])([^'"`]*)\1/g)].map((m) => m[2]);
+  assert.deepEqual(urls, ['api/fleet']);
+  assert.equal([...fleetScript.matchAll(/\bfetch\(/g)].length, 1, 'no other fetch');
+  assert.match(fleetScript, /href: 'repo\/' \+ r\.k \+ '\/'/);
+  assert.ok(!fleetScript.includes('.href ='), 'href only via setAttribute from k');
+});
+
+test('fleet page sortRepos: running first, then by repo case-insensitively; missing / no-repo last by root; each keeps its k', E2E, () => {
+  const { ctx } = fleetPage(null);
+  const input = [
+    { k: 0, root: 'D:/z', repo: 'me/zeta', running: false },
+    { k: 1, root: 'D:/gone', repo: 'me/gone', missing: true },
+    { k: 2, root: 'D:/b', repo: 'Me/Beta', running: true },
+    { k: 3, root: 'D:/a', repo: 'me/alpha', running: false },
+    { k: 4, root: 'D:/c', repo: null, running: true },
+    { k: 5, root: 'D:/y', repo: 'me/ALPHA2', running: true },
+    { k: 6, root: 'D:/aa', missing: true },
+    { k: 7, root: 'D:/m', repo: 'me/Mid', running: false },
+  ];
+  const copy = JSON.parse(JSON.stringify(input));
+  const out = ctx.sortRepos(input);
+  assert.deepEqual(out.map((r: any) => r.k), [5, 2, 3, 7, 0, 6, 4, 1]);
+  for (const r of out) assert.deepEqual({ ...r }, copy.find((c: any) => c.k === r.k), 'entries unchanged');
+  assert.deepEqual(input.map((r) => r.k), copy.map((r: any) => r.k), 'the input array is not reordered');
+  assert.equal(ctx.sortRepos([]).length, 0);
+});
+
+test('fleet page with no repos says so and names hx fleet add and hx run', E2E, async () => {
+  const p = fleetPage({ at: new Date().toISOString(), fleet: { slotsInUse: 0, fleetWorkers: 2, hold: null, tokensByDay: [] }, repos: [] });
+  await p.flush();
+  const t = p.ids.get('repos')!.textContent;
+  assert.match(t, /No repos known yet/);
+  assert.ok(t.includes('hx fleet add <path>'), t);
+  assert.ok(t.includes('hx run'), t);
+  assert.ok(p.ids.get('fleet-body')!.textContent.includes('slots 0 / 2'));
+  assert.ok(p.ids.get('fleet-body')!.textContent.includes('no usage recorded yet'));
+  assert.deepEqual(p.fetched, ['api/fleet']);
+});
+
+test('fleet page: fleet line with the hold, the tokens chart, one card per repo in sorted order, hostile strings as text', E2E, async () => {
+  const since = new Date(Date.now() - 192_000).toISOString();
+  const until = Date.now() + 3_600_000;
+  const data = { at: since, fleet: { slotsInUse: 1, fleetWorkers: 3, hold: { until, reason: `usage ${XSS}`, repo: 'me/a' },
+      tokensByDay: [{ key: '2026-10-01', tokens: 1100 }, { key: '2026-10-02', tokens: 20 }, { key: '2026-10-03', tokens: 12 }] },
+    repos: [
+      { k: 0, root: 'D:/r/z', repo: 'me/z', missing: false, running: false, pid: null, workers: null, sessions: [], paused: null, gate: null,
+        rateLimit: null, tokens: { today: 0, total: 0 }, board: null },
+      { k: 1, root: `D:/r/${XSS}`, repo: XSS, missing: false, running: true, pid: 42, workers: 3, sessions: [{ issue: 2, role: 'impl', since }],
+        paused: 'now', gate: { ok: false, sha: 'abcdef1234567', at: '2026-10-01T11:21:00Z' },
+        rateLimit: { status: 'allowed_warning', utilization: 0.81, type: 'five_hour' }, tokens: { today: 5, total: 1234 },
+        board: { ready: 1, working: 2, blocked: 3, prdsOpen: 4 } },
+      { k: 2, root: 'D:/r/gone', repo: 'me/gone', missing: true },
+      { k: 3, root: 'D:/r/b', repo: 'me/b', missing: false, running: false, pid: null, workers: null, sessions: [], paused: null,
+        gate: { ok: true, sha: '1234567890', at: '2026-10-01T11:00:00Z' }, rateLimit: null, tokens: { today: 0, total: 9 }, board: null,
+        boardError: `HTTP 502 ${XSS}` },
+    ] };
+  const p = fleetPage(data);
+  await p.flush();
+  const fb = p.ids.get('fleet-body')!;
+  for (const w of ['slots 1 / 3', 'hold', new Date(until).toLocaleString(), `usage ${XSS}`, 'me/a', 'Tokens per day']) assert.ok(fb.textContent.includes(w), w);
+  const svg = fb.all().find((e) => e.tag === 'svg')!;
+  assert.equal(svg.ns, 'http://www.w3.org/2000/svg');
+  assert.equal(svg.all().filter((e) => e.tag === 'rect').length, 3);
+  assert.ok(svg.textContent.includes('max 1,100') || svg.textContent.includes('max 1100'), svg.textContent);
+
+  const cs = cards(p);
+  assert.equal(cs.length, 4);
+  assert.deepEqual(cs.map((c) => links(c)), [['repo/1/'], ['repo/3/'], ['repo/0/'], []], 'sorted, each link with its own k; missing: none');
+  const [run, b, z, gone] = cs.map((c) => c.textContent);
+  for (const w of [XSS, 'running', 'pid 42', 'workers 3', 'paused (now)', 'failed', 'abcdef1', 'five_hour: allowed_warning 81%',
+    'tokens today 5 / total ', '#2 impl', '(3m 12s)', 'ready 1', 'working 2', 'blocked 3', 'PRDs open 4', `D:/r/${XSS}`]) assert.ok(run.includes(w), w);
+  assert.ok(!run.includes('abcdef12'), 'short sha');
+  assert.ok(cs.every((c) => c.all().every((e) => e.tag !== 'img')), 'no markup from strings');
+  for (const w of ['not running', 'gate ok', '1234567', `board unavailable: HTTP 502 ${XSS}`]) assert.ok(b.includes(w), w);
+  assert.ok(!b.includes('board not read yet'));
+  assert.ok(z.includes('board not read yet') && z.includes('no run yet') && !z.includes('board unavailable'), z);
+  assert.ok(!z.includes('pid') && !run.includes('board not read yet'));
+  assert.ok(gone.includes('missing') && gone.includes('D:/r/gone'), gone);
+  assert.match(p.ids.get('status')!.textContent, /^last updated \d\d:\d\d:\d\d$/);
+});
+
+test('fleet page: a failed fetch shows "offline" and keeps the last cards; refresh every 5 s', E2E, async () => {
+  assert.match(fleetScript, /setInterval\(poll, 5000\)/);
+  let data: object | null = { fleet: { slotsInUse: 0, fleetWorkers: 2 }, repos: [{ k: 0, root: 'D:/a', repo: 'me/a', running: false, tokens: {}, board: null }] };
+  const p = fleetPage(() => data);
+  await p.flush();
+  assert.equal(cards(p).length, 1);
+  data = null;
+  p.tick();
+  await p.flush();
+  assert.match(p.ids.get('status')!.textContent, /^offline · last updated \d\d:\d\d:\d\d$/);
+  assert.equal(cards(p).length, 1);
+  assert.deepEqual(p.fetched, ['api/fleet', 'api/fleet']);
+});

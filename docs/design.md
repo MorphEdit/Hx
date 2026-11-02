@@ -133,6 +133,13 @@ named to the children by `HX_FLEET_DIR` (and the cap by `HX_FLEET_WORKERS`):
   `{ type: 'interrupt' }` over the IPC channel and the child runs the same handler as its own Ctrl+C:
   first a checkpoint, then a force quit. The channel is unref'd, so it never keeps a child alive.
 
+**The fleet dashboard** (`hx dashboard --fleet`) is one server, not one per repo. Its list of repos is
+append-only: `~/.hx/fleet.json` first, then `~/.hx/repos.json`, which `hx init` and `hx run` update so a
+repo shows up without being added by hand. Each repo's own dashboard is mounted under `/repo/<k>/`, where
+k is an index into that server's own list, never a path from the request: a URL cannot name a directory,
+and an entry keeps its k while the server runs even when the files change. The overview page
+(`src/dashboard-fleet.html`) reads only `api/fleet`, sorts the cards itself and links each with its own k.
+
 The agent CLI is a seam, not a feature: `AgentCli` in `src/agents/` (the argv of one headless turn, a
 per-turn output parser, the interactive argv for `hx grill` / `hx issue`) is all `agent.ts`, `pool.ts`
 and `cli.ts` know about the CLI, and `agentCli` in the config names the adapter. `claude` is the only
