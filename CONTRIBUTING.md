@@ -59,11 +59,13 @@ read by the maintainer first.
 Hx uses [semantic versioning](https://semver.org). While the version is `0.x`, a minor bump may
 change behaviour or config.
 
-1. `main` is green (`npm test`, and the CI gate in `hx status`).
-2. Set `version` in `package.json` and commit it: `chore: release vX.Y.Z`.
-3. Tag and push: `git tag -a vX.Y.Z -m "vX.Y.Z"` then `git push origin vX.Y.Z`.
-4. Publish the GitHub release with notes grouped by feature, fix and docs, naming the PRDs and issues:
-   `gh release create vX.Y.Z --title "vX.Y.Z" --notes-file <notes.md>`.
+Releases are made with `hx release` (see [Releases](README.md#releases) in the README), not by hand:
+
+1. `hx release --dry-run` — check the version (minor when a PRD closed since the last tag, else patch),
+   the notes and the gate it would use.
+2. `hx release` (`hx release major` for a breaking change once past `0.x`) — it runs the CI gate on
+   `main`, bumps `package.json`, tags, pushes atomically and publishes the GitHub release with notes
+   naming the PRDs, issues and PRs. With `autoRelease` on, `hx run` does this by itself.
 
 Install a specific release with `git checkout vX.Y.Z` and `npm link` in the clone.
 

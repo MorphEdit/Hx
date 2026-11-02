@@ -276,3 +276,40 @@ test('GitHub rate limits: README paragraph, ghReservePct row, Files entry, desig
   const c = read('CLAUDE.md');
   assert.ok(c.slice(c.indexOf('## Where things are'), c.indexOf('## Conventions')).includes('`ghlimit.ts`'), 'ghlimit.ts in the file map');
 });
+
+test('releases: README section, config rows, help, CONTRIBUTING steps, design decisions, CLAUDE.md (#188)', () => {
+  const r = read('README.md');
+  const start = r.indexOf('## Releases');
+  assert.ok(start >= 0, 'README has a Releases section');
+  const sec = r.slice(start, r.indexOf('\n## ', start + 1));
+  for (const w of ['hx release [patch|minor|major] [--dry-run] [--yes]', '`vX.Y.Z`', 'package.json', '`0.0.0`', 'minor', 'patch',
+    'major', 'by hand', 'gateCommand', '`gate` is off', 'gate.json', '--atomic', 'no rebase', 'not bumped', 'gated commit',
+    'no GitHub release', 'created the missing release', 'PRD #', '## Features', '## Fixes', '## Docs', '## Other', '(#issue, #PR)',
+    'Full diff', 'compare', 'no AI', 'no changelog file', 'autoRelease', 'autoReleasePatchHours', '`fix:`',
+    'released v1.4.0 (PRD #139)', 'released v1.4.1 (fixes)', 'release: none due', 'nothing to release', 'already running for this repo (pid', 'exit 3'])
+    assert.ok(sec.includes(w), w);
+  // the log lines quoted are the ones the code prints
+  const rel = read('src/release.ts'), pool = read('src/pool.ts');
+  for (const l of ['created the missing release ', 'nothing to release since ', 'package.json was not bumped (push rejected)', 'no gate command known: set gateCommand'])
+    assert.ok(rel.includes(l) && sec.includes(l.trim()), l);
+  for (const l of ['released ${r.released} (', "'fixes'", 'release: none due — ']) assert.ok(pool.includes(l), l);
+  assert.ok(hasRow(r, 'autoRelease', `\`${DEFAULTS.autoRelease}\``), 'autoRelease row');
+  assert.ok(hasRow(r, 'autoReleasePatchHours', String(DEFAULTS.autoReleasePatchHours)), 'autoReleasePatchHours row');
+  const usage = r.slice(r.indexOf('## Usage'), r.indexOf('\n## ', r.indexOf('## Usage') + 1));
+  assert.ok(usage.includes('hx release'), 'hx release in the Usage listing');
+  const h = spawnSync(process.execPath, [path.join(root, 'bin', 'hx.mjs'), 'help'], { encoding: 'utf8' });
+  assert.equal(h.status, 0);
+  for (const w of ['release [patch|minor|major] [--dry-run] [--yes]', 'autoRelease']) assert.ok(h.stdout.includes(w), w);
+  const ct = read('CONTRIBUTING.md');
+  const cs = ct.slice(ct.indexOf('## Releases'), ct.indexOf('\n## ', ct.indexOf('## Releases') + 1));
+  assert.ok(cs.includes('hx release'), 'CONTRIBUTING uses hx release');
+  for (const w of ['gh release create', 'git tag -a', 'Set `version` in `package.json`']) assert.ok(!cs.includes(w), `no manual step: ${w}`);
+  const d = read('docs/design.md');
+  const d0 = d.indexOf('## Releases');
+  assert.ok(d0 >= 0, 'design.md has a Releases section');
+  const ds = d.slice(d0, d.indexOf('\n## ', d0 + 1));
+  for (const w of ['PRD #139', 'gated commit', 'No rebase', 'Nothing stored', 'gate.json', '`hx run`', 'autoRelease', 'no AI']) assert.ok(ds.includes(w), w);
+  assert.match(d, /\| 8 \| Releases[^\n]*\| done \|/);
+  const c = read('CLAUDE.md');
+  assert.ok(c.slice(c.indexOf('## Where things are'), c.indexOf('## Conventions')).includes('`release.ts`'), 'release.ts in the file map');
+});

@@ -68,6 +68,7 @@ role prompts, promise-based completion.
 | 5 | Auditor per issue (#1) + CI gate (#4): audit eval 6/6 planted defects caught; benchmark 6/6 with the auditor on | done |
 | 6 | Gauntlet (#3): a critic → reviser loop hardens a PRD before decompose; a security pass checks its merged work before it closes — critic eval 3/3 defects, security eval 3/3 vulnerabilities, no false alarms | done |
 | 7 | GitHub rate limits (PRD #138): a budget reserve (`ghReservePct`), the `github` line, rate-limited calls waited out in `hx run` and (briefly) in the worker scripts, a shared fleet hold | done |
+| 8 | Releases (PRD #139): `hx release` on a green gate (patch, minor once a PRD closed, major by hand), notes from git and GitHub, `autoRelease` in `hx run` | done |
 
 ### Next: the rest of Harness's features, ordered by how much they improve the quality of what Hx ships
 
@@ -179,6 +180,28 @@ secondary limit, how long to wait), so hx and the scripts cannot drift apart.
   or waits out a limit writes `github-hold.json` in the fleet dir and every other runner copies it into
   its own budget-low state. It is kept apart from the usage hold (`hold.json`): the two have different
   causes and resets, and lifting one must not lift the other.
+
+## Releases (PRD #139)
+
+`hx release` and `autoRelease` (`src/release.ts`) turn merged work into versions. The decisions:
+
+- **Gate at G.** A release is made only on a green gate result, and on the gated commit (G), never on
+  whatever the branch head is at push time. `hx release` uses the gate even when `gate` is off: a
+  version is a promise that its commit passes.
+- **No rebase.** The version commit sits on G and goes with its tag in one atomic push. If the branch
+  moved, a rebased version commit would carry ungated changes, so hx tags G itself and skips the bump.
+- **Nothing stored.** The next version, whether a release is due and whether one is missing are all
+  read again from origin's tags, the first-parent commits and the closed PRDs. No state file can drift
+  from GitHub, a crash mid-release is repaired by the next run (a tag without its release gets only
+  the release), and `hx release` and `autoRelease` cannot disagree.
+- **Only the run's gate writes `gate.json`.** A gate run made for a release is never recorded and files
+  no fix issue: its result must not change what `hx run` claims. Inside `hx run` with `gate` on, the
+  release waits for the run's own gate instead of running a second one.
+- **Notes with no AI.** The notes are grouped from conventional commit subjects and the closed PRDs'
+  titles, so they cost no tokens and say only what merged; there is no changelog file to conflict on.
+- **autoRelease** checks after merges and PRD closes, in the background: a minor release per closed
+  PRD, a patch release at most every `autoReleasePatchHours` while fixes merge. `hx release` refuses
+  while `hx run` runs, so two releasers never race.
 
 ## Models per role
 
