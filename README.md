@@ -296,7 +296,13 @@ budget is back (after the reset, or earlier if GitHub raises it). While low it w
 2 × `pollSeconds` to re-read the budget; without `--watch` it waits instead of finishing.
 `ghReservePct: 0` turns the reserve off.
 
-**GitHub rate limits:** during `hx run` a `gh` call hx makes that hits a rate limit waits and is retried:
+**GitHub rate limits:** every runner and every worker uses the same one `gh` login, so they all share one GitHub API
+budget. Hx reads it with `gh api rate_limit` and shows it as the `github` line, e.g.
+`github   core 4123/5000, graphql 4800/5000 (resets 22:41)` (the reset of the bucket with less left): `hx status` reads
+it itself, the dashboard's Now section shows the running `hx run`'s last reading, and `hx fleet status` prints it once
+for all repos. Below `ghReservePct` the reserve above applies (no claims, no board read, a wake every 2 × `pollSeconds`
+until the reset); in a fleet the runner also writes `github-hold.json`, and every other runner backs off until the same time.
+During `hx run` a `gh` call hx makes that hits a rate limit waits and is retried:
 a primary limit until the bucket's reset (60 s when the budget cannot be read), a secondary limit for its
 `Retry-After` (else 60 s, doubled for each further limit in a row, up to 15 min). The runner is budget-low
 meanwhile (no new claims, `github-hold.json` in a fleet) and logs `github rate limited — waiting until 22:41`
@@ -616,6 +622,9 @@ it reads. So Hx only works on text from **trusted accounts**: your `gh` login pl
 - `.hx/live.json` — the running `hx run`: its pid and live sessions (read by `hx status`)
 - `.hx/pause` — present while paused (`drain` or `now`)
 - `.hx/run.log` — the `hx run` log, `<ISO time> [#n] message` per line (rotated to `run.log.1` past 2 MiB), read by `hx dashboard`
+- `~/.hx/fleet/hold.json` — the shared usage hold of `hx fleet run` (`{ until, reason, repo }`); every runner copies it
+- `~/.hx/fleet/github-hold.json` — the shared GitHub hold, same shape: written by a runner whose GitHub API budget is
+  below `ghReservePct` or that is waiting out a rate limit; every runner claims nothing until its `until`
 - `~/.hx/repos.json` — every repo `hx init` and `hx run` have seen (root, `owner/name`, last seen), written
   at each `hx init` and each `hx run` start, for the fleet dashboard; `hx fleet forget <path>` removes an entry
   (a file that cannot be parsed is left as it is)
