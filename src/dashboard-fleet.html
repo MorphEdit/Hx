@@ -5,45 +5,177 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>hx fleet dashboard</title>
 <style>
-:root { --bg: #fff; --fg: #1b1f24; --mute: #656d76; --line: #d0d7de; --card: #f6f8fa; --bad: #cf222e; --link: #0969da; }
+:root { --bg: #fff; --fg: #1b1f24; --mute: #656d76; --line: #d0d7de; --card: #f6f8fa; --ok: #1a7f37; --bad: #cf222e; --warn: #9a6700; --link: #0969da; --bar: #0969da; }
 @media (prefers-color-scheme: dark) {
-  :root { --bg: #0d1117; --fg: #e6edf3; --mute: #8d96a0; --line: #30363d; --card: #161b22; --bad: #f85149; --link: #4493f8; }
+  :root { --bg: #0d1117; --fg: #e6edf3; --mute: #8d96a0; --line: #30363d; --card: #161b22; --ok: #3fb950; --bad: #f85149; --warn: #d29922; --link: #4493f8; --bar: #4493f8; }
 }
+* { box-sizing: border-box; }
 html, body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
-body { padding: 12px; max-width: 1100px; margin: 0 auto; }
-h1 { font-size: 20px; margin: 0 0 8px; }
+body { padding: 12px; max-width: 1100px; margin: 0 auto; overflow-x: hidden; }
+header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 16px; }
+h1 { font-size: 20px; margin: 0; }
+h2 { font-size: 16px; margin: 0 0 8px; overflow-wrap: anywhere; }
+h3 { font-size: 14px; margin: 12px 0 6px; color: var(--mute); }
+section { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 12px; margin: 12px 0; min-width: 0; }
+#repos { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px; }
+#repos section { margin: 0; }
 a { color: var(--link); }
-ul { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 12px 12px 12px 32px; }
+code { font: 12px ui-monospace, Consolas, monospace; }
 .mute { color: var(--mute); }
 .note { font-size: 12px; color: var(--mute); }
 .note.offline { color: var(--bad); }
+.kv { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 0 0 8px; }
+.kv span b { font-weight: 600; }
+.badge { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 12px; font-weight: 600; color: #fff; }
+.badge.ok { background: var(--ok); } .badge.bad { background: var(--bad); } .badge.warn { background: var(--warn); } .badge.mute { background: var(--mute); }
+.err { color: var(--bad); white-space: pre-wrap; overflow-wrap: anywhere; }
+.root { font-size: 12px; color: var(--mute); overflow-wrap: anywhere; margin: 0 0 8px; }
+ul.sessions { margin: 0 0 8px; padding-left: 18px; }
+svg { display: block; max-width: 100%; height: auto; }
+svg text { fill: var(--mute); font-size: 10px; }
+svg rect { fill: var(--bar); }
 </style>
 </head>
 <body>
-<h1>hx fleet</h1>
-<p id="status" class="note">no data yet</p>
-<ul id="repos"></ul>
+<header>
+  <h1>hx fleet</h1>
+  <span id="status" class="note">no data yet</span>
+</header>
+<section id="fleet"><div id="fleet-body" class="mute">loading…</div></section>
+<div id="repos"></div>
 <script>
-// Every string from the server is set with textContent; links are built from the entry's number k only.
+'use strict';
+// Every string from the server enters the DOM as a text node or a safe attribute; repo links are built from k only.
+const SVG = 'http://www.w3.org/2000/svg'; // a namespace name, not a resource
 const $ = (id) => document.getElementById(id);
-const el = (tag, text, cls) => { const n = document.createElement(tag); if (text !== undefined) n.textContent = String(text); if (cls) n.className = cls; return n; };
+function el(tag, attrs, ...kids) {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) if (v !== null && v !== undefined) e.setAttribute(k, String(v));
+  for (const c of kids.flat()) if (c !== null && c !== undefined) e.appendChild(c instanceof Node ? c : document.createTextNode(String(c)));
+  return e;
+}
+const fill = (node, ...kids) => { node.replaceChildren(...kids.flat().filter((k) => k !== null && k !== undefined)
+  .map((k) => (k instanceof Node ? k : document.createTextNode(String(k))))); };
 
-function render(f) {
-  const list = $('repos');
-  list.replaceChildren();
-  const repos = Array.isArray(f.repos) ? f.repos : [];
-  if (!repos.length) list.append(el('li', 'No repos known yet: add one with  hx fleet add <path>, or run  hx run  in it.', 'mute'));
-  for (const r of repos) {
-    const li = el('li');
-    const name = String(r.repo || r.root);
-    if (r.missing || !Number.isInteger(r.k)) { li.append(el('span', name, 'mute'), el('span', ' (missing)', 'mute')); }
-    else {
-      const a = el('a', name);
-      a.href = 'repo/' + r.k + '/';
-      li.append(a, el('span', r.running ? ' · running' : ' · not running', 'mute'));
+const pad = (n) => String(n).padStart(2, '0');
+/** 45s, 3m 12s, 1h 05m, 2d 03h */
+function dur(ms) {
+  if (ms === null || ms === undefined || !Number.isFinite(Number(ms))) return '–';
+  const s = Math.max(0, Math.round(Number(ms) / 1000));
+  if (s < 60) return s + 's';
+  const m = Math.floor(s / 60);
+  if (m < 60) return m + 'm ' + pad(s % 60) + 's';
+  const h = Math.floor(m / 60);
+  if (h < 24) return h + 'h ' + pad(m % 60) + 'm';
+  return Math.floor(h / 24) + 'd ' + pad(h % 24) + 'h';
+}
+const clock = (d) => pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
+const when = (t) => { const d = new Date(t); return Number.isNaN(d.getTime()) ? String(t ?? '') : d.toLocaleString(); };
+const num = (n) => (Number.isFinite(Number(n)) ? Number(n).toLocaleString() : '–');
+const badge = (cls, text) => el('span', { class: 'badge ' + cls }, text);
+
+/** The cards' order: running first, then not running, each by repo name case-insensitively; missing entries and
+ *  entries with no repo name last, by root. Returns a new array of the same entries, so each keeps its own k. */
+function sortRepos(repos) {
+  const named = (r) => !r.missing && typeof r.repo === 'string' && r.repo !== '';
+  const group = (r) => (!named(r) ? 2 : r.running ? 0 : 1);
+  const lc = (s) => String(s ?? '').toLowerCase();
+  const cmp = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
+  return repos.slice().sort((a, b) => group(a) - group(b)
+    || (group(a) < 2 ? cmp(lc(a.repo), lc(b.repo)) : 0) || cmp(String(a.root ?? ''), String(b.root ?? '')));
+}
+
+// The same chart as the per-repo page's Tokens per day.
+function barChart(days) {
+  const W = 600, H = 160, pad = 24, n = Math.max(days.length, 1);
+  const max = Math.max(1, ...days.map((d) => Number(d.tokens) || 0));
+  const svg = document.createElementNS(SVG, 'svg');
+  svg.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
+  svg.setAttribute('role', 'img');
+  svg.setAttribute('aria-label', 'tokens per day');
+  const bw = (W - pad) / n;
+  days.forEach((d, i) => {
+    const h = ((Number(d.tokens) || 0) / max) * (H - 2 * pad);
+    const r = document.createElementNS(SVG, 'rect');
+    r.setAttribute('x', String(pad + i * bw + bw * 0.1));
+    r.setAttribute('y', String(H - pad - h));
+    r.setAttribute('width', String(bw * 0.8));
+    r.setAttribute('height', String(h));
+    const t = document.createElementNS(SVG, 'title');
+    t.appendChild(document.createTextNode(String(d.key) + ': ' + num(d.tokens) + ' tokens'));
+    r.appendChild(t);
+    svg.appendChild(r);
+    if (n <= 14 || i % Math.ceil(n / 14) === 0) {
+      const l = document.createElementNS(SVG, 'text');
+      l.setAttribute('x', String(pad + i * bw + bw / 2));
+      l.setAttribute('y', String(H - 8));
+      l.setAttribute('text-anchor', 'middle');
+      l.appendChild(document.createTextNode(String(d.key).slice(5)));
+      svg.appendChild(l);
     }
-    list.append(li);
+  });
+  const top = document.createElementNS(SVG, 'text');
+  top.setAttribute('x', '2');
+  top.setAttribute('y', '12');
+  top.appendChild(document.createTextNode('max ' + num(max)));
+  svg.appendChild(top);
+  return svg;
+}
+
+function renderFleet(f) {
+  const body = $('fleet-body');
+  body.className = '';
+  const h = f.hold;
+  fill(body,
+    el('div', { class: 'kv' }, el('span', {}, 'slots ', el('b', {}, num(f.slotsInUse ?? 0) + ' / ' + num(f.fleetWorkers))),
+      h ? el('span', {}, badge('warn', 'hold'), ' until ', el('b', {}, when(h.until)),
+        h.reason ? ' · ' + String(h.reason) : '', h.repo ? ' · ' + String(h.repo) : '') : null),
+    el('h3', {}, 'Tokens per day'),
+    (f.tokensByDay || []).length ? barChart(f.tokensByDay) : el('p', { class: 'mute' }, 'no usage recorded yet'));
+}
+
+function card(r) {
+  const name = String(r.repo || r.root || '');
+  const linked = !r.missing && Number.isInteger(r.k);
+  const title = el('h2', {}, linked ? el('a', { href: 'repo/' + r.k + '/' }, name) : name, ' ',
+    r.missing ? badge('bad', 'missing') : r.running ? badge('ok', 'running') : badge('mute', 'not running'));
+  const parts = [title, el('p', { class: 'root' }, String(r.root ?? ''))];
+  if (r.missing) return el('section', {}, parts);
+  const kv = [];
+  if (r.running) kv.push(el('span', {}, 'pid ', el('b', {}, String(r.pid))), el('span', {}, 'workers ', el('b', {}, String(r.workers))));
+  if (r.paused) kv.push(el('span', {}, badge('warn', 'paused (' + String(r.paused) + ')')));
+  const g = r.gate;
+  kv.push(el('span', {}, 'gate ', !g ? badge('mute', 'no run yet') : g.ok ? badge('ok', 'ok') : badge('bad', 'failed'),
+    g ? [' ', el('code', {}, String(g.sha ?? '').slice(0, 7)), ' · ', when(g.at)] : null));
+  const rl = r.rateLimit;
+  if (rl) {
+    const u = Number.isFinite(rl.utilization) ? ' ' + Math.round(rl.utilization * 100) + '%' : '';
+    kv.push(el('span', {}, 'rate limit ', el('b', {}, String(rl.type ?? 'window') + ': ' + String(rl.status ?? '') + u)));
   }
+  const t = r.tokens || {};
+  kv.push(el('span', {}, 'tokens today ', el('b', {}, num(t.today ?? 0)), ' / total ', el('b', {}, num(t.total ?? 0))));
+  parts.push(el('div', { class: 'kv' }, kv));
+  const ss = Array.isArray(r.sessions) ? r.sessions : [];
+  if (ss.length) parts.push(el('ul', { class: 'sessions' }, ss.map((s) => el('li', {}, '#' + String(s.issue ?? '') + ' ' + String(s.role ?? ''),
+    el('span', { class: 'mute' }, ' · since ' + when(s.since) + ' (' + dur(Date.now() - new Date(s.since).getTime()) + ')')))));
+  else if (r.running) parts.push(el('p', { class: 'mute' }, 'no sessions'));
+  const b = r.board;
+  if (b) parts.push(el('div', { class: 'kv' }, el('span', {}, 'ready ', el('b', {}, num(b.ready))), el('span', {}, 'working ', el('b', {}, num(b.working))),
+    el('span', {}, 'blocked ', el('b', {}, num(b.blocked))), el('span', {}, 'PRDs open ', el('b', {}, num(b.prdsOpen)))));
+  else if (r.boardError) parts.push(el('p', { class: 'err' }, 'board unavailable: ' + String(r.boardError)));
+  else parts.push(el('p', { class: 'mute' }, 'board not read yet'));
+  return el('section', {}, parts);
+}
+
+function render(data) {
+  renderFleet(data.fleet || {});
+  const repos = Array.isArray(data.repos) ? data.repos : [];
+  if (!repos.length) {
+    fill($('repos'), el('section', {}, el('p', {}, 'No repos known yet.'),
+      el('p', { class: 'mute' }, 'Add one with ', el('code', {}, 'hx fleet add <path>'), ', or run ', el('code', {}, 'hx run'), ' in it.')));
+    return;
+  }
+  fill($('repos'), sortRepos(repos).map(card));
 }
 
 let lastOk = null, failing = false;
@@ -56,7 +188,7 @@ async function poll() {
   } catch { failing = true; }
   const n = $('status');
   n.className = 'note' + (failing ? ' offline' : '');
-  n.textContent = (failing ? 'offline · ' : '') + (lastOk ? 'last updated ' + lastOk.toLocaleTimeString() : 'no data yet');
+  n.textContent = (failing ? 'offline · ' : '') + (lastOk ? 'last updated ' + clock(lastOk) : 'no data yet');
 }
 poll();
 setInterval(poll, 5000);
