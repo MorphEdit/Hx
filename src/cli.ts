@@ -9,6 +9,7 @@ import { log, lookupTrusted, printPlan, readPlan, runPool, trustedEnv } from './
 import { killAllSessions } from './agent.ts';
 import { clearPause, nextLine, otherRunner, pidAlive, readLive, readPause, setPause, writeWake } from './runstate.ts';
 import { readGate } from './gate.ts';
+import { release, releaseGate, type BumpKind } from './release.ts';
 import { budgetLine, readBudgetWindows } from './budget.ts';
 import { githubLine } from './ghlimit.ts';
 import { DEFAULT_PORT, serveDashboard } from './dashboard.ts';
@@ -40,6 +41,9 @@ const HELP = `usage: hx <command> [options]
       --workers N          parallel sessions (default: config.workers)
       --issue N[,N...]     only these issues / PRDs
       --dry-run            show the board and what would run next, change nothing
+  release [patch|minor|major] [--dry-run] [--yes]
+                           tag the next version on a green default branch: bump package.json, push the
+                           tag, write notes from the merged PRs and closed PRDs, create the GitHub release
   status                   the runner, its live sessions, usage limits, and the board
   pause [--now]            stop claiming new work; running sessions finish (--now: they commit,
                            push and leave a handoff note, then stop). Works on a running hx run.
@@ -89,6 +93,7 @@ export async function main(argv: string[]): Promise<number> {
     case 'grill': return grill(args);
     case 'issue': return issue(args);
     case 'run': return runCmd(args);
+    case 'release': return releaseCmd(args);
     case 'status': return status();
     case 'pause': return pause(args);
     case 'resume': return resume();
@@ -324,6 +329,16 @@ function ask(question: string): Promise<string> {
     rl.setPrompt(question);
     rl.prompt();
   });
+}
+
+async function releaseCmd(args: string[]): Promise<number> {
+  const p = loadProject();
+  const kind = args.find((a) => !a.startsWith('--'));
+  if (kind !== undefined && !['patch', 'minor', 'major'].includes(kind)) throw new Error('usage: hx release [patch|minor|major] [--dry-run] [--yes]');
+  const out = (m: string) => console.log(m);
+  const r = await release({ paths: p, config: p.config, bump: kind as BumpKind | undefined, yes: args.includes('--yes'), dryRun: args.includes('--dry-run'),
+    gate: releaseGate(p, p.config, out), log: out, confirm: async (q) => /^(y|yes)$/i.test((await ask(q)).trim()) });
+  return r.code;
 }
 
 function pause(args: string[]): number {

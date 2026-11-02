@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  buildNotes, bump, compareSemver, currentVersion, isFix, isFixDue, isReleaseCommit, lastTag, noteLine, parseTag, prdDisplayTitle, prdsInRange, sortTags,
+  buildNotes, bump, compareSemver, currentVersion, isFix, isFixDue, isReleaseCommit, lastTag, noteLine, parseTag, prdDisplayTitle, prdsInRange, setPackageVersion, sortTags,
 } from '../src/release.ts';
 
 test('parseTag: only vX.Y.Z counts', () => {
@@ -123,4 +123,11 @@ test('buildNotes: PRD lines, sections in order, refs, release commit left out, c
 test('buildNotes: no PRDs, empty sections left out, commits URL with no previous tag', () => {
   const notes = buildNotes({ repo: 'MorphEdit/Hx', commits: [commits[1], commits[3]], prds: [], newTag: 'v0.1.0' });
   assert.equal(notes, '## Fixes\n- fix: remove a stale setup record (#174, #179)\n\nFull diff: https://github.com/MorphEdit/Hx/commits/v0.1.0\n');
+});
+
+test('setPackageVersion: only the version value changes, formatting kept; a missing version is added', () => {
+  const pkg = '{\n  "name": "app",\n  "version": "0.1.0",\n    "private": true\n}\n';
+  assert.equal(setPackageVersion(pkg, '0.2.0'), pkg.replace('0.1.0', '0.2.0'));
+  assert.equal(setPackageVersion('{"version":"1.0.0","x":{"version":"9"}}', '1.1.0'), '{"version":"1.1.0","x":{"version":"9"}}');
+  assert.equal(setPackageVersion('{\n  "name": "a"\n}\n', '0.0.1'), '{\n  "version": "0.0.1",\n  "name": "a"\n}\n');
 });
