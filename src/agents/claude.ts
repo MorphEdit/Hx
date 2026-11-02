@@ -97,7 +97,7 @@ function claudeTurn(o: TurnOptions): AgentTurn {
 
 export const claude: AgentCli = {
   name: 'claude',
-  bin: (config) => config.claudeBin,
+  bin: (config) => process.env.HX_CLAUDE_BIN || config.claudeBin, // HX_CLAUDE_BIN: the tests' fake before .hx/config.json exists
   args: (o) => ['-p', '--output-format', 'stream-json', '--verbose', '--permission-mode', 'bypassPermissions',
     '--model', o.model, ...(o.effort ? ['--effort', o.effort] : []), ...(o.resume ? ['--resume', o.sessionId] : ['--session-id', o.sessionId]), ...o.extraArgs],
   env: (o, parent) => shellEnv(o.timeoutMs, parent),
