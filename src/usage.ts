@@ -17,6 +17,9 @@ export interface UsageRecord {
   costUsd: number;
   durationMs: number;
   numTurns: number;
+  testMs?: number; // wall time the turn's test commands ran (overlaps merged); see src/timing.ts
+  testRuns?: number;
+  testFailedRuns?: number;
 }
 
 export function usageFile(stateDir: string): string {

@@ -52,6 +52,7 @@ export interface Config {
   auditRounds: number; // implement → audit attempts before the issue goes to a human
   gate: boolean; // test the default branch after every merge; while red, claim only the fix
   gateCommand: string; // the gate's test command ('' = learned from the first audited merge)
+  testPatterns: string[]; // regexes (case-insensitive) that mark a worker's shell command as a test run, on top of the defaults in src/timing.ts
   gateMinutes: number; // the gate's test run is killed (with its tree) after this long and counts as red
   autoRelease: boolean; // hx run releases by itself: minor when a PRD closed since the last tag, patch for fixes
   autoReleasePatchHours: number; // a patch release is due once the last tag is older than this and a fix merged since
@@ -101,6 +102,7 @@ export const DEFAULTS: Omit<Config, 'repo' | 'defaultBranch' | 'worktreeRoot'> =
   gate: true,
   gateCommand: '',
   gateMinutes: 45,
+  testPatterns: [],
   autoRelease: false,
   autoReleasePatchHours: 24,
   usagePauseAt: 0.9,
@@ -189,6 +191,16 @@ export function worktreeCopyError(worktreeCopy: unknown): string | null {
     if (path.posix.isAbsolute(e) || path.win32.isAbsolute(e) || /^[a-z]:/i.test(e)) return `worktreeCopy: ${q} must be a path relative to the repo root`;
     if (e.split(/[\\/]/).includes('..')) return `worktreeCopy: ${q} must be a path inside the repo (no "..")`;
     if (/[*?[\]{}]/.test(e)) return `worktreeCopy: ${q} must be a plain path (no glob characters)`;
+  }
+  return null;
+}
+
+/** What is wrong with config.testPatterns, or null when it is valid. */
+export function testPatternsError(patterns: unknown): string | null {
+  if (patterns === undefined) return null;
+  if (!Array.isArray(patterns) || patterns.some((e) => typeof e !== 'string')) return 'testPatterns: must be an array of regular expressions (strings)';
+  for (const e of patterns as string[]) {
+    try { new RegExp(e, 'i'); } catch (err: any) { return `testPatterns: ${JSON.stringify(e)} is not a valid regular expression (${err.message})`; }
   }
   return null;
 }
