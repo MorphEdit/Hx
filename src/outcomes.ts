@@ -8,10 +8,14 @@ export interface Outcomes {
   issues: { done: number; medianMs: number | null };      // wall time from the first impl: line to DONE
   triage: { reproduced: number; needsInfo: number; failed: number; gaveUp: number };
   modelMismatch: number;                                   // `model mismatch:` lines (one per mismatched session)
+  releases: { count: number; latest: string | null };      // `released vX.Y.Z (PRD #n[, #m…])` / `(fixes)` lines; latest: the last one's version
 }
 
 // `<ISO> [#<n>] <msg>` or `<ISO> <msg>`; a line that does not start with an ISO timestamp is skipped
 const LINE = /^(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?Z) (?:\[#(\d+)\] )?(.*)$/;
+
+// `released v0.3.0 (PRD #129)`, `released v0.3.0 (PRD #129, #139)`, `released v0.3.0 (fixes)` (PRD #139 §D11)
+const RELEASED = /^released (v\d+\.\d+\.\d+) \((?:PRD #\d+(?:, #\d+)*|fixes)\)/;
 
 const mean = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null);
 const median = (xs: number[]) => {
@@ -22,7 +26,8 @@ const median = (xs: number[]) => {
 
 export function parseOutcomes(lines: string[]): Outcomes {
   let pass = 0, fail = 0, gPass = 0, gFail = 0, secPasses = 0, filed = 0, red = 0;
-  let reproduced = 0, needsInfo = 0, tFailed = 0, gaveUp = 0, modelMismatch = 0;
+  let reproduced = 0, needsInfo = 0, tFailed = 0, gaveUp = 0, modelMismatch = 0, releases = 0;
+  let latest: string | null = null;
   const rounds: number[] = [], redMs: number[] = [], issueMs: number[] = [];
   const started = new Map<number, number>(); // issue → time of its first impl line, until its DONE
   let reds: number[] = [];                    // REDs not yet paired with a `gate green ✓ again`
@@ -47,6 +52,7 @@ export function parseOutcomes(lines: string[]): Outcomes {
     else if (msg.startsWith('triage: FAILED')) tFailed++;
     else if (msg.startsWith('triage: GAVE UP')) gaveUp++;           // `triage: round cap reached` is not a give-up
     else if (msg.startsWith('model mismatch: ')) modelMismatch++;
+    else if ((k = RELEASED.exec(msg))) { releases++; latest = k[1]; }
     else if (msg.startsWith('impl: ') || msg.startsWith('impl (round ')) { if (n !== null && !started.has(n)) started.set(n, t); }
     else if ((k = /^DONE ✓ audited and merged(?: \((\d+) round\(s\))?/.exec(msg)) || msg.startsWith('impl DONE ✓')) {
       if (k?.[1] !== undefined) rounds.push(Number(k[1]));
@@ -63,5 +69,6 @@ export function parseOutcomes(lines: string[]): Outcomes {
     issues: { done: issueMs.length, medianMs: median(issueMs) },
     triage: { reproduced, needsInfo, failed: tFailed, gaveUp },
     modelMismatch,
+    releases: { count: releases, latest },
   };
 }
