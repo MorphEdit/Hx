@@ -296,6 +296,13 @@ budget is back (after the reset, or earlier if GitHub raises it). While low it w
 2 × `pollSeconds` to re-read the budget; without `--watch` it waits instead of finishing.
 `ghReservePct: 0` turns the reserve off.
 
+**GitHub rate limits:** during `hx run` a `gh` call hx makes that hits a rate limit waits and is retried:
+a primary limit until the bucket's reset (60 s when the budget cannot be read), a secondary limit for its
+`Retry-After` (else 60 s, doubled for each further limit in a row, up to 15 min). The runner is budget-low
+meanwhile (no new claims, `github-hold.json` in a fleet) and logs `github rate limited — waiting until 22:41`
+once. Ctrl+C ends the wait without a retry. Every other command (`hx status`, `hx run --dry-run`, `hx issue`, …)
+fails at once, as before.
+
 **Budget gate:** every usage-window reading is kept in `.hx/usage-readings.jsonl`. Once a window has
 `budgetMinPairs` pairs of rising readings, each with the usage cost spent between them, it is calibrated:
 Hx knows roughly how many dollars 1% of it costs. Before claiming a session it forecasts the session's
