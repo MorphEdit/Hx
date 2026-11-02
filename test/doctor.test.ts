@@ -104,10 +104,11 @@ test('hx doctor: no GitHub origin → ✗; a gh repo view network failure → ?'
   assert.match(line(off.out, 'GitHub origin'), /^\?/);
 });
 
-test('hx doctor: HX_NODE_VERSION below 23.6 → ✗ node, exit 1', E2E, () => {
+test('hx doctor: HX_NODE_VERSION below 23.6 → bin/hx.mjs refuses before doctor loads, exit 1 with the fix', E2E, () => {
   const r = setup({ env: { HX_NODE_VERSION: '22.12.0' } });
   assert.equal(r.code, 1, r.out);
-  assert.match(line(r.out, 'node'), /^✗ .*22\.12\.0/);
+  assert.match(r.out + r.err, /Node 22.12.0 is installed; hx needs Node >= 23.6/);
+  assert.match(r.out + r.err, /To get it: /);
 });
 
 test('hx help lists doctor', E2E, () => {

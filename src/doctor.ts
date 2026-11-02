@@ -7,6 +7,7 @@ import path from 'node:path';
 import { DEFAULTS, effectiveRtddBin, labelSpecs, STATE_DIR, type Config, type Labels } from './config.ts';
 import { agentFor } from './agents/index.ts';
 import { resolveCmd } from './exec.ts';
+import { nodeOk } from '../bin/node-check.mjs';
 
 export type Mark = '✓' | '✗' | '–' | '?';
 export interface Check { mark: Mark; label: string; detail?: string; fix?: string; required: boolean }
@@ -16,13 +17,8 @@ export interface Probe { code: number; stdout: string; stderr: string; spawnFail
 
 export type Platform = NodeJS.Platform | string;
 
-const NODE_MIN = [23, 6];
-
-/** Node ≥ 23.6 (type stripping): the version as `23.6.0` or `v23.6.0`. */
-export function nodeOk(version: string): boolean {
-  const [major, minor] = version.replace(/^v/, '').split('.').map(Number);
-  return major > NODE_MIN[0] || (major === NODE_MIN[0] && minor >= NODE_MIN[1]);
-}
+/** Node ≥ 23.6 (type stripping): the same rule bin/hx.mjs applies before loading any .ts. */
+export { nodeOk };
 
 const INSTALL: Record<'node' | 'git' | 'gh' | 'claude', { win32: string; darwin: string; linux: string }> = {
   node: { win32: 'winget install --id OpenJS.NodeJS', darwin: 'brew install node', linux: 'install Node ≥ 23.6: https://nodejs.org/en/download' },
