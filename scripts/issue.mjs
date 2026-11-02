@@ -8,7 +8,11 @@
 // HX_TRUSTED: comma-separated logins, matched case-insensitively. Missing or empty → exit 2: there is
 // no fallback that shows everything.
 // Exit codes: 0 printed · 2 bad arguments or no HX_TRUSTED · 1 gh failed (its error on stderr)
-import { spawnSync } from 'node:child_process';
+//
+// A gh call that hits a GitHub rate limit is waited out and retried (scripts/ghwait.mjs): one stderr line per wait,
+// at most HX_GH_WAIT_MAX_SECONDS (default 90) of waiting per run. Past that cap it prints `rate limited until HH:MM`
+// and fails as it would without the wait (exit 1).
+import { ghCaller } from './ghwait.mjs';
 
 const args = process.argv.slice(2);
 const opt = (n) => { const i = args.indexOf(`--${n}`); return i < 0 ? undefined : args[i + 1]; };
@@ -24,11 +28,7 @@ if (trusted.size === 0) {
 }
 
 // gh can be swapped (HX_GH_BIN, as in hx itself); a .js/.mjs one runs under this node
-const GH = process.env.HX_GH_BIN || 'gh';
-const ghArgs = ['issue', 'view', issue, '-R', repo, '--json', 'number,title,author,state,labels,body,comments'];
-const r = /\.m?js$/i.test(GH)
-  ? spawnSync(process.execPath, [GH, ...ghArgs], { encoding: 'utf8' })
-  : spawnSync(GH, ghArgs, { encoding: 'utf8' });
+const r = ghCaller('issue')(['issue', 'view', issue, '-R', repo, '--json', 'number,title,author,state,labels,body,comments']);
 if (r.error || r.status !== 0) {
   console.error(`issue: gh issue view failed: ${(r.stderr || r.stdout || r.error?.message || '').trim()}`);
   process.exit(1);

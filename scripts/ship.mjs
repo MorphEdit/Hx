@@ -18,25 +18,29 @@
 //   0 shipped · 2 bad arguments · 3 rebase conflict (rebase aborted; resolve by hand, then re-run)
 //   4 tests failed on the rebased branch, or ran past --test-timeout <minutes> (default 45; the whole
 //     process tree is killed) — output tail printed · 5 a git/gh step failed
+//
+// A gh call that hits a GitHub rate limit is waited out and retried (scripts/ghwait.mjs): one stderr line per wait,
+// at most HX_GH_WAIT_MAX_SECONDS (default 90) of waiting per run. Past that cap it prints `rate limited until HH:MM`
+// and the step fails as it would without the wait (exit 5). git calls never wait.
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
 
 import { readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { ghCaller } from './ghwait.mjs';
 
 const args = process.argv.slice(2);
 const opt = (n) => { const i = args.indexOf(`--${n}`); return i < 0 ? undefined : args[i + 1]; };
 const noMerge = args.includes('--no-merge');
 const gitDir = spawnSync('git', ['rev-parse', '--absolute-git-dir'], { encoding: 'utf8' }).stdout.trim();
 const stateFile = path.join(gitDir || '.', 'hx-ship.json');
+const gh = ghCaller('ship');
 // --resume without a state file: rebuild it from the branch's open PR, or fail as before
 function fromPr() {
   const none = () => { console.error(`ship: --resume: no ${stateFile}; run ship --no-merge first`); return null; };
   const repo = opt('repo'), branch = spawnSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { encoding: 'utf8' }).stdout.trim();
   const issue = /^issue\/(\d+)$/.exec(branch)?.[1];
   if (!repo || !issue || !opt('test')) return none();
-  const gh = process.env.HX_GH_BIN || 'gh';
-  const [cmd, pre] = /\.m?js$/i.test(gh) ? [process.execPath, [gh]] : [gh, []];
-  const r = spawnSync(cmd, [...pre, 'pr', 'list', '-R', repo, '--head', branch, '--state', 'open', '--json', 'number,title,isCrossRepository'], { encoding: 'utf8' });
+  const r = gh(['pr', 'list', '-R', repo, '--head', branch, '--state', 'open', '--json', 'number,title,isCrossRepository']);
   let pr;
   try { pr = JSON.parse(r.stdout || '[]').find((p) => p.isCrossRepository === false); } catch {}
   if (r.status !== 0 || !pr) return none();
@@ -60,13 +64,8 @@ if (!repo || !issue || !title || !testCmd || !(testTimeout > 0)) {
 // HX_SHIP_TEST_TIMEOUT_MS overrides the minutes (tests use it)
 const testTimeoutMs = Number(process.env.HX_SHIP_TEST_TIMEOUT_MS) || testTimeout * 60_000;
 
-// gh can be swapped (HX_GH_BIN, as in hx itself); a .js/.mjs one runs under this node
-const GH = process.env.HX_GH_BIN || 'gh';
-const run = (cmd, a, opts = {}) => {
-  if (cmd === 'gh' && /\.m?js$/i.test(GH)) [cmd, a] = [process.execPath, [GH, ...a]];
-  else if (cmd === 'gh') cmd = GH;
-  return spawnSync(cmd, a, { encoding: 'utf8', ...opts });
-};
+// gh goes through ghCaller (HX_GH_BIN swaps it, rate limits are waited out); git runs as is
+const run = (cmd, a, opts = {}) => (cmd === 'gh' ? gh(a, opts) : spawnSync(cmd, a, { encoding: 'utf8', ...opts }));
 const ok = (cmd, a, step) => {
   const r = run(cmd, a);
   if (r.status !== 0) { console.error(`ship: ${step} failed: ${(r.stderr || r.stdout || '').trim().slice(-800)}`); process.exit(5); }
