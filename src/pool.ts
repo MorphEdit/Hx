@@ -2,7 +2,7 @@ import { execFile } from 'node:child_process';
 import { appendFileSync, mkdirSync, readFileSync, renameSync, statSync, unwatchFile, watchFile, type Stats } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { DEFAULTS, effectiveRtddBin, formatRoleModels, ghReservePctError, labelSpecs, modelMatches, roleModel, roleModelMap, roleModelsError, workerArgs, worktreeCopyError, type Config, type LabelSpec, type Project } from './config.ts';
+import { DEFAULTS, effectiveRtddBin, formatRoleModels, ghReservePctError, labelSpecs, modelMatches, roleModel, roleModelMap, roleModelsError, testPatternsError, workerArgs, worktreeCopyError, type Config, type LabelSpec, type Project } from './config.ts';
 import * as gh from './github.ts';
 import type { Issue } from './github.ts';
 import { hhmm, reserveState, type GhBudget } from './ghlimit.ts';
@@ -13,6 +13,7 @@ import { clearSetupRecord, readSetupRecord, setupLine, setupNote, setupWorktree,
 import { agentFor, type AgentCli } from './agents/index.ts';
 import { clearLive, otherRunner, readLive, readPause, writeLive, type LiveSession, type LiveState } from './runstate.ts';
 import { fmt, recordUsage, totalTokens } from './usage.ts';
+import { testMatcher, turnTiming, type TurnTiming } from './timing.ts';
 import { actionBudget, budgetFilter, newSkipLines, readBudget, readBudgetWindows, readingOf, recordReading, type Budget } from './budget.ts';
 import { gateIssueBody, gateIssueTitle, readGate, remoteSha, runGate, writeGate, type GateResult } from './gate.ts';
 import { run as runCmd } from './exec.ts';
@@ -248,6 +249,8 @@ async function pool(p: Project, o: PoolOptions): Promise<number> {
   if (badCopy) { log(`STOPPED: ${badCopy}`); return 2; }
   const badReserve = ghReservePctError(c.ghReservePct);
   if (badReserve) { log(`STOPPED: ${badReserve}`); return 2; }
+  const badPatterns = testPatternsError(c.testPatterns);
+  if (badPatterns) { log(`STOPPED: ${badPatterns}`); return 2; }
   // who may put work on the board: looked up once per run; without it nothing is read or claimed
   let trusted: Set<string>;
   try { trusted = await lookupTrusted(c); } catch (e: any) { log(`STOPPED: ${e.message}`); return 2; }
@@ -748,6 +751,7 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
     const skills = ctx.skills?.[role] ?? [];
     const m = roleModel(c, role);
     let mismatched = false;
+    const turnEvents: unknown[] = []; // this turn's events, for its test time
     return runGoal({
       agent, bin: agent.bin(c), cwd, model: m.model, effort: m.effort, extraArgs: workerArgs(c), timeoutMs: c.turnTimeoutMinutes * 60_000,
       stallMs: c.stallMinutes * 60_000,
@@ -755,13 +759,14 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
       continuePrompt: render(readFileSync(path.join(PROMPTS, 'continue.md'), 'utf8'), v),
       promise, maxIterations: c.maxIterations, signal: ctx.signal,
       env: rtddEnv(env, skills.some((s) => s.name === 'rtdd'), effectiveRtddBin(c)),
-      onEvent: (ev) => appendFileSync(eventLog, JSON.stringify(ev) + '\n'),
+      onEvent: (ev) => { appendFileSync(eventLog, JSON.stringify(ev) + '\n'); turnEvents.push(ev); },
       onRateLimit: (rl) => ctx.rateLimit(rl),
       onTurn: (i, sessionId, t) => {
         sessionTokens += totalTokens(t.usage);
         ctx.progress(key, i, sessionTokens);
         recordUsage(p.stateDir, { ts: new Date().toISOString(), issue: n, role, sessionId, iteration: i, model: m.model,
-          ...(t.actualModel ? { actualModel: t.actualModel } : {}), ok: t.ok, usage: t.usage, costUsd: t.costUsd, durationMs: t.durationMs, numTurns: t.numTurns });
+          ...(t.actualModel ? { actualModel: t.actualModel } : {}), ok: t.ok, usage: t.usage, costUsd: t.costUsd, durationMs: t.durationMs, numTurns: t.numTurns,
+          ...testTiming(p, turnEvents.splice(0), t.durationMs) });
         if (t.actualModel && !mismatched && !modelMatches(m.model, t.actualModel)) {
           mismatched = true; // once per session; the session goes on
           log(`model mismatch: ${role} asked ${m.model}, ran ${t.actualModel}`, n);
@@ -1015,6 +1020,13 @@ async function mergeAudited(cwd: string, c: Config, testCmd: string): Promise<{ 
   });
 }
 
+/** A turn's test time for its UsageRecord: it ended now and ran durationMs; the gate command (config, else gate.json) counts as a test. */
+function testTiming(p: Project, events: unknown[], durationMs: number): TurnTiming {
+  const turnEnd = Date.now();
+  const c = p.config;
+  return turnTiming(events, turnEnd - durationMs, turnEnd, testMatcher(c.testPatterns, c.gateCommand || readGate(p.stateDir).command || ''));
+}
+
 /**
  * The run is stopping mid-session: resume the session once more and have it commit and push its
  * WIP and leave a handoff comment, so the next session picks up where this one stopped.
@@ -1024,12 +1036,14 @@ async function checkpoint(p: Project, agent: AgentCli, n: number, role: string, 
   const c = p.config;
   const m = roleModel(c, role); // the resumed session's model and effort
   log('checkpointing: committing WIP and writing a handoff note…', n);
+  const turnEvents: unknown[] = []; // this turn's events, for its test time
   const t = await runTurn({ agent, bin: agent.bin(c), cwd, model: m.model, effort: m.effort, extraArgs: workerArgs(c),
     timeoutMs: c.checkpointMinutes * 60_000, stallMs: c.stallMinutes * 60_000, sessionId, resume: true, env,
     prompt: render(readFileSync(path.join(PROMPTS, 'checkpoint.md'), 'utf8'), vars),
-    onEvent: (ev) => appendFileSync(eventLog, JSON.stringify(ev) + '\n') });
+    onEvent: (ev) => { appendFileSync(eventLog, JSON.stringify(ev) + '\n'); turnEvents.push(ev); } });
   recordUsage(p.stateDir, { ts: new Date().toISOString(), issue: n, role: 'checkpoint', sessionId, iteration: 0, model: m.model,
-    ...(t.actualModel ? { actualModel: t.actualModel } : {}), ok: t.ok, usage: t.usage, costUsd: t.costUsd, durationMs: t.durationMs, numTurns: t.numTurns });
+    ...(t.actualModel ? { actualModel: t.actualModel } : {}), ok: t.ok, usage: t.usage, costUsd: t.costUsd, durationMs: t.durationMs, numTurns: t.numTurns,
+    ...testTiming(p, turnEvents.splice(0), t.durationMs) });
   log(t.ok ? `checkpoint saved (${fmt(totalTokens(t.usage))} tokens)` : `checkpoint failed: ${t.error?.slice(0, 160)} — the worktree still has the work`, n);
 }
 

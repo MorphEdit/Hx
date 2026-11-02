@@ -20,6 +20,8 @@
 // to HX_FAKE_DIR/stall-<pid>.json and sleeps FAKE_CLAUDE_SLEEP_MS (default 10 min), then replies.
 // FAKE_CLAUDE_TOOL=1: the stall mode's one event is a tool call (an assistant tool_use), answered when it wakes up.
 // FAKE_CLAUDE_ENV_OUT=<file>: writes its BASH_MAX_TIMEOUT_MS and BASH_DEFAULT_TIMEOUT_MS there as it starts.
+// FAKE_CLAUDE_TESTS=1: every reply first runs two timestamped test commands (`npm test` passes, `node --test` ends `Exit code 1`)
+// and one non-test command (`cat test/x.ts`).
 // FAKE_CLAUDE_START_MS delays the stall mode's start, as a slow node startup on a loaded machine does.
 import { spawn, spawnSync } from 'node:child_process';
 import { appendFileSync, existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -135,6 +137,16 @@ process.stdin.on('data', (d) => (prompt += d)).on('end', () => {
 
 function reply(text) {
   out({ type: 'system', subtype: 'init' });
+  if (process.env.FAKE_CLAUDE_TESTS) {
+    const at = (d) => new Date(Date.now() + d).toISOString();
+    out({ type: 'assistant', timestamp: at(-40), message: { content: [
+      { type: 'tool_use', id: 't1', name: 'Bash', input: { command: 'npm test' } },
+      { type: 'tool_use', id: 't2', name: 'Bash', input: { command: 'node --test test/a.test.ts' } },
+      { type: 'tool_use', id: 't3', name: 'Bash', input: { command: 'cat test/x.ts' } }] } });
+    out({ type: 'user', timestamp: at(-20), message: { content: [{ type: 'tool_result', tool_use_id: 't1', content: 'ok' }] } });
+    out({ type: 'user', timestamp: at(0), message: { content: [{ type: 'tool_result', tool_use_id: 't2', content: [{ type: 'text', text: 'Exit code 1\nfail' }] }] } });
+    out({ type: 'user', timestamp: at(0), message: { content: [{ type: 'tool_result', tool_use_id: 't3', content: 'x' }] } });
+  }
   out({ type: 'assistant', message: { content: [{ type: 'text', text }] } });
   // FAKE_CLAUDE_RAN=<model>: the result's modelUsage holds two models, a small side model first and <model> with more output
   const ran = process.env.FAKE_CLAUDE_RAN;
