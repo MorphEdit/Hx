@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process';
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { createInterface } from 'node:readline';
+import { fileURLToPath } from 'node:url';
 import { DEFAULTS, defaultWorktreeRoot, effectiveRtddBin, findProjectRoot, formatRoleModels, labelSpecs, loadProject, saveConfig, STATE_DIR, type Config } from './config.ts';
 import * as gh from './github.ts';
 import { resolveCmd, run, runOk } from './exec.ts';
@@ -67,6 +68,7 @@ const HELP = `usage: hx <command> [options]
                            one hx run per fleet repo (output prefixed [owner/name]), sharing one worker
                            cap (--workers, else fleet workers); Ctrl+C asks every repo to checkpoint
   help
+  --version                print hx's version (from its package.json)
 
 Ctrl+C in hx run = pause --now for that run; Ctrl+C again force-quits (sessions are killed).
 
@@ -89,6 +91,11 @@ function flag(args: string[], name: string): string | undefined {
   return v;
 }
 
+// hx's own version: the package.json next to src/, wherever hx is installed.
+export function hxVersion(): string {
+  return JSON.parse(readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'package.json'), 'utf8')).version;
+}
+
 export async function main(argv: string[]): Promise<number> {
   const [cmd, ...args] = argv;
   switch (cmd) {
@@ -106,6 +113,7 @@ export async function main(argv: string[]): Promise<number> {
     case 'dashboard': return dashboard(args);
     case 'fleet': return args[0] === 'dashboard' ? fleetDashboard(args.slice(1)) : args[0] === 'run' ? fleetRun(args.slice(1)) : args[0] === 'forget' ? fleetForget(args[1]) : fleet(args);
     case undefined: case 'help': case '-h': case '--help': console.log(HELP); return 0;
+    case '--version': case '-v': console.log(hxVersion()); return 0;
     default: console.error(`unknown command: ${cmd}\n\n${HELP}`); return 2;
   }
 }
