@@ -1,5 +1,5 @@
-import { run, runOk } from './exec.ts';
-import { parseRateLimit, type GhBudget } from './ghlimit.ts';
+import { run, type ExecResult } from './exec.ts';
+import { classifyLimit, parseRateLimit, type GhBudget, type LimitKind } from './ghlimit.ts';
 
 export interface Issue {
   number: number;
@@ -11,6 +11,66 @@ export interface Issue {
 }
 
 const GH = process.env.HX_GH_BIN || 'gh';
+
+// A gh call that hits a rate limit waits and retries only while a wait signal is set (a real `hx run`); unset, it
+// fails at once as before. The wait ends early when the signal aborts, and then the call fails with its own error.
+let waitSignal: AbortSignal | undefined;
+let limitedListener: ((until: number, kind: LimitKind['kind']) => void) | undefined;
+/** Set (or clear, with undefined) the signal under which a rate-limited gh call waits and retries. */
+export function setGhWaitSignal(signal: AbortSignal | undefined): void { waitSignal = signal; }
+/** Hear about each wait: `until` = its end (ms epoch). undefined clears the listener. */
+export function onGhLimited(fn: ((until: number, kind: LimitKind['kind']) => void) | undefined): void { limitedListener = fn; }
+
+const MINUTE = 60_000;
+const MAX_SECONDARY_WAIT = 15 * MINUTE;
+/** How long a limited call waits (ms). primary: until the reset of the bucket at 0 remaining, else the later of the
+ *  two resets (at least 1 s); no budget read, 60 s. secondary: Retry-After, else 60 s, doubled for each further
+ *  secondary limit in a row (`streak` 1 = the first), up to 15 min. */
+export function limitWaitMs(k: LimitKind, budget: GhBudget | null, streak: number, now: number = Date.now()): number {
+  if (k.kind === 'secondary') {
+    const base = k.retryAfter !== undefined ? k.retryAfter * 1000 : MINUTE;
+    return Math.min(base * 2 ** Math.max(0, streak - 1), MAX_SECONDARY_WAIT);
+  }
+  if (!budget) return MINUTE;
+  const empty = [budget.core, budget.graphql].filter((b) => b.remaining <= 0);
+  const reset = Math.max(...(empty.length ? empty : [budget.core, budget.graphql]).map((b) => b.reset));
+  return Math.max(1000, reset * 1000 - now);
+}
+
+/** Resolves true after ms, false as soon as the signal aborts. */
+function waitOut(ms: number, signal: AbortSignal): Promise<boolean> {
+  if (signal.aborted) return Promise.resolve(false);
+  return new Promise((resolve) => {
+    const done = (ok: boolean) => { clearTimeout(t); signal.removeEventListener('abort', aborted); resolve(ok); };
+    const aborted = () => done(false);
+    const t = setTimeout(() => done(true), ms);
+    signal.addEventListener('abort', aborted, { once: true });
+  });
+}
+
+/** One gh call; a rate-limited failure is waited out and retried while the wait signal is set. */
+async function ghRun(args: string[], opts: { cwd?: string; input?: string } = {}): Promise<ExecResult> {
+  let streak = 0; // secondary limits in a row
+  for (;;) {
+    const r = await run(GH, args, opts);
+    const signal = waitSignal;
+    if (r.code === 0 || !signal) return r;
+    const k = classifyLimit(r.stderr || r.stdout);
+    if (!k) return r;
+    streak = k.kind === 'secondary' ? streak + 1 : 0;
+    const budget = k.kind === 'primary' ? await rateLimit() : null;
+    const now = Date.now();
+    const ms = limitWaitMs(k, budget, streak, now);
+    try { limitedListener?.(now + ms, k.kind); } catch {}
+    if (!(await waitOut(ms, signal))) return r;
+  }
+}
+
+async function ghOk(args: string[], opts: { cwd?: string; input?: string } = {}): Promise<string> {
+  const r = await ghRun(args, opts);
+  if (r.code !== 0) throw new Error(`${GH} ${args.join(' ')} failed (${r.code}): ${r.stderr.trim()}`);
+  return r.stdout;
+}
 
 function toIssue(raw: any): Issue {
   return {
@@ -24,12 +84,12 @@ function toIssue(raw: any): Issue {
 }
 
 export async function repoSlug(cwd: string): Promise<string> {
-  return (await runOk(GH, ['repo', 'view', '--json', 'nameWithOwner', '-q', '.nameWithOwner'], { cwd })).trim();
+  return (await ghOk(['repo', 'view', '--json', 'nameWithOwner', '-q', '.nameWithOwner'], { cwd })).trim();
 }
 
 /** The account gh is logged in as. Throws when gh cannot tell: hx never runs with an empty trusted set. */
 export async function ghLogin(): Promise<string> {
-  const r = await run(GH, ['api', 'user', '-q', '.login']);
+  const r = await ghRun(['api', 'user', '-q', '.login']);
   const login = r.stdout.trim();
   if (r.code !== 0 || !login)
     throw new Error(`could not look up the gh login (gh api user${r.code !== 0 ? ` failed: ${(r.stderr || r.stdout).trim().slice(0, 200)}` : ' returned no login'}) — run  gh auth login  and try again`);
@@ -45,23 +105,23 @@ export async function rateLimit(): Promise<GhBudget | null> {
 }
 
 export async function defaultBranch(repo: string): Promise<string> {
-  return (await runOk(GH, ['repo', 'view', repo, '--json', 'defaultBranchRef', '-q', '.defaultBranchRef.name'])).trim();
+  return (await ghOk(['repo', 'view', repo, '--json', 'defaultBranchRef', '-q', '.defaultBranchRef.name'])).trim();
 }
 
 /** Every issue, open and closed (closed children still count toward their PRD). PRs excluded. */
 export async function listIssues(repo: string): Promise<Issue[]> {
-  const out = await runOk(GH, ['issue', 'list', '-R', repo, '--state', 'all', '--limit', '1000',
+  const out = await ghOk(['issue', 'list', '-R', repo, '--state', 'all', '--limit', '1000',
     '--json', 'number,title,body,state,labels,author']);
   return JSON.parse(out).map(toIssue);
 }
 
 export async function issueLabels(repo: string, n: number): Promise<string[]> {
-  const out = await runOk(GH, ['issue', 'view', String(n), '-R', repo, '--json', 'labels']);
+  const out = await ghOk(['issue', 'view', String(n), '-R', repo, '--json', 'labels']);
   return toIssue({ number: n, ...JSON.parse(out) }).labels;
 }
 
 export async function issueBody(repo: string, n: number): Promise<string> {
-  const out = await runOk(GH, ['issue', 'view', String(n), '-R', repo, '--json', 'body']);
+  const out = await ghOk(['issue', 'view', String(n), '-R', repo, '--json', 'body']);
   return JSON.parse(out).body ?? '';
 }
 
@@ -70,7 +130,7 @@ export async function issueBody(repo: string, n: number): Promise<string> {
  *  and must not be empty: hx's own logic (handoff note, round markers, verdicts) never reads a stranger's comment. */
 export async function commentBodies(repo: string, n: number, trusted: Set<string>): Promise<string[]> {
   if (!trusted?.size) throw new Error('no trusted authors: refusing to read comments without the author filter');
-  const out = await runOk(GH, ['issue', 'view', String(n), '-R', repo, '--json', 'comments']);
+  const out = await ghOk(['issue', 'view', String(n), '-R', repo, '--json', 'comments']);
   return (JSON.parse(out).comments ?? [])
     .filter((c: any) => typeof c.author?.login === 'string' && trusted.has(c.author.login.toLowerCase()))
     .map((c: any) => c.body ?? '');
@@ -79,7 +139,7 @@ export async function commentBodies(repo: string, n: number, trusted: Set<string
 export async function createIssue(repo: string, title: string, body: string, labels: string[]): Promise<string> {
   const args = ['issue', 'create', '-R', repo, '--title', title, '--body-file', '-'];
   for (const l of labels) args.push('--label', l);
-  return (await runOk(GH, args, { input: body })).trim();
+  return (await ghOk(args, { input: body })).trim();
 }
 
 /**
@@ -87,7 +147,7 @@ export async function createIssue(repo: string, title: string, body: string, lab
  * PR from a fork with a branch of the same name matches too: those are never ours and never taken.
  */
 export async function openPrFor(repo: string, branch: string): Promise<number | null> {
-  const r = await run(GH, ['pr', 'list', '-R', repo, '--head', branch, '--state', 'open', '--json', 'number,isCrossRepository']);
+  const r = await ghRun(['pr', 'list', '-R', repo, '--head', branch, '--state', 'open', '--json', 'number,isCrossRepository']);
   if (r.code !== 0) return null;
   try {
     const own = (JSON.parse(r.stdout) as { number: number; isCrossRepository: boolean }[]).find((p) => p.isCrossRepository === false);
@@ -97,7 +157,7 @@ export async function openPrFor(repo: string, branch: string): Promise<number | 
 
 /** The open PR `gh pr view <branch>` finds, or null: the fallback when `gh pr list --head` does not list a fresh PR yet. */
 export async function viewOpenPr(repo: string, branch: string): Promise<number | null> {
-  const r = await run(GH, ['pr', 'view', branch, '-R', repo, '--json', 'number,state']);
+  const r = await ghRun(['pr', 'view', branch, '-R', repo, '--json', 'number,state']);
   if (r.code !== 0) return null;
   try {
     const pr = JSON.parse(r.stdout) as { number: number; state: string };
@@ -106,12 +166,12 @@ export async function viewOpenPr(repo: string, branch: string): Promise<number |
 }
 
 export async function closeIssue(repo: string, n: number, commentBody: string): Promise<void> {
-  await runOk(GH, ['issue', 'close', String(n), '-R', repo, '--comment', commentBody]);
+  await ghOk(['issue', 'close', String(n), '-R', repo, '--comment', commentBody]);
 }
 
 /** number → state for every issue and PR in the repo (a `Blocked by` ref may name either). */
 export async function allStates(repo: string): Promise<Map<number, 'OPEN' | 'CLOSED'>> {
-  const out = await runOk(GH, ['api', '--paginate', `repos/${repo}/issues?state=all&per_page=100`,
+  const out = await ghOk(['api', '--paginate', `repos/${repo}/issues?state=all&per_page=100`,
     '-q', '.[] | [.number, .state] | @tsv']);
   const m = new Map<number, 'OPEN' | 'CLOSED'>();
   for (const line of out.split('\n')) {
@@ -122,7 +182,7 @@ export async function allStates(repo: string): Promise<Map<number, 'OPEN' | 'CLO
 }
 
 export async function issueState(repo: string, n: number): Promise<'OPEN' | 'CLOSED' | null> {
-  const r = await run(GH, ['api', `repos/${repo}/issues/${n}`, '-q', '.state']);
+  const r = await ghRun(['api', `repos/${repo}/issues/${n}`, '-q', '.state']);
   if (r.code !== 0) return null;
   return r.stdout.trim() === 'closed' ? 'CLOSED' : 'OPEN';
 }
@@ -131,36 +191,36 @@ export async function editLabels(repo: string, n: number, add: string[], remove:
   const args = ['issue', 'edit', String(n), '-R', repo];
   for (const l of add) args.push('--add-label', l);
   for (const l of remove) args.push('--remove-label', l);
-  await runOk(GH, args);
+  await ghOk(args);
 }
 
 export async function comment(repo: string, n: number, body: string): Promise<void> {
   // body via stdin: a long comment never hits the Windows command-line limit
-  await runOk(GH, ['issue', 'comment', String(n), '-R', repo, '--body-file', '-'], { input: body });
+  await ghOk(['issue', 'comment', String(n), '-R', repo, '--body-file', '-'], { input: body });
 }
 
 /** The names of every label in the repo. */
 export async function listLabels(repo: string): Promise<Set<string>> {
-  const out = await runOk(GH, ['label', 'list', '-R', repo, '--limit', '1000', '--json', 'name', '-q', '.[].name']);
+  const out = await ghOk(['label', 'list', '-R', repo, '--limit', '1000', '--json', 'name', '-q', '.[].name']);
   return new Set(out.split('\n').map((l) => l.trim()).filter(Boolean));
 }
 
 export async function ensureLabel(repo: string, name: string, color: string, description: string): Promise<void> {
-  await run(GH, ['label', 'create', name, '-R', repo, '--color', color, '--description', description, '--force']);
+  await ghRun(['label', 'create', name, '-R', repo, '--color', color, '--description', description, '--force']);
 }
 
 export interface ClosedIssue { number: number; title: string; closedAt: string | null; stateReason: string | null }
 
 /** The closed issues labelled `label` (closed PRDs for the release notes), with when and why they closed. */
 export async function closedWithLabel(repo: string, label: string): Promise<ClosedIssue[]> {
-  const out = await runOk(GH, ['issue', 'list', '-R', repo, '--label', label, '--state', 'closed', '--limit', '1000',
+  const out = await ghOk(['issue', 'list', '-R', repo, '--label', label, '--state', 'closed', '--limit', '1000',
     '--json', 'number,title,closedAt,stateReason']);
   return JSON.parse(out).map((r: any) => ({ number: r.number, title: r.title ?? '', closedAt: r.closedAt ?? null, stateReason: r.stateReason ?? null }));
 }
 
 /** Whether GitHub has a release for `tag`: false only when gh says it is not found; any other failure throws. */
 export async function releaseExists(repo: string, tag: string): Promise<boolean> {
-  const r = await run(GH, ['release', 'view', tag, '-R', repo, '--json', 'tagName']);
+  const r = await ghRun(['release', 'view', tag, '-R', repo, '--json', 'tagName']);
   if (r.code === 0) return true;
   const err = (r.stderr || r.stdout).trim();
   if (/not found/i.test(err)) return false;
@@ -169,5 +229,5 @@ export async function releaseExists(repo: string, tag: string): Promise<boolean>
 
 /** Creates the release for an existing tag, marked latest; the notes come from a file (never a shell or argv). */
 export async function createRelease(repo: string, tag: string, notesFile: string): Promise<void> {
-  await runOk(GH, ['release', 'create', tag, '-R', repo, '--title', tag, '--notes-file', notesFile, '--latest', '--verify-tag']);
+  await ghOk(['release', 'create', tag, '-R', repo, '--title', tag, '--notes-file', notesFile, '--latest', '--verify-tag']);
 }

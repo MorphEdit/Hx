@@ -231,6 +231,11 @@ export function nextListing(actions: Action[], b: Budget, gate: boolean): string
 }
 
 export async function runPool(p: Project, o: PoolOptions): Promise<number> {
+  // a rate-limited gh call waits and retries only inside this run (the wait signal is set after --dry-run returns)
+  try { return await pool(p, o); } finally { gh.setGhWaitSignal(undefined); gh.onGhLimited(undefined); }
+}
+
+async function pool(p: Project, o: PoolOptions): Promise<number> {
   const c = p.config;
   // an unknown agentCli stops the run before anything reads the board
   const agent = agentFor(c.agentCli);
@@ -251,6 +256,8 @@ export async function runPool(p: Project, o: PoolOptions): Promise<number> {
     console.log(pl.actions.length ? `\nnext: ${nextListing(pl.actions.slice(0, o.workers + 5), readBudget(p.stateDir, c, new Date()), c.budgetGate)}` : '\nnothing to do');
     return 0;
   }
+  // from here a rate-limited gh call waits out the limit and retries; Ctrl+C ends the wait
+  gh.setGhWaitSignal(o.signal);
   const other = otherRunner(p.stateDir);
   if (other) { log(`hx is already running for this repo (pid ${other.pid}, since ${other.startedAt}). Use hx status / hx pause.`); return 3; }
   const pausedMode = readPause(p.stateDir);
@@ -268,25 +275,39 @@ export async function runPool(p: Project, o: PoolOptions): Promise<number> {
   // Ctrl+C (o.signal) and `hx pause --now` both stop running sessions with a checkpoint
   const stop = new AbortController();
   o.signal.addEventListener('abort', () => stop.abort(), { once: true });
+  gh.setGhWaitSignal(stop.signal);
   const live: LiveState = { pid: process.pid, startedAt: new Date().toISOString(), repo: c.repo, workers: o.workers, sessions: [], skills: skillNames(skills.byRole), models };
   const save = () => { try { writeLive(p.stateDir, live); } catch {} };
+  // HX_FLEET_DIR: every session also holds one of HX_FLEET_WORKERS file slots shared with the other runners
+  const fleetDir = process.env.HX_FLEET_DIR || undefined;
+  const fleetCap = Number(process.env.HX_FLEET_WORKERS) || DEFAULT_FLEET_WORKERS;
+  // a gh call waiting out a rate limit: budget-low until the wait ends (no new claims, github-hold.json in a fleet)
+  let ghWaitUntil = 0;
+  let ghWaitLogged = 0; // the wait-until last logged: once per wait-until
+  gh.onGhLimited((until) => {
+    if (until > ghWaitUntil) {
+      ghWaitUntil = until;
+      if (!live.githubLow || until > live.githubLow.until) { live.githubLow = { until, reason: 'github rate limited' }; save(); }
+      if (fleetDir) writeGithubHold(fleetDir, { until, reason: 'github rate limited', repo: c.repo });
+    }
+    if (until !== ghWaitLogged) { ghWaitLogged = until; log(`github rate limited — waiting until ${hhmm(until / 1000)}`); }
+  });
   // a crash mid-write can leave an hx branch ref full of NUL bytes: repair it before anything uses the branch
   await repairBrokenRefs(p.root, c.worktreeRoot, (m) => log(m)).catch((e) => log(`could not check branch refs: ${e.message}`));
   await ensureBoardLabels(c);
   await recoverStaleClaims(p);
   // a removal that failed last run (a file held open on Windows) left its directory behind; no session runs yet
   for (const d of await cleanStaleWorktrees(p.root, c.worktreeRoot).catch(() => [])) log(`removed leftover directory ${d}`);
-  // HX_FLEET_DIR: every session also holds one of HX_FLEET_WORKERS file slots shared with the other runners
-  const fleetDir = process.env.HX_FLEET_DIR || undefined;
-  const fleetCap = Number(process.env.HX_FLEET_WORKERS) || DEFAULT_FLEET_WORKERS;
   // budget-low: the GitHub API budget is below ghReservePct. Before `until` (ms epoch) nothing is claimed, engine steps
   // included, and the board is not read. Kept apart from the usage hold (live.pausedUntil): anything that learns the
   // budget is short calls githubLow(until, reason). shared: copied from github-hold.json, never written back.
   let ghLow: { until: number; reason: string; shared: boolean } | null = null;
   let ghLowLogged = 0; // the until last logged: the low line is written once per reset
-  const githubLowNow = () => ghLow !== null && Date.now() < ghLow.until;
+  const ghLowActive = () => ghLow !== null && Date.now() < ghLow.until;
+  const githubLowNow = () => ghLowActive() || Date.now() < ghWaitUntil;
+  const githubLowLeft = () => Math.max(ghLowActive() ? ghLow!.until : 0, ghWaitUntil) - Date.now();
   const githubLow = (until: number, reason: string, shared = false) => {
-    if (until <= Date.now() || (githubLowNow() && until <= ghLow!.until)) return;
+    if (until <= Date.now() || (ghLowActive() && until <= ghLow!.until)) return;
     ghLow = { until, reason, shared }; live.githubLow = { until, reason }; save();
     if (fleetDir && !shared) writeGithubHold(fleetDir, { until, reason, repo: c.repo });
     if (until !== ghLowLogged) { ghLowLogged = until; log(`github budget low: ${reason} — no new claims until ${hhmm(until / 1000)}`); }
@@ -308,7 +329,10 @@ export async function runPool(p: Project, o: PoolOptions): Promise<number> {
     const r = reserveState(b, c.ghReservePct ?? DEFAULTS.ghReservePct);
     if (r.low) githubLow(r.until, `${r.bucket} ${r.remaining}/${r.limit}`);
     // the budget is back (reset, or raised early); a shared hold still in force is left to expire
-    else if (ghLow && (!ghLow.shared || !githubLowNow())) { ghLow = null; live.githubLow = undefined; save(); log('github budget restored'); }
+    else if (ghLow && (!ghLow.shared || !ghLowActive())) {
+      ghLow = null; live.githubLow = Date.now() < ghWaitUntil ? { until: ghWaitUntil, reason: 'github rate limited' } : undefined; save();
+      log('github budget restored');
+    }
   };
   await readGithub();
   save();
@@ -518,7 +542,7 @@ export async function runPool(p: Project, o: PoolOptions): Promise<number> {
       if (wakePending) { wakePending = false; continue; } // woken while not waiting: re-read the board now
       // a hold wakes at its end; budget-low alone polls half as often (each wake re-reads the budget)
       const holdLeft = (live.pausedUntil ?? 0) - Date.now();
-      const ghLeft = githubLowNow() ? ghLow!.until - Date.now() : 0;
+      const ghLeft = githubLowNow() ? githubLowLeft() : 0;
       const every = (ghLeft > 0 && holdLeft <= 0 ? 2 : 1) * c.pollSeconds * 1000;
       const left = Math.min(...[holdLeft, ghLeft].filter((x) => x > 0));
       const pollMs = left < Infinity ? Math.max(1000, Math.min(every, left)) : every;

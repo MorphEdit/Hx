@@ -18,6 +18,21 @@ const s = load();
 if (process.env.HX_FAKE_GH_LOG) appendFileSync(process.env.HX_FAKE_GH_LOG, a.join(' ') + '\n');
 // the account gh is logged in as: state.login (default 'me'); state.loginFails makes `gh api user` fail.
 // An issue or comment without an `author` was opened by it; author '' = a deleted account (gh gives no login).
+// state.limitNext = { match, kind: 'primary' | 'secondary', times, retryAfter? }: the next `times` calls whose
+// arguments contain `match` fail with a rate-limit error (Retry-After only when retryAfter is set)
+const limit = s.limitNext && a.join(' ').includes(s.limitNext.match) ? mutate((cur) => {
+  const l = cur.limitNext;
+  if (!l || !(l.times > 0) || !a.join(' ').includes(l.match)) return null;
+  if (--l.times <= 0) delete cur.limitNext;
+  return { ...l };
+}) : null;
+if (limit) {
+  const l = limit;
+  process.stderr.write(l.kind === 'secondary'
+    ? `HTTP 403: You have exceeded a secondary rate limit. Please wait a few minutes before you try again.${l.retryAfter !== undefined ? ` Retry-After: ${l.retryAfter}` : ''}`
+    : 'HTTP 403: API rate limit exceeded for user ID 1.');
+  process.exit(1);
+}
 const LOGIN = s.login ?? 'me';
 const author = (x) => ({ login: x.author ?? LOGIN });
 if (a[0] === 'issue' && a[1] === 'list') {
