@@ -9,7 +9,12 @@ if (problem) {
   process.exit(1);
 }
 
-// (hx install goes here: it runs before the hook is registered.)
+// hx install / hx update: before the hook is registered, so no .ts is loaded.
+const [cmd, ...rest] = process.argv.slice(2);
+if (cmd === 'install' || cmd === 'update') {
+  const { install } = await import('./install.mjs');
+  process.exit(await install(rest, { update: cmd === 'update' }));
+}
 
 const { registerStripHook } = await import('./strip-hook.mjs');
 registerStripHook();

@@ -121,6 +121,15 @@ node bench/figures.mjs
 ## Install
 
 ```bash
+npx github:MorphEdit/Hx install   # npm install -g the latest release tag (--version vX.Y.Z pins one), checks that
+                                  # hx runs from PATH, runs hx doctor, offers the /hx skill; --force replaces an
+                                  # npm link of a checkout
+hx update                         # the same for the latest release
+```
+
+From a checkout:
+
+```bash
 git clone https://github.com/MorphEdit/Hx
 cd Hx
 npm link

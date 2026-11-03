@@ -78,6 +78,8 @@ const HELP = `usage: hx <command> [options]
   doctor                   check the prerequisites (node, git, gh and its login, the agent CLI, the repo's
                            GitHub origin, .hx/config.json, labels, gate, rtdd), each with a fix for this OS;
                            exit 1 when a required one fails
+  update [--force]         install the latest hx release (npm install -g github:MorphEdit/Hx#<tag>), check it runs,
+                           run hx doctor; --force replaces an npm link of a checkout
   help
   --version                print hx's version (from its package.json)
 
@@ -124,6 +126,7 @@ export async function main(argv: string[]): Promise<number> {
     case 'usage': return usage(args);
     case 'dashboard': return dashboard(args);
     case 'doctor': return doctorCmd();
+    case 'update': return (await import('../bin/install.mjs')).install(args, { update: true });
     case 'fleet': return args[0] === 'dashboard' ? fleetDashboard(args.slice(1)) : args[0] === 'run' ? fleetRun(args.slice(1)) : args[0] === 'forget' ? fleetForget(args[1]) : fleet(args);
     case 'install-skill': console.log(installSkill()); return 0;
     case undefined: case 'help': case '-h': case '--help': console.log(HELP); return 0;
