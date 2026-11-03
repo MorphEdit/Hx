@@ -197,6 +197,17 @@ async function start(args: string[]): Promise<number> {
   return runCmd(['--watch', '--workers', String(workers)]);
 }
 
+/** hx run's startup gate: the doctor checks without the label lookup (hx run creates the labels). A required ✗
+ *  prints the non-✓ lines with their fixes and stops; a ? is printed and the run starts. */
+async function startupChecks(cwd?: string): Promise<boolean> {
+  const { checks, code } = await doctor({ cwd, skipLabels: true });
+  if (code !== 0) { console.error(`hx run: a required check failed (hx doctor shows them all)
+${render(checks.filter((c) => c.mark !== '✓'))}`); return false; }
+  const unsure = checks.filter((c) => c.mark === '?');
+  if (unsure.length) console.log(render(unsure));
+  return true;
+}
+
 async function init(args: string[]): Promise<number> {
   const root = (await runOk('git', ['rev-parse', '--show-toplevel'])).trim().replace(/\//g, path.sep);
   const existing = findProjectRoot(root) === root;
@@ -296,8 +307,11 @@ rtdd is installed but this repo has no .rtdd/config.yaml: run  hx init --rtdd  (
 }
 
 async function runCmd(args: string[]): Promise<number> {
+  // no .hx/config.json: the doctor lines say so (with the fix) before loadProject's error
+  if (!findProjectRoot(process.cwd()) && !(await startupChecks())) return 1;
   const p = loadProject();
   agentFor(p.config.agentCli); // an unknown agentCli stops here, before any board read
+  if (!(await startupChecks(p.root))) return 1;
   const workers = Number(flag(args, '--workers') ?? p.config.workers);
   if (!Number.isInteger(workers) || workers < 1) throw new Error('--workers must be a positive integer');
   const only = flag(args, '--issue')?.split(',').map((s) => Number(s.replace('#', '')));
