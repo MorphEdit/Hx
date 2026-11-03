@@ -81,6 +81,7 @@ test('resumed impl: the trusted handoff note is pasted into the prompt, a later 
   assert.equal(prompts.length, 1);
   assert.match(prompts[0], /handoff note:\s+TRUSTED NOTE: finish part 5/);
   assert.doesNotMatch(prompts[0], /EVIL NOTE/);
+  assert.match(prompts[0], /Run only the affected tests while you work; never the full test command before shipping/, 'the resume note repeats the test rule (#223)');
 });
 
 test('untrusted gauntlet / original-body markers do not skip rounds or stand in for hx\'s own', E2E, async () => {

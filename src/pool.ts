@@ -710,7 +710,7 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
   let resumeNote = '';
   if (a.kind === 'impl' && wt.resumed) {
     const handoff = (await gh.commentBodies(c.repo, n, ctx.trusted).catch(() => [] as string[])).filter((b) => b.trimStart().startsWith(HANDOFF_MARKER)).pop();
-    resumeNote = `NOTE: this branch already has work from an earlier session — run \`git log origin/${c.defaultBranch}..HEAD\` and \`git status\` first and continue from there.`
+    resumeNote = `NOTE: this branch already has work from an earlier session — run \`git log origin/${c.defaultBranch}..HEAD\` and \`git status\` first and continue from there. ${RESUME_TESTS_NOTE}`
       + (handoff ? `\nThat session's handoff note:\n\n${handoff.replace(HANDOFF_MARKER, '').trim()}\n` : '');
   }
 
@@ -964,10 +964,10 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
         return { ...r, done: true };
       }
       if (!m.retry) return fail(r, `merging the audited PR failed: ${m.output.slice(-300)}`, summary);
-      feedback = `The audit passed, but merging failed after rebasing on the latest ${c.defaultBranch}:\n\n${m.output.slice(-1500)}\n\nFix that on your branch, then ship again with --no-merge.`;
+      feedback = `The audit passed, but merging failed after rebasing on the latest ${c.defaultBranch}:\n\n${m.output.slice(-1500)}\n\nFix that on your branch, then ship again with --no-merge. ${RESUME_TESTS_NOTE}`;
       why = `merge after audit failed (${m.code === 3 ? 'rebase conflict' : 'tests fail after the rebase'})`;
     } else {
-      feedback = `An independent audit of PR #${pr} FAILED with these findings — fix every one (add a test for each), then ship again with --no-merge:\n\n${v.findings}`;
+      feedback = `An independent audit of PR #${pr} FAILED with these findings — fix every one (add a test for each), then ship again with --no-merge. ${RESUME_TESTS_NOTE}\n\n${v.findings}`;
       why = 'audit failed';
     }
     if (attempt >= c.auditRounds) return fail(r, `still not passing after ${attempt} audit round(s); last findings: ${feedback.slice(0, 400)}`, summary);
@@ -983,6 +983,8 @@ export const AUDIT_MARKER = '<!-- hx-audit -->';
 /** {{BUG_NOTE}} for an issue labelled `bug`: one text for the implementer, one for its auditor. */
 export const IMPL_BUG_NOTE = 'This is a bug. Start from the triage comment if there is one and add its failing test (or a better one); otherwise write a test that reproduces the bug. See it fail, then fix the root cause. Do not only patch the symptom.';
 export const AUDIT_BUG_NOTE = 'Check that a test reproduces the reported bug and fails without the fix (revert the fix locally to check), and that the fix addresses the root cause (the one named in the triage comment, if there is one).';
+/** The test rule a resumed or returned implementer is given again: the full suite runs once, in ship.mjs (#223). */
+export const RESUME_TESTS_NOTE = 'Run only the affected tests while you work; never the full test command before shipping (ship.mjs runs it after the rebase), and the full suite only after a ship.mjs exit 4, once before shipping again.';
 export const TRIAGE_GAVE_UP = 'hx: triage gave up';
 export const RETRY_MARKER = '<!-- hx-retry -->';
 

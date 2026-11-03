@@ -285,6 +285,22 @@ Decisions:
 - No shared dependency folders (a symlinked `node_modules` and the like): each worktree installs its own,
   and the package manager's cache makes that fast enough without one worktree's install breaking another.
 
+## Test runs (#223)
+
+The full suite runs once per ship: `ship.mjs` runs the `--test` command after the rebase, on exactly what
+will be merged, and the gate runs it again on the default branch after each merge. Workers do not.
+Decisions:
+- While working, the implementer runs only the affected tests: the test files for the changed code, the
+  tests `rtdd which` names when the rtdd skill is loaded, and any test file the issue names. It never runs
+  the full test command before shipping, and runs the full suite only to check a failure ship.mjs reported
+  (exit 4), once before shipping again. The continue prompt, the resume note and the audit-return note say
+  the same.
+- The auditor also runs only the affected tests: the gate and ship.mjs cover the full suite.
+- Why: on #204 a worker ran the full suite three times (20–25 minutes each with 3 workers busy), ship.mjs
+  ran it a fourth time, and the turn hit its time limit while shipping. A longer `turnTimeoutMinutes` does
+  not fix that; running the suite once does.
+- Unchanged: at least one test must fail without the change, and no test is deleted, skipped or weakened.
+
 ## Token optimisation (phase 4)
 
 Measured before (see the [benchmark](../README.md#benchmark), `bench/results/phase3/`):
