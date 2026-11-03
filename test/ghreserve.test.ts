@@ -143,12 +143,14 @@ test('below the reserve: nothing claimed, no issue list, one low line; after the
 test('still below after the reset: the runner stays low with the new reset and logs it once more', E2E, async () => {
   const r = repo([1], [
     { for: 3, core: full, graphql: { limit: 5000, remaining: 812 } },
-    { for: 3, core: { limit: 5000, remaining: 300 }, graphql: full },
+    // 8 s, not 3: the runner reads again only once r1 has passed, and on a loaded suite that read can land seconds
+    // late — past a short second phase, so it saw the restored budget and never the second low (#227)
+    { for: 8, core: { limit: 5000, remaining: 300 }, graphql: full },
     {},
   ]);
   const res = await run(r);
   assert.equal(res.code, 0, res.out);
-  const r1 = started(r.board) + 3, r2 = r1 + 3;
+  const r1 = started(r.board) + 3, r2 = r1 + 8;
   const low = find(res.lines, /github budget low/).map((l) => l.text.replace(/^\S+ /, ''));
   assert.deepEqual(low, [`github budget low: graphql 812/5000 — no new claims until ${hhmm(r1)}`, `github budget low: core 300/5000 — no new claims until ${hhmm(r2)}`], res.out);
   const restored = find(res.lines, /github budget restored/);
