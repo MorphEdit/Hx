@@ -210,14 +210,19 @@ test('ship: limited past HX_GH_WAIT_MAX_SECONDS fails with exit 5 and the reset 
   const env = setup();
   writeFileSync(path.join(env.wt, 'c.txt'), 'mine\n');
   limitBoard(env, { limitNext: { match: 'pr list', kind: 'secondary', times: 50, retryAfter: 1 } });
-  const t0 = Date.now();
-  const r = shipWith(env, SHIP_ARGS, { HX_GH_WAIT_MAX_SECONDS: '2' });
-  const took = Date.now() - t0;
+  const times = path.join(env.tmp, 'gh-times.log');
+  const r = shipWith(env, SHIP_ARGS, { HX_GH_WAIT_MAX_SECONDS: '2', HX_FAKE_GH_TIMES: times });
+  const end = Date.now();
   assert.equal(r.status, 5, r.stderr);
+  // timed from the first limited call, not the whole run: commit, rebase, tests and push are slow under a loaded suite (#227)
+  const prList = readFileSync(times, 'utf8').split('\n').filter((l) => / pr list /.test(` ${l} `)).map((l) => Number(l.split(' ')[0]));
+  assert.equal(prList.length, 2, 'called, waited 1 s, retried once, gave up');
+  assert.ok(prList[1] - prList[0] >= 1000, 'the 1 s wait was slept');
+  const took = end - prList[0];
   assert.equal(waits(r.stderr).length, 1, 'waited 1 s; the next 2 s wait would pass the 2 s cap');
   assert.match(r.stderr, /ship: github secondary rate limit — rate limited until \d\d:\d\d/);
   assert.match(r.stderr, /ship: gh pr list failed: HTTP 403: You have exceeded a secondary rate limit/);
-  assert.ok(took < 20_000, `${took} ms`);
+  assert.ok(took < 15_000, `${took} ms from the first limited call`);
   assert.deepEqual(board(env).prs, [], 'no PR opened');
 });
 

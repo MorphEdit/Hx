@@ -16,6 +16,8 @@ const ghLabels = (i) => i.labels.map((name) => ({ name }));
 const s = load();
 // HX_FAKE_GH_LOG: every call appends its arguments as one line (tests count calls)
 if (process.env.HX_FAKE_GH_LOG) appendFileSync(process.env.HX_FAKE_GH_LOG, a.join(' ') + '\n');
+// HX_FAKE_GH_TIMES: the same, each line prefixed with Date.now() (tests time the calls, not the whole run)
+if (process.env.HX_FAKE_GH_TIMES) appendFileSync(process.env.HX_FAKE_GH_TIMES, `${Date.now()} ${a.join(' ')}\n`);
 // the account gh is logged in as: state.login (default 'me'); state.loginFails makes `gh api user` fail.
 // An issue or comment without an `author` was opened by it; author '' = a deleted account (gh gives no login).
 // state.limitNext = { match, kind: 'primary' | 'secondary', times, retryAfter? }: the next `times` calls whose
