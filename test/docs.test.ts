@@ -313,3 +313,40 @@ test('releases: README section, config rows, help, CONTRIBUTING steps, design de
   const c = read('CLAUDE.md');
   assert.ok(c.slice(c.indexOf('## Where things are'), c.indexOf('## Conventions')).includes('`release.ts`'), 'release.ts in the file map');
 });
+
+test('onboarding: README npx install before the clone path and a First run section, help, CLAUDE.md, design (#214)', () => {
+  const r = read('README.md');
+  const npx = r.indexOf('npx github:MorphEdit/Hx install'), clone = r.indexOf('git clone https://github.com/MorphEdit/Hx');
+  assert.ok(npx >= 0 && clone >= 0 && npx < clone, 'npx install line before the clone path');
+  assert.ok(npx < r.indexOf('hx start'), 'then hx start');
+  const install = r.slice(r.indexOf('## Install'), r.indexOf('\n## ', r.indexOf('## Install') + 1));
+  assert.ok(!install.includes('git clone') && !install.includes('npm link\n'), 'the clone path is not in Install');
+  const dev = r.slice(r.indexOf('## Development'), r.indexOf('\n## ', r.indexOf('## Development') + 1));
+  for (const w of ['git clone https://github.com/MorphEdit/Hx', 'npm link']) assert.ok(dev.includes(w), `Development: ${w}`);
+  const at = r.indexOf('## First run');
+  assert.ok(at >= 0, 'README has a First run section');
+  const sec = r.slice(at, r.indexOf('\n## ', at + 1));
+  for (const w of ['hx start', '✓', '✗', '–', '?', 'init: no .hx/config.json — running hx init', 'PRD: grilling the idea', 'plan:',
+    'Start 2 worker(s) now? [Y/n]', 'run: hx run --watch', '--yes', 'hx doctor']) assert.ok(sec.includes(w), w);
+  // the lines quoted are the ones the code prints
+  const cli = read('src/cli.ts');
+  for (const l of ["'\\ninit: no .hx/config.json — running hx init'", "'\\nPRD: grilling the idea'", "'\\nplan:'", 'Start ${workers} worker(s) now? [Y/n] ', 'run: hx run --watch --workers '])
+    assert.ok(cli.includes(l), l);
+  const usage = r.slice(r.indexOf('## Usage'), r.indexOf('\n## ', r.indexOf('## Usage') + 1));
+  for (const w of ['hx start', 'hx doctor', 'hx update', 'hx install-skill', '/hx', 'hx --version']) assert.ok(usage.includes(w), `Usage: ${w}`);
+  const h = spawnSync(process.execPath, [path.join(root, 'bin', 'hx.mjs'), 'help'], { encoding: 'utf8' });
+  assert.equal(h.status, 0);
+  for (const w of ['\n  doctor ', '\n  start ', '\n  update ', '\n  install-skill ', '\n  --version ']) assert.ok(h.stdout.includes(w), w.trim());
+  const ct = read('CONTRIBUTING.md');
+  for (const w of ['git clone https://github.com/MorphEdit/Hx', 'npm link']) assert.ok(ct.includes(w), `CONTRIBUTING: ${w}`);
+  const c = read('CLAUDE.md');
+  const map = c.slice(c.indexOf('## Where things are'), c.indexOf('## Conventions'));
+  for (const w of ['src/doctor.ts', '`doctor.ts`', '`templates/`', 'hx-skill.md', '`bin/`', 'install.mjs', 'strip-hook.mjs']) assert.ok(map.includes(w), w);
+  const d = read('docs/design.md');
+  const d0 = d.indexOf('## Onboarding');
+  assert.ok(d0 >= 0, 'design.md has an Onboarding section');
+  const ds = d.slice(d0, d.indexOf('\n## ', d0 + 1));
+  for (const w of ['github:', 'no registry', 'before any `.ts` loads', 'registerHooks', 'stripTypeScriptTypes', 'node_modules', 'no build',
+    '`✓`', '`✗`', '`–`', '`?`', 'startup gate', '`hx start`', 'templates/hx-skill.md']) assert.ok(ds.includes(w), w);
+  assert.match(d, /\| 9 \| Onboarding[^\n]*\| done \|/);
+});

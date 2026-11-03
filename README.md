@@ -121,24 +121,74 @@ node bench/figures.mjs
 ## Install
 
 ```bash
-npx github:MorphEdit/Hx install   # npm install -g the latest release tag (--version vX.Y.Z pins one), checks that
-                                  # hx runs from PATH, runs hx doctor, offers the /hx skill; --force replaces an
-                                  # npm link of a checkout
-hx update                         # the same for the latest release
+npx github:MorphEdit/Hx install
 ```
 
-From a checkout:
+Then, in your repo:
 
 ```bash
-git clone https://github.com/MorphEdit/Hx
-cd Hx
-npm link
+hx start
 ```
+
+`hx install` runs `npm install -g` on the latest release tag (`--version vX.Y.Z` pins one), checks that `hx`
+runs from PATH, runs `hx doctor` and offers the `/hx` Claude Code skill; `--force` replaces an `npm link`
+of a checkout. It installs straight from GitHub (no npm registry). `hx update` does the same for the
+latest release, `hx --version` prints the installed one. To work on hx itself from a clone, see
+[Development](#development).
+
+## First run
+
+`hx start` takes a repo from nothing to a running board in one command. Each step is skipped when it is
+already done:
+
+```text
+$ hx start "dark mode"
+✓ node ≥ 23.6 — 24.1.0
+✓ git — 2.47.1.windows.1
+✓ gh logged in — as you
+✓ agent CLI (claude) — 2.1.0 (Claude Code)
+– agent CLI login — not checked
+    fix: if not logged in yet: run `claude`, then `/login`
+✓ GitHub origin — you/app
+– .hx/config.json — missing
+    fix: `hx start` runs `hx init` next
+– board labels — missing: prd, ready-for-agent, …
+    fix: `hx run` creates it
+– rtdd (optional) — not installed
+    fix: adds test selection per change (roleSkills rtdd): https://github.com/VocanicZ/rtdd
+
+init: no .hx/config.json — running hx init
+…
+
+PRD: grilling the idea
+…                                   (the grill session; the PRD is filed on confirm)
+
+plan:
+…                                   (hx run --dry-run: the board and what would run next)
+
+Start 2 worker(s) now? [Y/n]
+
+run: hx run --watch --workers 2
+```
+
+1. **doctor** — never skipped. `✓` passed, `✗` failed (with a `fix:` line for this OS), `–` informational
+   or optional, `?` could not tell (offline). A required `✗` stops `hx start`; fix it and run it again.
+2. **init** — runs `hx init` when `.hx/config.json` is missing (`init: already done` otherwise).
+3. **PRD** — an idea (text or a `.md` file) is always grilled into a PRD. Without one, an open PRD or ready
+   issue on the board counts as done; else it asks `What should hx build?`.
+4. **plan** — the `hx run --dry-run` output, then `Start N worker(s) now? [Y/n]` (`--workers N`, default
+   `workers` from the config). `n` stops here: run `hx run --watch` when you are ready.
+5. **run** — `hx run --watch`.
+
+`--yes` answers yes to every question. `hx doctor` runs the checks alone (exit 1 when a required one
+fails), and `hx run` runs them at startup too: a required `✗` stops it before it claims anything.
 
 ## Usage
 
 ```bash
 cd <your repo>
+hx start "idea"         # doctor, init, grill, the dry-run plan, then hx run --watch (see First run; --yes, --workers N)
+hx doctor               # check the prerequisites, each with a fix for this OS; exit 1 when a required one fails
 hx init                 # writes .hx/config.json and creates the GitHub labels; --rtdd also runs
                         # rtdd init in the repo root (commit .rtdd/), without it a hint if rtdd is installed;
                         # an unset worktreeSetup comes from the first lockfile (pnpm-lock.yaml → pnpm install
@@ -165,6 +215,9 @@ hx usage --by role      # recorded token usage (by issue | role | model | day)
 hx dashboard [--open]   # a read-only page on http://127.0.0.1:4777/ (localhost only; --port N)
 hx dashboard --fleet [--open]   # one page over every hx repo on this machine (alias: hx fleet dashboard)
 hx fleet run --watch    # one hx run per repo in the fleet, sharing one worker cap (see Several repos)
+hx install-skill        # write the /hx Claude Code skill to ~/.claude/skills/hx/SKILL.md: ask Claude Code to build with hx
+hx update [--force]     # install the latest hx release, check it runs, run hx doctor
+hx --version            # the installed version
 ```
 
 ## Adding work to a running fleet
@@ -697,7 +750,12 @@ it reads. So Hx only works on text from **trusted accounts**: your `gh` login pl
 
 ## Development
 
+From a clone (Node ≥ 23.6; nothing to build, nothing to install):
+
 ```bash
+git clone https://github.com/MorphEdit/Hx
+cd Hx
+npm link        # puts this checkout's hx on PATH (hx update --force replaces it with a release)
 npm test
 ```
 
