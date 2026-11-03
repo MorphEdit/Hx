@@ -12,9 +12,13 @@ roadmap and the agreed order of the next features) before changing anything.
   `agents/` the agent-CLI seam (`AgentCli`, registry by `config.agentCli`; `claude.ts` argv + stream-json) ·
   `runstate.ts` live.json / pause · `github.ts` gh wrapper (rate-limited calls waited out during `hx run`) · `ghlimit.ts` the GitHub API budget: `rate_limit` parsing, the `github` line, limit kinds and waits (pure; the scripts import it too) · `worktree.ts` · `setup.ts` copy + setup command for each new worktree · `release.ts` `hx release` / autoRelease: version, notes, the gated tag and GitHub release · `config.ts` · `cli.ts`
   · `dashboard.ts` `hx dashboard` server (localhost, GET only) · `dashboard.html` its page (text only, no `innerHTML`) · `dashboard-fleet.html` the `hx dashboard --fleet` overview ·
-  `outcomes.ts` run.log → outcome numbers ·
+  `outcomes.ts` run.log → outcome numbers · `doctor.ts` `hx doctor`: the prerequisite checks and their ✓ ✗ – ? marks (hx start's first step, hx run's startup gate) ·
   `fleet.ts` `hx fleet`: ~/.hx/fleet.json, file slots (shared worker cap), hold.json (shared usage hold), the child runners
 - `prompts/` — one per role (`impl`, `decompose`, `review`, `continue`, `checkpoint`, `grill`, `issue`, `audit`, `critic`, `revise`, `security`, `triage`), `{{VAR}}` placeholders; `skills` holds the note appended after a skill (`prompts/skills/<name>.md`, inserted verbatim, never rendered)
+- `bin/` — `hx.mjs` the entry (Node check first, then `install` / `update` or the type-strip hook and `src/cli.ts`) ·
+  `install.mjs` the `npx github:MorphEdit/Hx install` / `hx update` installer (ends with the checks of `src/doctor.ts`) · `node-check.mjs` · `strip-hook.mjs`
+  the `module.registerHooks` load hook that strips hx's `.ts` under `node_modules`
+- `templates/` — `hx-skill.md`, the `/hx` Claude Code skill `hx install-skill` writes to `~/.claude/skills/hx/SKILL.md`
 - `scripts/issue.mjs` — prints an issue with comments from untrusted accounts removed (`HX_TRUSTED`); the only way agents read issues
 - `scripts/ghwait.mjs` — the gh caller both scripts share: short rate limits waited out, capped by `HX_GH_WAIT_MAX_SECONDS`
 - `scripts/ship.mjs` — the one-call commit → rebase → test → push → PR → merge → close routine workers use

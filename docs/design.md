@@ -69,6 +69,7 @@ role prompts, promise-based completion.
 | 6 | Gauntlet (#3): a critic → reviser loop hardens a PRD before decompose; a security pass checks its merged work before it closes — critic eval 3/3 defects, security eval 3/3 vulnerabilities, no false alarms | done |
 | 7 | GitHub rate limits (PRD #138): a budget reserve (`ghReservePct`), the `github` line, rate-limited calls waited out in `hx run` and (briefly) in the worker scripts, a shared fleet hold | done |
 | 8 | Releases (PRD #139): `hx release` on a green gate (patch, minor once a PRD closed, major by hand), notes from git and GitHub, `autoRelease` in `hx run` | done |
+| 9 | Onboarding (PRD #183): `npx github:MorphEdit/Hx install`, `hx doctor` and the `hx run` startup gate, `hx start`, `hx update`, the `/hx` skill | done |
 
 ### Next: the rest of Harness's features, ordered by how much they improve the quality of what Hx ships
 
@@ -202,6 +203,36 @@ secondary limit, how long to wait), so hx and the scripts cannot drift apart.
 - **autoRelease** checks after merges and PRD closes, in the background: a minor release per closed
   PRD, a patch release at most every `autoReleasePatchHours` while fixes merge. `hx release` refuses
   while `hx run` runs, so two releasers never race.
+
+## Onboarding (PRD #183)
+
+Getting from nothing to a running board takes one install line and one command. The decisions:
+
+- **`github:` npx install, no registry.** `npx github:MorphEdit/Hx install` fetches the repo and runs
+  `bin/install.mjs`, which `npm install -g`s `github:MorphEdit/Hx#<tag>` (the latest release tag, or
+  `--version`). A release is a git tag already (see Releases), so nothing is published twice and there is
+  no npm account to guard. `hx update` is the same routine; both check that `hx` runs from PATH, then run
+  `hx doctor`. An `npm link` of a checkout is left alone unless `--force`.
+- **The Node check comes before any `.ts` loads.** `bin/hx.mjs` imports only `.mjs` statically; it runs
+  `bin/node-check.mjs` first, so an old Node prints the version it needs and how to get it on this OS
+  instead of a syntax error. `install` / `update` run before the hook below, so they load no `.ts` either.
+- **Raw `.ts` from `node_modules`, no build, no dependency.** Node refuses to strip types under
+  `node_modules`. `bin/strip-hook.mjs` registers a synchronous load hook (`module.registerHooks`) that
+  strips hx's own `.ts` files with `module.stripTypeScriptTypes`; every other URL goes to the next loader.
+  The installed package is the repo as it is: no build step to forget, nothing compiled to drift.
+- **Doctor's marks.** `src/doctor.ts` checks node, git, the `gh` login, the agent CLI, the repo's GitHub
+  origin, `.hx/config.json`, the labels, the gate and rtdd, each with a fix for this OS. `✓` passed; `✗` a
+  required check failed (exit 1); `–` informational or optional (the agent CLI login cannot be checked
+  without spending usage, rtdd is optional); `?` could not tell (offline, a timeout), which never blocks.
+- **The `hx run` startup gate.** `hx run` runs the same checks (without the label lookup: it creates the
+  labels) and stops on a required `✗` before it claims anything, printing only the lines that are not `✓`.
+  A `?` is printed and the run starts: being offline for a moment must not stop a fleet.
+- **`hx start`** chains doctor → init → grill → the dry-run plan → `Start N worker(s) now? [Y/n]` →
+  `hx run --watch`, each step skipped when already done (a config exists, an open PRD or ready issue is
+  on the board), so running it again is safe. It reuses the commands; it adds no state of its own.
+- **The skill template lives in `templates/`.** `hx install-skill` writes `templates/hx-skill.md` to
+  `~/.claude/skills/hx/SKILL.md`, so a user can ask Claude Code to build with hx. It is not under
+  `prompts/skills/`: those are notes appended to worker prompts, this is a skill for the user's own session.
 
 ## Models per role
 
