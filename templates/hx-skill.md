@@ -52,6 +52,9 @@ Write the PRD to a markdown file (for example `.hx/prds/<short-name>.md`) in thi
     ## Edge cases
     ## Notes for implementers
 
+To have hx compare the result with a real product after the criteria pass, add an optional
+`## Quality bar` section: `Beat: <named product> — <URL>`, then `Judged on:` with 2–4 dimensions as a list.
+
 Show the user the finished PRD. When they confirm it, file it with `hx prd <file>`. Never create the issue
 with `gh` yourself.
 

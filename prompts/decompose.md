@@ -16,7 +16,7 @@ Issues that already belong to this PRD (do NOT file duplicates of these):
 2. Read enough of the codebase to plan against what exists.
 3. Slice the PRD into small, independently shippable issues: each about one PR, each with concrete
    acceptance criteria an implementer can test. Prefer vertical slices over layers. Few, well-scoped
-   issues beat many tiny ones.
+   issues beat many tiny ones. A PRD's `## Quality bar` section is not a task: file no issue for it.
 4. File them in dependency order, so later issues can name earlier ones. Write each body to a file
    and pass it with `--body-file` (no shell-quoting problems):
      gh issue create -R {{REPO}} --label {{LABEL_READY}} --title "<imperative summary>" --body-file <file>

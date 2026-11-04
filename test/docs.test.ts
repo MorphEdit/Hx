@@ -9,7 +9,7 @@ import { DEFAULTS } from '../src/config.ts';
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const read = (f: string) => readFileSync(path.join(root, f), 'utf8');
-const LIFECYCLE = 'gauntlet → decompose → building → review → security → done';
+const LIFECYCLE = 'gauntlet → decompose → building → review → security → bar → done';
 // A config table row starting `| `key` | value |` (plain text, no regex).
 const hasRow = (doc: string, key: string, value: string) => doc.split('\n').some((l) => l.startsWith(`| \`${key}\` | ${value} |`));
 
@@ -43,6 +43,31 @@ test('author filter: README security section + trustedAuthors row, design #9 don
   assert.match(c, /only through `scripts\/issue\.mjs` \(never `gh issue view --comments`\)/);
   const h = spawnSync(process.execPath, [path.join(root, 'bin', 'hx.mjs'), 'help'], { encoding: 'utf8' });
   for (const w of ['untrusted', 'trustedAuthors']) assert.ok(h.stdout.includes(w), w);
+});
+
+test('quality bar: README PRD flow, barRounds and barPassed rows, hx help, design.md, CLAUDE.md, decompose prompt', () => {
+  const r = read('README.md');
+  const start = r.indexOf('## PRD flow');
+  const sec = r.slice(start, r.indexOf('\n## ', start + 1));
+  for (const w of ['## Quality bar', 'Beat:', 'Judged on:', '.hx/bar/<prd>/ref/', 'r<N>/A', '.mapping', 'winner: A|B', 'gap: ',
+    'no verdict', '<!-- hx-bar round=', 'trusted', 'reviewRounds', 'barRounds', '`quality-bar-passed`', 'standing gap'])
+    assert.ok(sec.includes(w), w);
+  assert.ok(hasRow(r, 'barRounds', String(DEFAULTS.barRounds)), 'barRounds row');
+  const labels = r.split('\n').find((l) => l.startsWith('| `labels`'))!;
+  assert.ok(labels.includes(`\`${DEFAULTS.labels.barPassed}\``) && labels.includes('`barPassed`'), 'barPassed label');
+  assert.ok(r.split('\n').find((l) => l.startsWith('| `roleModels`'))!.includes('`bar`'), 'roleModels row names bar');
+  const h = spawnSync(process.execPath, [path.join(root, 'bin', 'hx.mjs'), 'help'], { encoding: 'utf8' });
+  for (const w of ['barRounds', DEFAULTS.labels.barPassed, 'quality bar']) assert.ok(h.stdout.includes(w), w);
+  const d = read('docs/design.md');
+  assert.match(d, /## Quality bar \(PRD #254\)/);
+  assert.match(d, /\| Quality bar \(PRD #254\)[^\n]*\| done \|/);
+  const c = read('CLAUDE.md');
+  assert.ok(c.slice(c.indexOf('## Where things are'), c.indexOf('## Conventions')).includes('`bar.ts`'), 'bar.ts in the file map');
+  const pl = c.split('\n').find((l) => l.startsWith('- `prompts/`'))!;
+  for (const f of ['`bar`', '`bar-judge`']) assert.ok(pl.includes(f), f);
+  assert.match(c.slice(c.indexOf('## Next up')), /quality bar \(PRD #254[^.]*are done/);
+  assert.ok(read('prompts/decompose.md').includes('## Quality bar'), 'decompose prompt');
+  assert.ok(read('templates/hx-skill.md').includes('## Quality bar'), 'skill template');
 });
 
 test('design.md marks roadmap #3 (gauntlet) done', () => {
@@ -80,7 +105,7 @@ test('bug lane: README section, config rows and labels, design #6 done, CLAUDE.m
 test('hx help: the PRD-flow paragraph mentions the gauntlet and the security pass', () => {
   const r = spawnSync(process.execPath, [path.join(root, 'bin', 'hx.mjs'), 'help'], { encoding: 'utf8' });
   assert.equal(r.status, 0);
-  for (const w of ['gauntlet -> decompose -> building -> review -> security -> done', 'gauntletRounds', 'securityRounds',
+  for (const w of ['gauntlet -> decompose -> building -> review -> security -> bar -> done', 'gauntletRounds', 'securityRounds',
     DEFAULTS.labels.hardened, DEFAULTS.labels.secured, 'security pass']) assert.ok(r.stdout.includes(w), w);
 });
 

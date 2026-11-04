@@ -100,11 +100,13 @@ const HELP = `usage: hx <command> [options]
 
 Ctrl+C in hx run = pause --now for that run; Ctrl+C again force-quits (sessions are killed).
 
-A PRD (label prd) goes gauntlet -> decompose -> building -> review -> security -> done. The gauntlet
+A PRD (label prd) goes gauntlet -> decompose -> building -> review -> security -> bar -> done. The gauntlet
 (gauntlet, gauntletRounds) has a critic critique the PRD and a reviser rewrite it in rounds, then labels
 it prd-hardened; it is decomposed into child issues and each child is implemented; the review may file
 gap issues (prd-reviewed on sign-off); the security pass (security, securityRounds) checks the merged
-work and may file security issues (security-reviewed when clean); then the PRD is closed.
+work and may file security issues (security-reviewed when clean); a PRD with a "## Quality bar" section
+then runs the quality bar (barRounds): a blind A/B against the named product, where a lost round files one
+gap issue and a win, the cap or no verdict labels it quality-bar-passed; then the PRD is closed.
 
 An issue is picked up when it is open, labelled
 ready-for-agent, not agent-working / agent-blocked, and every issue under its "## Blocked by"
@@ -288,7 +290,7 @@ async function init(args: string[]): Promise<number> {
   workers     ${config.workers}   model ${config.model}   max ${config.maxIterations} turns/issue
   trusted     ${login} (+ config.trustedAuthors${config.trustedAuthors?.length ? `: ${config.trustedAuthors.join(', ')}` : ', none'}) — issues and PRDs by anyone else are skipped
   worktrees   ${config.worktreeRoot}
-  labels      ${L.ready}, ${L.working}, ${L.blocked}, ${L.prd}, ${L.hardened}, ${L.reviewed}, ${L.secured}, ${L.security}, ${L.bug}, ${L.triaged}
+  labels      ${L.ready}, ${L.working}, ${L.blocked}, ${L.prd}, ${L.hardened}, ${L.reviewed}, ${L.secured}, ${L.barPassed}, ${L.security}, ${L.bug}, ${L.triaged}
 
 Next: file a PRD with  hx prd <file.md>  or label an issue '${L.ready}', then run  hx status  and  hx run`);
   return initRtdd(root, effectiveRtddBin(config), args.includes('--rtdd'));
