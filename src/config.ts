@@ -64,6 +64,8 @@ export interface Config {
   turnTimeoutMinutes: number;
   stallMinutes: number; // a turn with no stdout for this long is killed (0 = off)
   pollSeconds: number;
+  selfHeal: boolean; // hx run runs a health pass every healthEveryMinutes and applies its repairs (hx health --fix always repairs)
+  healthEveryMinutes: number; // minutes between hx run's health passes
   worktreeRoot: string; // keep it short: Windows MAX_PATH
   agentCli: string; // the agent CLI workers and hx grill / hx issue run (src/agents): claude
   claudeBin: string; // the claude adapter's binary
@@ -113,6 +115,8 @@ export const DEFAULTS: Omit<Config, 'repo' | 'defaultBranch' | 'worktreeRoot'> =
   turnTimeoutMinutes: 60, // above ship's 45-min test timeout + 5: the worker's shell may wait on it
   stallMinutes: 15,
   pollSeconds: 60,
+  selfHeal: true,
+  healthEveryMinutes: 60,
   agentCli: 'claude',
   claudeBin: 'claude',
   claudeArgs: [],
@@ -179,6 +183,14 @@ export function ghReservePctError(pct: unknown): string | null {
   if (pct === undefined) return null;
   if (typeof pct === 'number' && Number.isFinite(pct) && pct >= 0 && pct <= 1) return null;
   return `ghReservePct: ${JSON.stringify(pct)} must be a number from 0 to 1 (0 turns the GitHub budget reserve off)`;
+}
+
+/** What is wrong with config.selfHeal or config.healthEveryMinutes, or null when both are valid. */
+export function healthConfigError(c: { selfHeal?: unknown; healthEveryMinutes?: unknown }): string | null {
+  if (c.selfHeal !== undefined && typeof c.selfHeal !== 'boolean') return `selfHeal: ${JSON.stringify(c.selfHeal)} must be true or false`;
+  const m = c.healthEveryMinutes;
+  if (m !== undefined && !(typeof m === 'number' && Number.isFinite(m) && m > 0)) return `healthEveryMinutes: ${JSON.stringify(m)} must be a number of minutes above 0`;
+  return null;
 }
 
 /** What is wrong with config.worktreeCopy, or null when it is valid: plain relative paths inside the repo only. */

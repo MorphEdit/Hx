@@ -3,7 +3,7 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
-import { DEFAULTS, defaultWorktreeRoot, effectiveRtddBin, findProjectRoot, formatRoleModels, labelSpecs, loadProject, saveConfig, STATE_DIR, type Config } from './config.ts';
+import { DEFAULTS, defaultWorktreeRoot, healthConfigError, effectiveRtddBin, findProjectRoot, formatRoleModels, labelSpecs, loadProject, saveConfig, STATE_DIR, type Config } from './config.ts';
 import * as gh from './github.ts';
 import { resolveCmd, run, runOk } from './exec.ts';
 import { log, lookupTrusted, printPlan, readPlan, runPool, trustedEnv } from './pool.ts';
@@ -20,6 +20,7 @@ import { agentFor } from './agents/index.ts';
 import { ideaFrom, sessionPaths, sessionPrompt } from './grill.ts';
 import { formatSkills, installSkill } from './skills.ts';
 import { doctor, render } from './doctor.ts';
+import { healthPass, renderResult } from './health.ts';
 import { addRepo, type Fleet, fleetDir, fleetFile, fleetWorkers, readFleet, readGithubHold, readHold, readRepos, registerRepo, removeRepo, sameRoot, slotsInUse, startFleetRun, writeFleet, writeRepos } from './fleet.ts';
 import { change, compare, parseTime, SMALL_SAMPLE, type Period } from './compare.ts';
 import { fmt, localDay, mismatchedSessions, readUsage, summarize, totalTokens, type UsageRow } from './usage.ts';
@@ -85,6 +86,9 @@ const HELP = `usage: hx <command> [options]
   doctor                   check the prerequisites (node, git, gh and its login, the agent CLI, the repo's
                            GitHub origin, .hx/config.json, labels, gate, rtdd), each with a fix for this OS;
                            exit 1 when a required one fails
+  health [--fix]           one health pass: stale PRs from issue/<N> branches, leftover worktrees, stuck
+                           agent-working labels, the environment (doctor checks, free disk); reports what it
+                           would do (--fix: repairs, even with selfHeal off); exit 1 while a ✗ remains
   update [--force]         install the latest hx release (npm install -g github:MorphEdit/Hx#<tag>), check it runs,
                            run hx doctor; --force replaces an npm link of a checkout
   help
@@ -133,6 +137,7 @@ export async function main(argv: string[]): Promise<number> {
     case 'usage': return usage(args);
     case 'dashboard': return dashboard(args);
     case 'doctor': return doctorCmd();
+    case 'health': return healthCmd(args);
     case 'update': return (await import('../bin/install.mjs')).install(args, { update: true });
     case 'fleet': return args[0] === 'dashboard' ? fleetDashboard(args.slice(1)) : args[0] === 'run' ? fleetRun(args.slice(1)) : args[0] === 'forget' ? fleetForget(args[1]) : fleet(args);
     case 'install-skill': console.log(installSkill()); return 0;
@@ -140,6 +145,17 @@ export async function main(argv: string[]): Promise<number> {
     case '--version': case '-v': console.log(hxVersion()); return 0;
     default: console.error(`unknown command: ${cmd}\n\n${HELP}`); return 2;
   }
+}
+
+/** `hx health [--fix]`: one health pass, each check's line, then the summary line. */
+async function healthCmd(args: string[]): Promise<number> {
+  const p = loadProject();
+  const bad = healthConfigError(p.config);
+  if (bad) { console.error(bad); return 2; }
+  const r = await healthPass(p, { repairs: args.includes('--fix') });
+  for (const x of r.results) console.log(renderResult(x));
+  console.log(r.line);
+  return r.code;
 }
 
 async function doctorCmd(): Promise<number> {

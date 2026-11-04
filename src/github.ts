@@ -252,3 +252,19 @@ export async function issuesWithComments(repo: string): Promise<IssueWithComment
     after = issues.pageInfo.endCursor;
   }
 }
+
+/** A PR from one of hx's `issue/<N>` branches in the repo itself (not a fork). */
+export interface IssuePr { number: number; headRefName: string; mergeable?: string }
+
+/** The open (with mergeable) or merged PRs whose head is an `issue/<N>` branch of the repo itself. */
+export async function listIssuePrs(repo: string, state: 'open' | 'merged'): Promise<IssuePr[]> {
+  const out = await ghOk(['pr', 'list', '-R', repo, '--state', state, '--limit', '1000',
+    '--json', state === 'open' ? 'number,headRefName,mergeable,isCrossRepository' : 'number,headRefName,isCrossRepository']);
+  return (JSON.parse(out) as any[]).filter((p) => p.isCrossRepository === false && /^issue\/\d+$/.test(p.headRefName ?? ''))
+    .map((p) => ({ number: p.number, headRefName: p.headRefName, ...(p.mergeable !== undefined ? { mergeable: p.mergeable } : {}) }));
+}
+
+/** Closes PR `n` with a comment; its branch is kept (no --delete-branch). */
+export async function closePr(repo: string, n: number, commentBody: string): Promise<void> {
+  await ghOk(['pr', 'close', String(n), '-R', repo, '--comment', commentBody]);
+}
