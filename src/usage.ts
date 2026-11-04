@@ -2,6 +2,7 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import type { Usage } from './agent.ts';
 import { modelMatches } from './config.ts';
+import { testTotals } from './timing.ts';
 
 /** One line per Claude turn: the raw material for `hx usage` and for later token optimisation. */
 export interface UsageRecord {
@@ -66,18 +67,23 @@ export interface UsageRow {
   sessions: number;
   usage: Usage;
   costUsd: number;
+  test?: { testMs: number; durationMs: number; testRuns: number }; // over the records with testMs; absent when none has it
 }
 
 export function summarize(recs: UsageRecord[], keyOf: (r: UsageRecord) => string): UsageRow[] {
-  const rows = new Map<string, UsageRow & { ids: Set<string> }>();
+  const rows = new Map<string, UsageRow & { ids: Set<string>; recs: UsageRecord[] }>();
   for (const r of recs) {
     const k = keyOf(r);
     let row = rows.get(k);
-    if (!row) rows.set(k, row = { key: k, turns: 0, sessions: 0, usage: { input: 0, cacheWrite: 0, cacheRead: 0, output: 0 }, costUsd: 0, ids: new Set() });
+    if (!row) rows.set(k, row = { key: k, turns: 0, sessions: 0, usage: { input: 0, cacheWrite: 0, cacheRead: 0, output: 0 }, costUsd: 0, ids: new Set(), recs: [] });
+    row.recs.push(r);
     row.turns++;
     row.ids.add(r.sessionId);
     for (const f of Object.keys(row.usage) as (keyof Usage)[]) row.usage[f] += r.usage[f] ?? 0;
     row.costUsd += r.costUsd ?? 0;
   }
-  return [...rows.values()].map(({ ids, ...r }) => ({ ...r, sessions: ids.size }));
+  return [...rows.values()].map(({ ids, recs: rs, ...r }) => {
+    const test = testTotals(rs);
+    return { ...r, sessions: ids.size, ...(test ? { test } : {}) };
+  });
 }
