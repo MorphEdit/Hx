@@ -21,6 +21,7 @@ import { ideaFrom, sessionPaths, sessionPrompt } from './grill.ts';
 import { formatSkills, installSkill } from './skills.ts';
 import { doctor, GITATTRIBUTES_LF, render } from './doctor.ts';
 import { healthPass, readHealth, renderResult } from './health.ts';
+import { hxRoot, installKind, readSelfUpdate } from './selfupdate.ts';
 import { addRepo, type Fleet, fleetDir, fleetFile, fleetWorkers, readFleet, readGithubHold, readHold, readRepos, registerRepo, removeRepo, sameRoot, slotsInUse, startFleetRun, writeFleet, writeRepos } from './fleet.ts';
 import { change, compare, parseTime, SMALL_SAMPLE, type Period } from './compare.ts';
 import { fmt, localDay, mismatchedSessions, readUsage, summarize, totalTokens, type UsageRow } from './usage.ts';
@@ -260,6 +261,13 @@ async function init(args: string[]): Promise<number> {
       config.worktreeCopy = saved.worktreeCopy = copy;
       notes.push(`worktree copy: ${copy.join(', ')} (git-ignored) is copied into each new worktree — change worktreeCopy in .hx/config.json`);
     } else delete saved.worktreeCopy;
+  }
+  if (!('selfUpdate' in raw) && installKind(hxRoot()) === 'git') {
+    // hx runs from a checkout (an npm link of a clone): a watching runner may keep it up to date by itself
+    const q = `hx runs from the git checkout ${hxRoot()}: let hx run --watch fast-forward it and restart itself when idle? [y/N] `;
+    if (process.stdin.isTTY) config.selfUpdate = saved.selfUpdate = /^y(es)?$/i.test((await ask(q)).trim());
+    else delete saved.selfUpdate;
+    notes.push(`self-update: ${config.selfUpdate ? 'on' : 'off'} — change selfUpdate in .hx/config.json (see Stopping and resuming in the README)`);
   }
   saveConfig(path.join(root, STATE_DIR), saved);
   registerRepo(root, config.repo);
@@ -544,6 +552,8 @@ async function status(p = loadProject(), o: { github?: boolean } = {}): Promise<
   if (c.gate && gate) console.log(`gate     ${gate.ok ? 'green' : 'RED'} at ${gate.sha.slice(0, 7)} (${gate.command})${gate.ok ? '' : ' — only its fix issue is claimed'}`);
   const health = readHealth(p.stateDir).last; // runner or not; none before the first pass
   if (health) console.log(`health   ${ago(health.at)} ago — ${health.line}`);
+  const selfUpdate = readSelfUpdate(p.stateDir).last; // a watching runner's last self-update line, runner or not
+  if (selfUpdate) console.log(`update   ${ago(selfUpdate.at)} ago — ${selfUpdate.line}`);
   if (paused) console.log(`paused   ${paused} — hx resume to clear`);
   if (c.worktreeSetup) console.log(`setup    ${c.worktreeSetup} (timeout ${c.worktreeSetupMinutes} min)`);
   if (c.worktreeCopy?.length) console.log(`copy     ${c.worktreeCopy.join(', ')}`);

@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { appendFileSync, mkdirSync, readFileSync, renameSync, statSync, unwatchFile, watchFile, type Stats } from 'node:fs';
+import { appendFileSync, mkdirSync, readFileSync, renameSync, statSync, unwatchFile, watchFile, writeFileSync, type Stats } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DEFAULTS, effectiveRtddBin, formatRoleModels, ghReservePctError, healthConfigError, labelSpecs, modelMatches, roleModel, roleModelMap, roleModelsError, testPatternsError, workerArgs, worktreeCopyError, type Config, type LabelSpec, type Project } from './config.ts';
@@ -20,6 +20,7 @@ import { appendGateRun, gateIssueBody, gateIssueTitle, readGate, readGateRuns, r
 import { run as runCmd } from './exec.ts';
 import { dueRelease, release, releaseGate } from './release.ts';
 import { acquireSlot, DEFAULT_FLEET_WORKERS, readGithubHold, readHold, releaseSlot, writeGithubHold, writeHold } from './fleet.ts';
+import { checkGit, checkRelease, handover, hxRoot, installKind, readSelfUpdate, restart, selfUpdateConfigError, short, writeSelfUpdate, type Check } from './selfupdate.ts';
 import { findingBody, parseFindings, readSelfReview, selfReviewDecision, SELFREVIEW_PROMISE, writeSelfReview } from './selfreview.ts';
 import { appendSkills, resolveSkills, rtddCheck, rtddEnv, SKILL_CHECKS, skillNames, skillsLogLine, type Skill } from './skills.ts';
 
@@ -255,6 +256,8 @@ async function pool(p: Project, o: PoolOptions): Promise<number> {
   if (badPatterns) { log(`STOPPED: ${badPatterns}`); return 2; }
   const badHealth = healthConfigError(c);
   if (badHealth) { log(`STOPPED: ${badHealth}`); return 2; }
+  const badSelfUpdate = selfUpdateConfigError(c);
+  if (badSelfUpdate) { log(`STOPPED: ${badSelfUpdate}`); return 2; }
   // who may put work on the board: looked up once per run; without it nothing is read or claimed
   let trusted: Set<string>;
   try { trusted = await lookupTrusted(c); } catch (e: any) { log(`STOPPED: ${e.message}`); return 2; }
@@ -266,8 +269,10 @@ async function pool(p: Project, o: PoolOptions): Promise<number> {
   }
   // from here a rate-limited gh call waits out the limit and retries; Ctrl+C ends the wait
   gh.setGhWaitSignal(o.signal);
+  // started by a self-update (#253): the old runner (idle, claiming nothing) hands its run lock over and exits once ready
+  let ho = handover();
   const other = otherRunner(p.stateDir);
-  if (other) { log(`hx is already running for this repo (pid ${other.pid}, since ${other.startedAt}). Use hx status / hx pause.`); return 3; }
+  if (other && other.pid !== ho?.from) { log(`hx is already running for this repo (pid ${other.pid}, since ${other.startedAt}). Use hx status / hx pause.`); return 3; }
   const pausedMode = readPause(p.stateDir);
   if (pausedMode) { log(`paused (${pausedMode}) — run  hx resume  first.`); return 3; }
 
@@ -285,7 +290,8 @@ async function pool(p: Project, o: PoolOptions): Promise<number> {
   o.signal.addEventListener('abort', () => stop.abort(), { once: true });
   gh.setGhWaitSignal(stop.signal);
   const live: LiveState = { pid: process.pid, startedAt: new Date().toISOString(), repo: c.repo, workers: o.workers, sessions: [], skills: skillNames(skills.byRole), models };
-  const save = () => { try { writeLive(p.stateDir, live); } catch {} };
+  let handedOff = false; // a self-update's new runner may own live.json now: this one writes it no more
+  const save = () => { if (!handedOff) try { writeLive(p.stateDir, live); } catch {} };
   // HX_FLEET_DIR: every session also holds one of HX_FLEET_WORKERS file slots shared with the other runners
   const fleetDir = process.env.HX_FLEET_DIR || undefined;
   const fleetCap = Number(process.env.HX_FLEET_WORKERS) || DEFAULT_FLEET_WORKERS;
@@ -415,7 +421,9 @@ async function pool(p: Project, o: PoolOptions): Promise<number> {
     gs.fixIssue = Number(/\/issues\/(\d+)/.exec(url)?.[1]) || undefined;
     log(`gate: filed #${gs.fixIssue} to fix ${c.defaultBranch}`);
   };
-  await gateCheck();
+  // a self-update's new runner is ready at its first poll, which waits for this gate: the old runner's 120 s are not the gate's
+  const startGate = gateCheck();
+  if (!ho) await startGate;
 
   // autoRelease (PRD #139 §D10): due or not is derived from origin's tags, the commits and GitHub on every check,
   // nothing stored. One check at a time, in the background: it never blocks claims; a failure is retried later.
@@ -534,6 +542,43 @@ async function pool(p: Project, o: PoolOptions): Promise<number> {
     }
   };
 
+  // the self-update (#253): on an idle --watch board, at most every selfUpdateMinutes. Not in hx fleet run: the fleet
+  // owns its children. true: a new runner took over and this one exits.
+  const fleetChild = !!fleetDir || !!process.send;
+  if (c.selfUpdate && o.watch && fleetChild) log('self-update: off under hx fleet run');
+  let selfUpdateAt = -Infinity;
+  let selfUpdateSkip = ''; // the skip reason last logged: once per reason
+  const runArgs = ['run', '--watch', '--workers', String(o.workers), ...(o.only?.length ? ['--issue', o.only.join(',')] : [])];
+  const selfUpdateCheck = async (): Promise<boolean> => {
+    selfUpdateAt = Date.now();
+    const root = hxRoot(), kind = installKind(root);
+    const s = readSelfUpdate(p.stateDir);
+    const note = (line: string) => { log(line); s.last = { at: new Date().toISOString(), line }; try { writeSelfUpdate(p.stateDir, s); } catch {} };
+    let ch: Check;
+    try { ch = kind === 'git' ? await checkGit(root, s) : await checkRelease(root, s); }
+    catch (e: any) { ch = { kind: 'skip', why: `could not check (${String(e?.message ?? e).split(/\r?\n/)[0].slice(0, 200)})` }; }
+    if (ch.kind === 'skip') { if (ch.why !== selfUpdateSkip) { selfUpdateSkip = ch.why; note(`self-update: skipped — ${ch.why}`); } return false; }
+    selfUpdateSkip = '';
+    // the fetch took time: a session, a claim or a pause since then wins
+    if (ch.kind === 'none' || inFlight.size || live.sessions.length || live.draining || readPause(p.stateDir) || stop.signal.aborted) return false;
+    note(`self-update: ${short(ch.from)}..${short(ch.to)} (${kind === 'git' ? `${ch.files} files` : 'release'})`);
+    const rollback = async (reason: string) => {
+      const err = await ch.rollback();
+      s.bad = [...s.bad, ch.to];
+      s.detached = kind === 'git' ? ch.from : undefined;
+      note(`self-update: rolled back to ${short(ch.from)} (${reason}${err ? `; the rollback failed too: ${err}` : ''})`);
+    };
+    const failed = await ch.apply();
+    if (failed) { await rollback(failed); return false; }
+    handedOff = true;
+    const r = await restart({ root, args: runArgs, cwd: p.root, stateDir: p.stateDir });
+    if (r.ok) { s.detached = undefined; note(`self-update: restarted — pid ${r.pid} took over`); return true; }
+    handedOff = false;
+    save(); // the new runner may have written live.json before it died
+    await rollback(r.reason);
+    return false;
+  };
+
   const inFlight = new Map<string, Promise<void>>();
   let idleLogged = false;
   const skipped = new Set<number>(); // untrusted issues / PRDs already logged this run
@@ -541,6 +586,7 @@ async function pool(p: Project, o: PoolOptions): Promise<number> {
   let failures = 0;
   let engineRetries = 0;
   let fatal: string | undefined; // a setup error: stop claiming, let running sessions finish
+  let restarted = false; // a self-update's new runner took over
   let finished = 0; // sessions ended so far: a plan read while one was ending is already stale
   // shared: a hold copied from hold.json, never written back. A hold of the runner's own goes to hold.json too.
   const holdUntil = (until: number, why: string, shared = false) => {
@@ -601,6 +647,7 @@ async function pool(p: Project, o: PoolOptions): Promise<number> {
   log(`hx pool up — ${c.repo} · ${o.workers} worker(s) · model ${c.model}${c.effort ? ` (${c.effort} effort)` : ''} · max ${c.maxIterations} iterations/session`);
   try {
     while (!stop.signal.aborted && !fatal) {
+      if (ho) { try { writeFileSync(ho.ready, String(process.pid)); } catch {} ho = null; await startGate; }
       let actions: Action[] = [];
       let stuck: number[] = []; // labelled agent-working with no live session: hx never claims them again
       const finishedBefore = finished;
@@ -677,6 +724,8 @@ async function pool(p: Project, o: PoolOptions): Promise<number> {
           break;
         }
         if (engineOnly) { await sleep(2000, stop.signal); continue; }
+        if (o.watch && c.selfUpdate && !fleetChild && !gateRunning && !releasing && Date.now() - selfUpdateAt >= c.selfUpdateMinutes * 60_000
+          && await selfUpdateCheck()) { restarted = true; break; }
         if (o.watch) void releaseCheck();
         if (o.watch && !limited && !actions.length && Date.now() - healthAt >= c.healthEveryMinutes * 60_000 && await healthCheck()) continue;
         if (!idleLogged) { log(budgetBlocked ? 'budget: waiting for usage to leave room for the next session…' : githubLowNow() ? 'waiting for the GitHub API budget to reset…' : limited ? 'waiting for the usage limit to reset…' : 'board empty — watching for new issues'); idleLogged = true; }
@@ -697,8 +746,9 @@ async function pool(p: Project, o: PoolOptions): Promise<number> {
   } finally {
     clearInterval(watcher);
     unwatchFile(wakeFile, onWake);
-    clearLive(p.stateDir);
+    clearLive(p.stateDir, process.pid);
   }
+  if (restarted) return 0;
   if (fatal) {
     log(`STOPPED: Claude rejected the setup — ${fatal.slice(0, 300)}`);
     log(`check config.model ('${c.model}'), claude --version, and that claude is logged in; no issue was labelled.`);

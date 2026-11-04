@@ -435,6 +435,26 @@ what merged. Decisions:
   deterministic look and starts none. Its findings go through the bug lane, so triage drops what does not
   reproduce before anything is built.
 
+## Self-update (#253)
+
+Hx builds itself, so a watching runner would otherwise run the morning's code all afternoon. Decisions:
+- **Only when idle, and only for code.** The check runs in the idle branch of the loop (no session, nothing claimed,
+  no pause, no gate or release check running), so an update never cuts a session short. Prompts are read fresh for
+  each session: a prompts-only change needs no restart. Config is read once per run, so the restart picks it up too.
+- **Fast-forward or nothing.** The checkout is the maintainer's: it moves only when it is clean, on the default
+  branch and behind `origin`, with `git merge --ff-only`. Anything else is a reason to skip, logged once.
+- **Restart through a ready marker, not a pid check.** The new runner is started detached (on Windows a child that
+  is not detached dies with its parent's job) with the old pid and a marker path in its environment. It may take
+  the run lock from that pid only, and writes the marker at its first poll; its startup gate is not awaited before
+  that, so a long test suite never looks like a failed start. The old runner stops writing `live.json` once it has
+  started the new one and removes it on exit only while it is still its own, so the lock moves without a gap and
+  without two runners claiming.
+- **Roll back, record, carry on.** A new runner that exits or stays silent for 120 s means the merged code is
+  broken; the gate and the bug lane are where that gets fixed, so the runner files nothing: it moves the checkout
+  back (detached at the old sha, which the next check still accepts as the default branch), records the bad sha in
+  `.hx/selfupdate.json` and keeps working on the old code. A newer sha is tried.
+- **Not under `hx fleet run`:** the fleet owns its children and would read the old runner's exit as the end of the repo.
+
 ## Token optimisation (phase 4)
 
 Measured before (see the [benchmark](../README.md#benchmark), `bench/results/phase3/`):

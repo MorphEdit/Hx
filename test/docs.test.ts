@@ -408,3 +408,16 @@ test('self-check: README section, config rows, files, models per role, design.md
   const h = spawnSync(process.execPath, [path.join(root, 'bin', 'hx.mjs'), 'help'], { encoding: 'utf8' });
   assert.ok(h.stdout.includes('health [--fix]'), 'hx help names hx health [--fix]');
 });
+
+test('self-update: README paragraph in Stopping and resuming, config rows, Files entry, design decision, CLAUDE.md (#253)', () => {
+  const r = read('README.md'), d = read('docs/design.md'), c = read('CLAUDE.md');
+  const stop = r.slice(r.indexOf('## Stopping and resuming'), r.indexOf('\n## ', r.indexOf('## Stopping and resuming') + 1));
+  for (const w of ['**Self-update:**', 'selfUpdateMinutes', 'git merge --ff-only', 'prompts/', 'hx update', '120 s', 'rolled back',
+    'git checkout <old sha>', 'self-update: restarted', 'self-update: rolled back to', 'hx status', 'hx fleet run']) assert.ok(stop.includes(w), `Stopping and resuming: ${w}`);
+  assert.ok(hasRow(r, 'selfUpdate', `\`${DEFAULTS.selfUpdate}\``), 'selfUpdate row');
+  assert.ok(hasRow(r, 'selfUpdateMinutes', String(DEFAULTS.selfUpdateMinutes)), 'selfUpdateMinutes row');
+  const files = r.slice(r.indexOf('## Files'), r.indexOf('\n## ', r.indexOf('## Files') + 1));
+  assert.ok(files.includes('.hx/selfupdate.json'), 'Files: .hx/selfupdate.json');
+  assert.ok(d.includes('## Self-update (#253)'), 'design: Self-update');
+  assert.ok(c.includes('`selfupdate.ts`'), 'CLAUDE.md names selfupdate.ts');
+});
