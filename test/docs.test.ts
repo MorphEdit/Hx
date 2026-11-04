@@ -369,3 +369,42 @@ test('test time: README Where the time goes, gate-runs.jsonl, testPatterns, desi
   const c = read('CLAUDE.md');
   assert.ok(c.slice(c.indexOf('## Where things are'), c.indexOf('## Conventions')).includes('`timing.ts`'), 'timing.ts in the file map');
 });
+
+test('self-check: README section, config rows, files, models per role, design.md section, CLAUDE.md, help', () => {
+  const r = read('README.md');
+  const start = r.indexOf('## Self-check');
+  assert.ok(start >= 0, 'README has a Self-check section');
+  const sec = r.slice(start, r.indexOf('\n## ', start + 1));
+  for (const w of ['hx health', '--fix', 'hx run --watch', 'healthEveryMinutes', 'selfHeal: false', 'usage hold', 'GitHub budget',
+    '<!-- hx:health resume -->', '<!-- hx:health unblock <time> -->', '<!-- hx:health <key> -->', '`health:`', 'never refiled',
+    '.hx/selfreview.json', '<!-- hx:selfreview <sha> -->', 'selfReviewMaxFindings', 'selfReviewEveryHours', 'roleModels.selfreview',
+    'bug lane', 'hx status', 'dashboard', 'run log', 'NEEDS-INFO', 'force', 'main', 'remote branch', 'local branch'])
+    assert.ok(sec.includes(w), w);
+  // the checks in pass order
+  const order = ['**Stale PR**', '**Blocked after a passed audit**', '**Gate-fix issue on a green main**', '**Blocked by a transient error**',
+    '**Leftover worktrees**', '**Stuck labels**', '**Environment**'].map((w) => sec.indexOf(w));
+  assert.ok(order.every((i) => i >= 0), 'every check named');
+  assert.deepEqual([...order].sort((a, b) => a - b), order, 'checks in pass order');
+  for (const k of ['selfHeal'] as const) assert.ok(hasRow(r, k, `\`${DEFAULTS[k]}\``), k);
+  for (const k of ['healthEveryMinutes', 'selfReviewEveryHours', 'selfReviewMaxFindings'] as const) assert.ok(hasRow(r, k, String(DEFAULTS[k])), k);
+  const usage = r.slice(r.indexOf('## Usage'), r.indexOf('\n## ', r.indexOf('## Usage') + 1));
+  assert.ok(usage.includes('hx health [--fix]'), 'hx health in Usage');
+  const files = r.slice(r.indexOf('## Files'), r.indexOf('\n## ', r.indexOf('## Files') + 1));
+  for (const f of ['`.hx/health.json`', '`.hx/selfreview.json`']) assert.ok(files.includes(f), f);
+  const models = r.slice(r.indexOf('## Models per role'), r.indexOf('\n## ', r.indexOf('## Models per role') + 1));
+  assert.ok(models.includes('`selfreview`'), 'selfreview in Models per role');
+  const d = read('docs/design.md');
+  const ds = d.indexOf('## Self-check (PRD #194)');
+  assert.ok(ds >= 0, 'design.md has the Self-check section');
+  const dEnd = d.indexOf('\n## ', ds + 1);
+  const dsec = d.slice(ds, dEnd < 0 ? undefined : dEnd);
+  for (const w of ['src/health.ts', 'snapshot', 'gate-runs.jsonl', 'Twice green', 'marker', 'selfHeal: false', 'second resume'])
+    assert.ok(dsec.includes(w), w);
+  const c = read('CLAUDE.md');
+  const map = c.slice(c.indexOf('## Where things are'), c.indexOf('## Conventions'));
+  assert.ok(map.includes('`health.ts`'), 'health.ts in the file map');
+  assert.ok(existsSync(path.join(root, 'prompts', 'selfreview.md')), 'prompts/selfreview.md exists');
+  assert.ok(c.split('\n').find((l) => l.startsWith('- `prompts/`'))!.includes('`selfreview`'), 'selfreview among the prompts');
+  const h = spawnSync(process.execPath, [path.join(root, 'bin', 'hx.mjs'), 'help'], { encoding: 'utf8' });
+  assert.ok(h.stdout.includes('health [--fix]'), 'hx help names hx health [--fix]');
+});

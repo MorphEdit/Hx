@@ -392,6 +392,34 @@ Summed: 528.6 s → 281.7 s (−47%). The full suite on an idle machine is timed
   | `audit.test.ts` a repo that only takes auto-merge: hx waits for it to land instead of failing the issue | 10.4 | 5.0 |
   | **sum of the 20** | **528.6** | **281.7** |
 
+## Self-check (PRD #194)
+
+When the board runs dry, hx runs a health pass over its own state and, after a quiet period, a self-review of
+what merged. Decisions:
+- **Pure checks over one snapshot.** `src/health.ts` reads one snapshot (issues, PRs, trusted comments, live
+  sessions, worktrees with mtimes, `gate-runs.jsonl`, `health.json`, the head sha, the time) and each check is a
+  pure function from it to results and actions; the runner applies the actions, or only describes them
+  without `--fix`. Every check is tested without GitHub. The checks run in a fixed order and share a `seen` set,
+  so two checks never act on the same issue in one pass.
+- **Only the second resume files an issue.** The blocked-after-PASS check repairs an issue once
+  (`<!-- hx:health resume -->`); blocked again, the merge path itself is failing, which a PR can fix, so it
+  files one `health:` bug, found again by its `<!-- hx:health <key> -->` marker among closed issues too, so
+  it is never refiled. Every other ✗ waits for time or a gate run (it resolves itself on a later pass) or is
+  about the machine (doctor, disk), which no agent fixes through a PR: filing those would flood the bug lane.
+- **"Twice green" is read from `gate-runs.jsonl`**, the only record of more than one gate run. On an idle board
+  the head never moves and the pool re-runs the gate on a moved head only while it is red, so waiting for a
+  second run would wait forever. A pass in `hx run` with repairs on asks the runner's own gate check for one
+  more run when the last line is green but the last two are not both green at the head, never while one is
+  running; the next pass decides. `hx health` never starts a gate run.
+- **The unblock time lives in the comment marker** (`<!-- hx:health unblock <time> -->`): `commentBodies`
+  returns bodies without timestamps, so the once-per-24 h rule needs no new GitHub field and no local file,
+  and survives a lost `.hx`.
+- **Self-review only inside `hx run`, never with `selfHeal: false`.** It spends usage on an agent session, so
+  it runs only where holds, the budget gate and the fleet's worker slots apply, only after a pass that left
+  an empty board as it was, and only when the maintainer has left repairs on. `hx health` is a quick,
+  deterministic look and starts none. Its findings go through the bug lane, so triage drops what does not
+  reproduce before anything is built.
+
 ## Token optimisation (phase 4)
 
 Measured before (see the [benchmark](../README.md#benchmark), `bench/results/phase3/`):
