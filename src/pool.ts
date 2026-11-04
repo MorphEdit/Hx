@@ -1014,13 +1014,13 @@ async function waitClosed(repo: string, n: number, ms: number): Promise<boolean>
 }
 
 /** What the implementer's `ship --no-merge` recorded in its worktree (repo, base, test command, PR). */
-async function shipInfo(cwd: string): Promise<{ test?: string } | null> {
+export async function shipInfo(cwd: string): Promise<{ test?: string } | null> {
   const dir = (await runCmd('git', ['-C', cwd, 'rev-parse', '--absolute-git-dir'])).stdout.trim();
   try { return JSON.parse(readFileSync(path.join(dir, 'hx-ship.json'), 'utf8')); } catch { return null; }
 }
 
 /** Rebase, re-test, push and merge the audited branch (ship.mjs --resume, run by hx, not by an agent). */
-async function mergeAudited(cwd: string, c: Config, testCmd: string): Promise<{ ok: boolean; retry: boolean; code: number; output: string }> {
+export async function mergeAudited(cwd: string, c: Config, testCmd: string): Promise<{ ok: boolean; retry: boolean; code: number; output: string }> {
   // no hx-ship.json (a PR opened outside ship): ship rebuilds it from the branch's PR with this repo and test command
   const fallback = (await shipInfo(cwd)) ? [] : ['--repo', c.repo, '--base', c.defaultBranch, ...(testCmd ? ['--test', testCmd] : [])];
   return new Promise((resolve) => {

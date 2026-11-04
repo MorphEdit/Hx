@@ -6,11 +6,12 @@ import path from 'node:path';
 import type { Config, Project } from './config.ts';
 import { doctor, type Check } from './doctor.ts';
 import { run } from './exec.ts';
-import { readGateRuns, remoteSha, type GateRun } from './gate.ts';
+import { readGate, readGateRuns, remoteSha, type GateRun } from './gate.ts';
 import * as gh from './github.ts';
+import { AUDIT_MARKER, mergeAudited, shipInfo } from './pool.ts';
 import { pidAlive, readLive } from './runstate.ts';
 import { trustedSet } from './state.ts';
-import { removeWorktree } from './worktree.ts';
+import { addWorktree, implWorktree, removeWorktree } from './worktree.ts';
 
 /** .hx/health.json: when a pass first saw each stuck claim (number → ISO time) and the last pass's summary line. */
 export interface HealthFile { stuck?: Record<string, string>; last?: { at: string; line: string } }
@@ -44,6 +45,10 @@ export type HealthAction =
   | { kind: 'close-pr'; pr: number; issue: number; comment: string; result: HealthResult; would: string }
   | { kind: 'remove-label'; issue: number; label: string; result: HealthResult; would: string }
   | { kind: 'remove-worktree'; name: string; result: HealthResult; would: string }
+  | { kind: 'resume'; issue: number; pr: number; result: HealthResult; would: string } // ship.mjs --resume; failed: sent back
+  | { kind: 'send-back'; issue: number; why: string; result: HealthResult; would: string } // to ready-for-agent, with a resume comment
+  | { kind: 'unblock'; issue: number; comment: string; result: HealthResult; would: string }
+  | { kind: 'file'; key: string; title: string; body: string; result: HealthResult; would: string } // a `health:` bug issue
   | { kind: 'first-seen'; issue: number; at: string } // bookkeeping: applied with repairs on or off
   | { kind: 'forget-seen'; issue: number };
 
@@ -54,6 +59,33 @@ export type HealthCheck = (s: HealthSnapshot, seen: Set<number>) => CheckOutput;
 
 export const DISK_MIN_BYTES = 5 * 1024 ** 3;
 const DAY_MS = 86_400_000;
+
+/** Every comment the blocked-after-PASS check writes carries it: an issue that has one is not repaired again. */
+export const RESUME_MARKER = '<!-- hx:health resume -->';
+/** The start of a transient unblock comment: `<!-- hx:health unblock <ISO time> -->`. */
+export const unblockMarker = (at: number) => `<!-- hx:health unblock ${new Date(at).toISOString()} -->`;
+/** The marker in a filed `health:` issue's body: `<!-- hx:health <check>:<subject> -->`. */
+export const healthKeyMarker = (key: string) => `<!-- hx:health ${key} -->`;
+
+/** Stop reasons whose cause is gone by the time a pass runs (it runs only outside usage holds and a low GitHub budget). */
+export const TRANSIENT_PATTERNS: RegExp[] = [/stalled: no output/i, /turn timed out after/i, /claude exited -?\d+ with no result/i,
+  /API 429/i, /API 5\d\d/i, /rate limit/i];
+
+/** The reason of a pool fail() stop comment (`**hx:** <kind> stopped — <reason>`, up to `Last reply:`), or null. */
+export function stopReason(body: string): string | null {
+  const m = /^\*\*hx:\*\* \S+ stopped — ([\s\S]*)$/.exec(body.trimStart());
+  return m ? m[1].split('Last reply:')[0].trim() : null;
+}
+
+/** A stop reason the transient-block check may undo: it matches a pattern and is not a failed merge. */
+export const isTransient = (reason: string): boolean =>
+  !/^merging the audited PR failed/i.test(reason) && TRANSIENT_PATTERNS.some((p) => p.test(reason));
+
+/** Whether the last hx audit comment says PASS ✓. */
+const lastAuditPassed = (comments: string[]): boolean => {
+  const audit = comments.filter((b) => b.trimStart().startsWith(AUDIT_MARKER)).at(-1);
+  return !!audit && audit.includes('PASS ✓');
+};
 
 const issueOf = (branch: string): number | null => { const m = /^issue\/(\d+)$/.exec(branch); return m ? Number(m[1]) : null; };
 
@@ -75,6 +107,75 @@ export const stalePrCheck: HealthCheck = (s, seen) => {
     actions.push({ kind: 'close-pr', pr: pr.number, issue: n, comment: `**hx:** closing — ${why}`, result, would: `would close PR #${pr.number}` });
   }
   if (!results.length) results.push({ mark: '✓', text: 'stale PRs — none' });
+  return { results, actions };
+};
+
+/** The open agent-blocked issues no live session holds and no earlier check took, with their trusted comments. */
+const blockedIssues = (s: HealthSnapshot, seen: Set<number>) =>
+  s.issues.filter((i) => i.state === 'OPEN' && i.labels.includes(s.config.labels.blocked) && !s.live.has(i.number) && !seen.has(i.number))
+    .map((i) => ({ n: i.number, comments: s.comments.get(i.number) ?? [], pr: s.openPrs.find((p) => issueOf(p.headRefName) === i.number) }));
+
+/**
+ * An agent-blocked issue with an open PR from issue/<N> whose last hx audit passed: MERGEABLE → the ship resume path,
+ * CONFLICTING → back to ready-for-agent, anything else (UNKNOWN) → wait. Once per issue: blocked again after a
+ * resume comment, it files a `health:` issue instead (unless one with its marker exists, open or closed).
+ */
+export const blockedAfterPassCheck: HealthCheck = (s, seen) => {
+  const results: HealthResult[] = [], actions: HealthAction[] = [];
+  const L = s.config.labels;
+  for (const { n, comments, pr } of blockedIssues(s, seen)) {
+    if (!pr || !lastAuditPassed(comments)) continue;
+    seen.add(n);
+    if (comments.some((b) => b.includes(RESUME_MARKER))) {
+      const key = `resume:${n}`;
+      const filed = s.issues.find((x) => x.body.includes(healthKeyMarker(key)));
+      if (filed) { results.push({ mark: '✗', text: `#${n} ${L.blocked} again after its resume — health issue #${filed.number} is filed` }); continue; }
+      const result: HealthResult = { mark: '✗', text: `#${n} ${L.blocked} again after its audited PR #${pr.number} was resumed once` };
+      results.push(result);
+      actions.push({ kind: 'file', key, result, would: 'would file a health: issue',
+        title: `health: #${n} blocked again after its audited PR #${pr.number} was resumed`,
+        body: `${healthKeyMarker(key)}\nIssue #${n} passed its audit (PR #${pr.number} is open), was resumed once by the health pass, and is labelled \`${L.blocked}\` again. `
+          + `The health pass does not repair it a second time. Read the comments on #${n}, find why the merge keeps failing, and fix that.` });
+    } else if (pr.mergeable === 'MERGEABLE') {
+      const result: HealthResult = { mark: '✗', text: `#${n} ${L.blocked} after a passed audit — PR #${pr.number} is mergeable` };
+      results.push(result);
+      actions.push({ kind: 'resume', issue: n, pr: pr.number, result, would: `would merge PR #${pr.number} (ship --resume)` });
+    } else if (pr.mergeable === 'CONFLICTING') {
+      const result: HealthResult = { mark: '✗', text: `#${n} ${L.blocked} after a passed audit — PR #${pr.number} conflicts with the base`, fix: `sent #${n} back to ${L.ready}` };
+      results.push(result);
+      actions.push({ kind: 'send-back', issue: n, why: `PR #${pr.number} conflicts with the base branch`, result, would: `would send it back to ${L.ready}` });
+    } else {
+      results.push({ mark: '✗', text: `#${n} ${L.blocked} after a passed audit — PR #${pr.number} mergeable is ${pr.mergeable ?? 'unknown'}, waiting` });
+    }
+  }
+  if (!results.length) results.push({ mark: '✓', text: 'blocked after a passed audit — none' });
+  return { results, actions };
+};
+
+/**
+ * An agent-blocked issue whose last hx comment is a pool stop with a transient reason: unblocked, at most once
+ * per issue per 24 h. Every other block is not a finding: neither reported nor filed.
+ */
+export const transientBlockCheck: HealthCheck = (s, seen) => {
+  const results: HealthResult[] = [], actions: HealthAction[] = [];
+  const L = s.config.labels;
+  for (const { n, comments, pr } of blockedIssues(s, seen)) {
+    if (pr && lastAuditPassed(comments)) continue; // the blocked-after-PASS check's, whatever its stop comment says
+    const reason = stopReason(comments.at(-1) ?? '');
+    if (reason === null || !isTransient(reason)) continue;
+    seen.add(n);
+    const last = Math.max(-Infinity, ...comments.map((b) => /^<!-- hx:health unblock (\S+) -->/.exec(b.trimStart())?.[1] ?? '')
+      .map(Date.parse).filter((t) => !Number.isNaN(t)));
+    if (s.now - last < DAY_MS) {
+      results.push({ mark: '✗', text: `#${n} ${L.blocked} by a transient error again — unblocked ${Math.floor((s.now - last) / 3_600_000)} h ago, once per 24 h` });
+      continue;
+    }
+    const result: HealthResult = { mark: '✗', text: `#${n} ${L.blocked} by a transient error — ${reason.split('\n')[0].slice(0, 160)}`, fix: `unblocked #${n}` };
+    results.push(result);
+    actions.push({ kind: 'unblock', issue: n, result, would: `would remove ${L.blocked}`,
+      comment: `${unblockMarker(s.now)}\n**hx:** unblocked — the stop was transient: ${reason}` });
+  }
+  if (!results.length) results.push({ mark: '✓', text: 'blocked by a transient error — none' });
   return { results, actions };
 };
 
@@ -141,9 +242,9 @@ export const environmentCheck: HealthCheck = (s) => {
 /** The checks in pass order. A null slot is a check a later issue adds: it only puts its function there. */
 export const CHECKS: { name: string; check: HealthCheck | null }[] = [
   { name: 'stale-pr', check: stalePrCheck },
-  { name: 'blocked-after-pass', check: null },
+  { name: 'blocked-after-pass', check: blockedAfterPassCheck },
   { name: 'gate-fix', check: null },
-  { name: 'transient-block', check: null },
+  { name: 'transient-block', check: transientBlockCheck },
   { name: 'leftover-worktree', check: leftoverWorktreeCheck },
   { name: 'stuck-label', check: stuckLabelCheck },
   { name: 'environment', check: environmentCheck },
@@ -212,6 +313,7 @@ export interface HealthOptions {
   now?: number;
   live?: Set<number>; // the numbers in a live session (default: live.json's sessions when its pid is alive)
   env?: () => Promise<HealthEnv | null>; // default: doctor() and the free disk of the worktree root
+  merged?: (test?: string) => void; // hx run: a merge this pass made (its post-merge gate check runs); hx health passes none
 }
 
 export interface HealthPass { results: HealthResult[]; line: string; code: number }
@@ -236,11 +338,43 @@ async function snapshot(p: Project, o: HealthOptions, now: number): Promise<Heal
     health: readHealth(p.stateDir), headSha, now, config: { stallMinutes: c.stallMinutes, labels: c.labels }, env };
 }
 
-async function repair(p: Project, a: Repair): Promise<void> {
+/** Back to ready-for-agent with a resume comment: the next impl session resumes issue/<N>. */
+async function sendBack(p: Project, n: number, why: string, output?: string): Promise<void> {
+  const L = p.config.labels;
+  await gh.editLabels(p.config.repo, n, [L.ready], [L.blocked]);
+  const tail = output ? `\n\nShip output (tail):\n\n\`\`\`\n${output.trim().split('\n').slice(-30).join('\n').slice(-3000)}\n\`\`\`` : '';
+  await gh.comment(p.config.repo, n, `${RESUME_MARKER}\n**hx:** the audit passed, but ${why}. Back to \`${L.ready}\`: `
+    + `the next session resumes branch \`issue/${n}\`.${tail}`);
+}
+
+/** Applies one repair; returns how its line reads once done (`fix`, and `filed` for a filed issue). */
+async function repair(p: Project, a: Repair, o: HealthOptions): Promise<{ fix: string; mark?: HealthMark } | void> {
   const c = p.config;
   if (a.kind === 'close-pr') await gh.closePr(c.repo, a.pr, a.comment);
   else if (a.kind === 'remove-label') await gh.editLabels(c.repo, a.issue, [], [a.label]);
-  else {
+  else if (a.kind === 'unblock') {
+    await gh.editLabels(c.repo, a.issue, [], [c.labels.blocked]);
+    await gh.comment(c.repo, a.issue, a.comment);
+  } else if (a.kind === 'send-back') await sendBack(p, a.issue, a.why);
+  else if (a.kind === 'file') {
+    const url = await gh.createIssue(c.repo, a.title, a.body, [c.labels.bug]);
+    return { fix: `#${/\/issues\/(\d+)/.exec(url)?.[1] ?? url}`, mark: 'filed' };
+  } else if (a.kind === 'resume') {
+    // the same path as a merge right after the audit: ship.mjs --resume in i<N> (state rebuilt from the PR when missing)
+    const wt = await addWorktree(p.root, c.worktreeRoot, implWorktree(a.issue, c.defaultBranch));
+    const m = await mergeAudited(wt.dir, c, c.gateCommand || readGate(p.stateDir).command || '');
+    if (m.code !== 0) {
+      const why = m.code === 3 ? 'its branch conflicts with the base after a rebase' : m.code === 4 ? 'the tests fail after rebasing it' : `merging it failed (ship exit ${m.code})`;
+      await sendBack(p, a.issue, why, m.output);
+      return { fix: `sent #${a.issue} back to ${c.labels.ready} (ship exit ${m.code})` };
+    }
+    if (!m.ok || (await gh.issueState(c.repo, a.issue)) !== 'CLOSED') throw new Error(`no merge yet: ${m.output.split('\n').at(-1)?.slice(0, 160)}`);
+    const shipped = await shipInfo(wt.dir);
+    await gh.editLabels(c.repo, a.issue, [], [c.labels.blocked]);
+    await removeWorktree(p.root, wt.dir);
+    o.merged?.(shipped?.test);
+    return { fix: `merged PR #${a.pr} (#${a.issue})` };
+  } else {
     const dir = path.join(c.worktreeRoot, a.name);
     await removeWorktree(p.root, dir); // never throws; the local branch is kept
     if (existsSync(dir)) throw new Error(`${dir} is still there (in use?)`);
@@ -259,8 +393,9 @@ export async function healthPass(p: Project, o: HealthOptions): Promise<HealthPa
     if (a.kind === 'forget-seen') { delete h.stuck![String(a.issue)]; continue; }
     if (!o.repairs) { a.result.text += ` — ${a.would}`; continue; }
     try {
-      await repair(p, a);
-      a.result.mark = 'fixed';
+      const done = await repair(p, a, o);
+      a.result.mark = done?.mark ?? 'fixed';
+      if (done) a.result.fix = done.fix;
       a.result.text = `${a.result.fix} (${a.result.text})`;
       if (a.kind === 'remove-label') delete h.stuck![String(a.issue)];
     } catch (e: any) {
