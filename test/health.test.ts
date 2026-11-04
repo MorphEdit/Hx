@@ -31,7 +31,7 @@ function snap(o: Partial<Snap> = {}): Snap {
 
 // ---- pure checks ----
 
-test('stale PR: issue closed, or another merged PR from issue/<N> → close with a comment; a live issue is skipped', () => {
+test('stale PR: issue closed, or another merged PR from issue/<N> → close with a comment; a live issue is skipped', E2E, () => {
   const s = snap({
     issues: [issue(5, 'CLOSED'), issue(6, 'OPEN'), issue(7, 'OPEN'), issue(8, 'CLOSED')],
     openPrs: [{ number: 91, headRefName: 'issue/5' }, { number: 92, headRefName: 'issue/6' }, { number: 93, headRefName: 'issue/7' }, { number: 94, headRefName: 'issue/8' }],
@@ -48,7 +48,7 @@ test('stale PR: issue closed, or another merged PR from issue/<N> → close with
   assert.deepEqual(H.stalePrCheck(snap(), new Set()).results, [{ mark: '✓', text: 'stale PRs — none' }]);
 });
 
-test('stuck label: first seen → record, young → wait, older than stallMinutes → remove agent-working only; gone → forget', () => {
+test('stuck label: first seen → record, young → wait, older than stallMinutes → remove agent-working only; gone → forget', E2E, () => {
   const issues = [issue(3, 'OPEN', [L.ready, L.working]), issue(4, 'OPEN', [L.working])];
   const first = H.stuckLabelCheck(snap({ issues, live: new Set([4]) }), new Set());
   assert.deepEqual(first.actions, [{ kind: 'first-seen', issue: 3, at: new Date(NOW).toISOString() }]);
@@ -64,7 +64,7 @@ test('stuck label: first seen → record, young → wait, older than stallMinute
   assert.equal(gone.results[0].mark, '✓');
 });
 
-test('leftover worktree: only i/a/t/p<N>, N not open, older than 24 h', () => {
+test('leftover worktree: only i/a/t/p<N>, N not open, older than 24 h', E2E, () => {
   const old = NOW - 25 * HOUR;
   const s = snap({
     issues: [issue(71, 'CLOSED'), issue(72, 'CLOSED'), issue(73, 'OPEN'), issue(74, 'CLOSED')],
@@ -75,7 +75,7 @@ test('leftover worktree: only i/a/t/p<N>, N not open, older than 24 h', () => {
   assert.deepEqual(actions.map((a: any) => a.name), ['i71', 'a74', 'p75']);
 });
 
-test('environment: a failing doctor check and disk below 5 GB are ✗, with no action', () => {
+test('environment: a failing doctor check and disk below 5 GB are ✗, with no action', E2E, () => {
   const env = { checks: [{ mark: '✓' as const, label: 'git', required: true }, { mark: '✗' as const, label: 'gh logged in', detail: 'not logged in', fix: 'gh auth login', required: true },
     { mark: '?' as const, label: 'GitHub origin', required: true }], freeBytes: 2 * 1024 ** 3 };
   const r = H.environmentCheck(snap({ env }), new Set());
@@ -87,7 +87,7 @@ test('environment: a failing doctor check and disk below 5 GB are ✗, with no a
   assert.equal(ok.results[0].mark, '✓');
 });
 
-test('seen: an issue an earlier check acted on is not looked at by a later one', () => {
+test('seen: an issue an earlier check acted on is not looked at by a later one', E2E, () => {
   const s = snap({
     issues: [issue(5, 'OPEN', [L.working]), issue(6, 'CLOSED')],
     openPrs: [{ number: 92, headRefName: 'issue/5' }, { number: 93, headRefName: 'issue/6' }],
@@ -100,7 +100,7 @@ test('seen: an issue an earlier check acted on is not looked at by a later one',
   assert.deepEqual(H.CHECKS.map((c) => c.name), ['stale-pr', 'blocked-after-pass', 'gate-fix', 'transient-block', 'stuck-label', 'leftover-worktree', 'environment']);
 });
 
-test('healthLine: k ✓ always; ✗, fixed and filed only when above 0', () => {
+test('healthLine: k ✓ always; ✗, fixed and filed only when above 0', E2E, () => {
   assert.equal(H.healthLine([{ mark: '✓', text: 'a' }, { mark: '✓', text: 'b' }, { mark: '✓', text: 'c' },
     { mark: 'fixed', text: 'x', fix: 'closed stale PR #91' }, { mark: 'fixed', text: 'y', fix: 'removed worktree i71' },
     { mark: 'filed', text: 'z', fix: '#200' }]), 'health: 3 ✓ · fixed 2 (closed stale PR #91, removed worktree i71) · filed 1 (#200)');
@@ -108,7 +108,7 @@ test('healthLine: k ✓ always; ✗, fixed and filed only when above 0', () => {
   assert.equal(H.healthLine([]), 'health: 0 ✓');
 });
 
-test('config: selfHeal and healthEveryMinutes defaults and validation', () => {
+test('config: selfHeal and healthEveryMinutes defaults and validation', E2E, () => {
   assert.equal(DEFAULTS.selfHeal, true);
   assert.equal(DEFAULTS.healthEveryMinutes, 60);
   assert.equal(healthConfigError({ selfHeal: false, healthEveryMinutes: 30 }), null);
@@ -259,7 +259,7 @@ test('hx health reports only; hx health --fix repairs with selfHeal false', E2E,
   assert.ok(!existsSync(path.join(r.wt, 'i71')));
 });
 
-test('hx health is in the help', () => {
+test('hx health is in the help', E2E, () => {
   const r = spawnSync(process.execPath, [path.join(here, '..', 'bin', 'hx.mjs'), 'help'], { encoding: 'utf8' });
   assert.match(r.stdout, /health \[--fix\]/);
 });
