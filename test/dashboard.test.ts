@@ -4,7 +4,7 @@ import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { request } from 'node:http';
-import { createServer } from 'node:net';
+import { createServer, Server } from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -297,6 +297,22 @@ test('a port in use: the next one is tried', E2E, async () => {
     const d = await start({ port });
     assert.ok(d.port > port && d.port <= port + 9, String(d.port));
   } finally { await new Promise((r) => busy.close(r)); }
+});
+
+test('a reserved port (EACCES, as in a Windows excluded port range): the next one is tried', E2E, async () => {
+  const port = await freePort();
+  const listen = Server.prototype.listen;
+  Server.prototype.listen = function (this: Server, ...args: any[]) {
+    if (args[0] !== port) return (listen as any).apply(this, args);
+    const e: any = new Error(`listen EACCES: permission denied 127.0.0.1:${port}`);
+    e.code = 'EACCES';
+    process.nextTick(() => this.emit('error', e));
+    return this;
+  } as any;
+  try {
+    const d = await start({ port });
+    assert.ok(d.port > port && d.port <= port + 9, String(d.port));
+  } finally { Server.prototype.listen = listen; }
 });
 
 test('tailLines reads the last n lines of a file larger than one read chunk', E2E, () => {
