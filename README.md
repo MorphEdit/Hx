@@ -721,7 +721,7 @@ and the dashboard's per-model numbers use it). To spot one:
 |---|---|---|
 | `trustedAuthors` | `[]` | accounts besides the gh login whose issues and PRDs hx works on (case-insensitive); anything opened by anyone else is skipped and shown as `untrusted` |
 | `roleSkills` | `{"impl":["rtdd"],"audit":["rtdd"]}` | role → skills (`SKILL.md` from `<repo>/.claude/skills`, `~/.claude/skills`, `<repo>/.agents/skills`) appended to its prompt, resolved once per `hx run` (logged, and in `live.json`); `{}` = none. rtdd is used only when `.rtdd/config.yaml` is on `origin/<defaultBranch>` and `rtddBin --version` works; its sessions get `prompts/skills/rtdd.md` too, and a path `rtddBin` its directory first on `PATH` |
-| `roleModels` | `{}` | role (`impl`, `audit`, `triage`, `decompose`, `critic`, `revise`, `review`, `security`) → `{ "model", "effort" }` for its sessions; a field left out uses `model` / `effort` (see [Models per role](#models-per-role)) |
+| `roleModels` | `{}` | role (`impl`, `audit`, `triage`, `decompose`, `critic`, `revise`, `review`, `security`, `selfreview`) → `{ "model", "effort" }` for its sessions; a field left out uses `model` / `effort` (see [Models per role](#models-per-role)) |
 | `skillMaxChars` | `12000` | a skill whose `SKILL.md` body (front matter and HTML comments stripped) is longer is skipped |
 | `rtddBin` | `"rtdd"` | the `rtdd` command (`HX_RTDD_BIN` overrides it) |
 | `workers` | 2 | sessions running in parallel |
@@ -754,6 +754,8 @@ and the dashboard's per-model numbers use it). To spot one:
 | `pollSeconds` | 60 | how often the board is re-read |
 | `selfHeal` | `true` | `hx run` runs a health pass when the board is idle (`--watch`: at most every `healthEveryMinutes`; a plain run: once before it exits; never during a usage hold or a low GitHub budget) and applies its repairs, asking its gate for one more run when a gate-fix issue has only one green run at the head; `false`: the pass only reports (`hx health --fix` repairs even then). Its lines go to the run log |
 | `healthEveryMinutes` | 60 | minutes between `hx run --watch`'s health passes |
+| `selfReviewEveryHours` | 12 | after a health pass in `hx run` that changed nothing (`selfHeal` on, nothing claimable), a `selfreview` session reviews what merged on the default branch since the head in `.hx/selfreview.json`, at most this often; its findings become `bug` issues carrying `<!-- hx:selfreview <sha> -->`. With no `selfreview.json` (or a sha the head does not descend from) the head is recorded and no session runs. A session that does not finish records nothing |
+| `selfReviewMaxFindings` | 5 | findings of one self-review filed as `bug` issues; the rest are dropped |
 | `worktreeRoot` | `<drive>:\hx-wt\<repo>` | keep it short: Windows path-length limits |
 | `worktreeSetup` | `""` | a shell command run in every new worktree (sessions and the gate) before it is used, e.g. `npm ci`; `hx init` proposes one from the lockfile (see [Worktree setup](#worktree-setup)) |
 | `worktreeSetupMinutes` | `10` | the setup command is killed, with its process tree, after this long and counts as failed |

@@ -10,6 +10,7 @@
 //              (SECURITYSTRANGER: an untrusted account, mallory, posts one instead)
 //   revise:    appends its marker to the body with `gh issue edit --body-file` (REVISENOOP in the body: changes nothing)
 //   triage:    posts a verdict comment per the issue body (see finish())
+//   selfreview: prints FAKE_CLAUDE_FINDINGS (default 0) `## Finding` blocks and its promise
 //   grill:     interactive (prompt as the last argument, not stdin): writes a PRD to the output path the prompt
 //              names (FAKE_GRILL_NOWRITE=1: writes nothing, =blank: whitespace only) and exits
 //   issue:     the same for `hx issue`: writes a small issue to its output path (same FAKE_GRILL_NOWRITE)
@@ -228,6 +229,12 @@ function finish(st, checkpoint, prompt) {
     return reply(failing ? `VERDICT: FAIL\nFINDINGS:\n- issue #${st.n} requires X — code does Y — ran it\n\n${done()}`
       : `VERDICT: PASS\nFINDINGS:\n- issue #${st.n} criterion 1: writes impl-${st.n}.txt — impl-${st.n}.txt:1 — \`git show --stat HEAD\` → impl-${st.n}.txt | 1 +\n`
         + `- issue #${st.n} criterion 2: tests pass — test/x.test.ts:3 — \`npm test\` → pass 3, fail 0\n\n${done()}`);
+  }
+  // self-review: FAKE_CLAUDE_FINDINGS=<k> finding blocks (default none), then its promise
+  if (st.role === 'selfreview' && !checkpoint) {
+    const k = Number(process.env.FAKE_CLAUDE_FINDINGS ?? 0);
+    const blocks = Array.from({ length: k }, (_, i) => `## Finding: defect ${i + 1} in ${path.basename(process.cwd())}\nFile: src/x.ts:${i + 1}\nWhat breaks: it throws\nReproduce: node x ${i + 1}\n`);
+    return reply(`${blocks.join('\n')}\n<promise>SELFREVIEW DONE</promise>`);
   }
   const text = locked(boardFile, () => {
     const b = loadBoard();
