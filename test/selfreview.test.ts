@@ -58,7 +58,7 @@ const plain = (r: Repo, only = [999]) => { const before = new Set(readdirSync(fa
 
 // ---- pure ----
 
-test('parseFindings: each `## Finding` block up to the cap, the promise and text outside blocks dropped', () => {
+test('parseFindings: each `## Finding` block up to the cap, the promise and text outside blocks dropped', E2E, () => {
   const text = 'I looked.\n\n## Finding: off by one\nFile: a.ts:3\nWhat breaks: x\nReproduce: y\n\n## Finding: null deref\nFile: b.ts:9\nWhat breaks: z\nReproduce: w\n'
     + '## Finding: third\nFile: c.ts:1\n\n<promise>SELFREVIEW DONE</promise>';
   const f = parseFindings(text, 2);
@@ -70,7 +70,7 @@ test('parseFindings: each `## Finding` block up to the cap, the promise and text
   assert.equal(findingBody(f[0], 'abc'), `${f[0].body}\n\n<!-- hx:selfreview abc -->\n`);
 });
 
-test('selfReviewDecision: record without state or with a sha the head does not descend from; otherwise commits and hours decide', () => {
+test('selfReviewDecision: record without state or with a sha the head does not descend from; otherwise commits and hours decide', E2E, () => {
   const now = Date.parse('2026-11-04T12:00:00Z');
   const s = { sha: 'a', at: new Date(now - 13 * HOUR).toISOString() };
   assert.equal(selfReviewDecision(null, { ancestor: false, commits: 0, now, everyHours: 12 }).kind, 'record');
@@ -80,7 +80,7 @@ test('selfReviewDecision: record without state or with a sha the head does not d
   assert.deepEqual(selfReviewDecision(s, { ancestor: true, commits: 2, now, everyHours: 12 }), { kind: 'review', since: 'a' });
 });
 
-test('config: selfReviewEveryHours and selfReviewMaxFindings have defaults and are validated; roleModels.selfreview is accepted', () => {
+test('config: selfReviewEveryHours and selfReviewMaxFindings have defaults and are validated; roleModels.selfreview is accepted', E2E, () => {
   assert.equal(DEFAULTS.selfReviewEveryHours, 12);
   assert.equal(DEFAULTS.selfReviewMaxFindings, 5);
   assert.equal(healthConfigError({ selfReviewEveryHours: 6, selfReviewMaxFindings: 3 }), null);
