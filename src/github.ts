@@ -151,8 +151,8 @@ export async function viewOpenPr(repo: string, branch: string): Promise<number |
   } catch { return null; }
 }
 
-export async function closeIssue(repo: string, n: number, commentBody: string): Promise<void> {
-  await ghOk(['issue', 'close', String(n), '-R', repo, '--comment', commentBody]);
+export async function closeIssue(repo: string, n: number, commentBody: string, reason?: 'completed' | 'not planned'): Promise<void> {
+  await ghOk(['issue', 'close', String(n), '-R', repo, '--comment', commentBody, ...(reason ? ['--reason', reason] : [])]);
 }
 
 /** number → state for every issue and PR in the repo (a `Blocked by` ref may name either). */

@@ -107,7 +107,9 @@ test('through the pool: a stalled issue is handed back as after a timed-out turn
   assert.deepEqual(by(1).labels.sort(), by(2).labels.sort(), 'same labels as after a timeout');
   assert.ok(!by(1).labels.includes(L.working), 'not left agent-working');
   assert.equal(by(1).state, by(2).state);
-  const comment = (n: number) => s.comments.filter((c: any) => c.issue === n).map((c: any) => c.body.split('\n')[0]);
+  // the exit-time health pass unblocks each transient stop once: its marker differs only in the time
+  const comment = (n: number) => s.comments.filter((c: any) => c.issue === n)
+    .map((c: any) => c.body.split('\n')[0].replace(/(<!-- hx:health unblock )\S+/, '$1T'));
   assert.deepEqual(comment(1).map((b: string) => b.replace(/stalled: no output for 0\.02 min/, 'X')),
     comment(2).map((b: string) => b.replace(/turn timed out after \d+ min/, 'X')), 'same hand-back comment but the error');
 });

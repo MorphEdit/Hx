@@ -6,7 +6,7 @@ import path from 'node:path';
 import type { Config, Project } from './config.ts';
 import { doctor, type Check } from './doctor.ts';
 import { run } from './exec.ts';
-import { readGate, readGateRuns, remoteSha, type GateRun } from './gate.ts';
+import { readGate, readGateRuns, remoteSha, writeGate, type GateRun } from './gate.ts';
 import * as gh from './github.ts';
 import { AUDIT_MARKER, mergeAudited, shipInfo } from './pool.ts';
 import { pidAlive, readLive } from './runstate.ts';
@@ -49,6 +49,8 @@ export type HealthAction =
   | { kind: 'send-back'; issue: number; why: string; result: HealthResult; would: string } // to ready-for-agent, with a resume comment
   | { kind: 'unblock'; issue: number; comment: string; result: HealthResult; would: string }
   | { kind: 'file'; key: string; title: string; body: string; result: HealthResult; would: string } // a `health:` bug issue
+  | { kind: 'close-issue'; issue: number; comment: string; result: HealthResult; would: string } // closed as not planned
+  | { kind: 'request-gate'; issue: number; result: HealthResult } // one more gate run: only a runner with a gate applies it
   | { kind: 'first-seen'; issue: number; at: string } // bookkeeping: applied with repairs on or off
   | { kind: 'forget-seen'; issue: number };
 
@@ -179,6 +181,37 @@ export const transientBlockCheck: HealthCheck = (s, seen) => {
   return { results, actions };
 };
 
+export const WAITING_GATE = 'waiting for a second green gate run';
+
+/** An open gate-fix issue: closed when the last two gate runs are green at origin's head; one more gate run asked for
+ *  while only the last is green there; left alone while the last is red or there is none (the issue is real). */
+export const gateFixCheck: HealthCheck = (s, seen) => {
+  const results: HealthResult[] = [], actions: HealthAction[] = [];
+  const last = s.gateRuns.at(-1), prev = s.gateRuns.length > 1 ? s.gateRuns.at(-2) : undefined;
+  const greenAtHead = (r?: GateRun) => !!r && r.ok && !!s.headSha && r.sha === s.headSha;
+  for (const i of s.issues) {
+    if (i.state !== 'OPEN' || !i.labels.includes(s.config.labels.gateFix) || s.live.has(i.number) || seen.has(i.number)) continue;
+    if (!last || !last.ok) {
+      results.push({ mark: '✓', text: `gate-fix #${i.number} — main is ${last ? 'red' : 'untested'}, the issue stands` });
+      continue;
+    }
+    seen.add(i.number);
+    if (greenAtHead(last) && greenAtHead(prev)) {
+      const why = `the last two gate runs are green at ${s.headSha.slice(0, 7)}`;
+      const result: HealthResult = { mark: '✗', text: `gate-fix #${i.number} open — ${why}`, fix: `closed gate-fix #${i.number}` };
+      results.push(result);
+      actions.push({ kind: 'close-issue', issue: i.number, comment: `**hx:** closing as not planned — ${why}: main is green again`, result,
+        would: `would close #${i.number} as not planned` });
+    } else {
+      const result: HealthResult = { mark: '✗', text: `gate-fix #${i.number} — ${WAITING_GATE}` };
+      results.push(result);
+      actions.push({ kind: 'request-gate', issue: i.number, result });
+    }
+  }
+  if (!results.length) results.push({ mark: '✓', text: 'gate-fix issues — none' });
+  return { results, actions };
+};
+
 /** An open issue or PRD labelled agent-working in no live session: released once a pass saw it so for stallMinutes. */
 export const stuckLabelCheck: HealthCheck = (s, seen) => {
   const results: HealthResult[] = [], actions: HealthAction[] = [];
@@ -243,7 +276,7 @@ export const environmentCheck: HealthCheck = (s) => {
 export const CHECKS: { name: string; check: HealthCheck | null }[] = [
   { name: 'stale-pr', check: stalePrCheck },
   { name: 'blocked-after-pass', check: blockedAfterPassCheck },
-  { name: 'gate-fix', check: null },
+  { name: 'gate-fix', check: gateFixCheck },
   { name: 'transient-block', check: transientBlockCheck },
   { name: 'leftover-worktree', check: leftoverWorktreeCheck },
   { name: 'stuck-label', check: stuckLabelCheck },
@@ -314,9 +347,14 @@ export interface HealthOptions {
   live?: Set<number>; // the numbers in a live session (default: live.json's sessions when its pid is alive)
   env?: () => Promise<HealthEnv | null>; // default: doctor() and the free disk of the worktree root
   merged?: (test?: string) => void; // hx run: a merge this pass made (its post-merge gate check runs); hx health passes none
+  // hx run's gate, asked for one more run (true = one was started). Absent (hx health), or with repairs off: never asked.
+  requestGate?: () => boolean;
+  // a gate-fix issue was closed (default: cleared from gate.json's fixIssue; hx run clears its own copy)
+  closedGateFix?: (issue: number) => void;
 }
 
-export interface HealthPass { results: HealthResult[]; line: string; code: number }
+/** changed: a repair was applied or a gate run requested, so hx run re-reads the board at once. */
+export interface HealthPass { results: HealthResult[]; line: string; code: number; changed: boolean }
 
 async function snapshot(p: Project, o: HealthOptions, now: number): Promise<HealthSnapshot> {
   const c = p.config;
@@ -333,7 +371,7 @@ async function snapshot(p: Project, o: HealthOptions, now: number): Promise<Heal
     const l = readLive(p.stateDir);
     live = new Set(l && typeof l.pid === 'number' && pidAlive(l.pid) ? (l.sessions ?? []).map((x) => x.number) : []);
   }
-  const env = o.env ? await o.env() : { checks: (await doctor({ cwd: p.root })).checks, freeBytes: freeBytes(c.worktreeRoot) };
+  const env = o.env ? await o.env() : { checks: (await doctor({ cwd: p.root, skipRtdd: true })).checks, freeBytes: freeBytes(c.worktreeRoot) };
   return { issues, openPrs, mergedPrs, comments, live, worktrees: listWorktrees(c.worktreeRoot), gateRuns: readGateRuns(p.stateDir),
     health: readHealth(p.stateDir), headSha, now, config: { stallMinutes: c.stallMinutes, labels: c.labels }, env };
 }
@@ -351,6 +389,11 @@ async function sendBack(p: Project, n: number, why: string, output?: string): Pr
 async function repair(p: Project, a: Repair, o: HealthOptions): Promise<{ fix: string; mark?: HealthMark } | void> {
   const c = p.config;
   if (a.kind === 'close-pr') await gh.closePr(c.repo, a.pr, a.comment);
+  else if (a.kind === 'close-issue') {
+    await gh.closeIssue(c.repo, a.issue, a.comment, 'not planned');
+    if (o.closedGateFix) o.closedGateFix(a.issue);
+    else { const gs = readGate(p.stateDir); if (gs.fixIssue === a.issue) { gs.fixIssue = undefined; writeGate(p.stateDir, gs); } }
+  }
   else if (a.kind === 'remove-label') await gh.editLabels(c.repo, a.issue, [], [a.label]);
   else if (a.kind === 'unblock') {
     await gh.editLabels(c.repo, a.issue, [], [c.labels.blocked]);
@@ -388,12 +431,19 @@ export async function healthPass(p: Project, o: HealthOptions): Promise<HealthPa
   const { results, actions } = runChecks(s);
   const h: HealthFile = { ...s.health, stuck: { ...(s.health.stuck ?? {}) } };
   if (o.repairs) await run(process.env.HX_GIT_BIN || 'git', ['-C', p.root, 'worktree', 'prune']);
+  let changed = false, gateAsked = false;
   for (const a of actions) {
     if (a.kind === 'first-seen') { h.stuck![String(a.issue)] = a.at; continue; }
     if (a.kind === 'forget-seen') { delete h.stuck![String(a.issue)]; continue; }
+    if (a.kind === 'request-gate') {
+      // one gate run per pass, whatever the number of gate-fix issues; the next pass decides
+      if (o.repairs && o.requestGate && (gateAsked || o.requestGate())) { a.result.text += ' — gate run requested'; gateAsked = changed = true; }
+      continue;
+    }
     if (!o.repairs) { a.result.text += ` — ${a.would}`; continue; }
     try {
       const done = await repair(p, a, o);
+      changed = true;
       a.result.mark = done?.mark ?? 'fixed';
       if (done) a.result.fix = done.fix;
       a.result.text = `${a.result.fix} (${a.result.text})`;
@@ -405,5 +455,5 @@ export async function healthPass(p: Project, o: HealthOptions): Promise<HealthPa
   const line = healthLine(results);
   h.last = { at: new Date(now).toISOString(), line };
   writeHealth(p.stateDir, h);
-  return { results, line, code: results.some((r) => r.mark === '✗') ? 1 : 0 };
+  return { results, line, code: results.some((r) => r.mark === '✗') ? 1 : 0, changed };
 }

@@ -138,6 +138,7 @@ export interface DoctorOptions {
   platform?: Platform;
   configOptional?: boolean; // hx start: a missing .hx/config.json is a note (hx start runs hx init next)
   skipLabels?: boolean; // hx run: it creates the labels itself
+  skipRtdd?: boolean; // the health pass: rtdd is optional (never ✗), and hx run checks it once per run itself
   timeoutMs?: number;
 }
 
@@ -175,7 +176,7 @@ export async function doctor(opts: DoctorOptions = {}): Promise<{ checks: Check[
 
   const [git, auth, agent, rtdd] = await Promise.all([
     probe(GIT, ['--version'], cwd, t), probe(GH, ['auth', 'status'], cwd, t), probe(bin, ['--version'], cwd, t),
-    probe(effectiveRtddBin(config), ['--version'], cwd, t),
+    opts.skipRtdd ? null : probe(effectiveRtddBin(config), ['--version'], cwd, t),
   ]);
   const checks: Check[] = [
     checkNode(process.env.HX_NODE_VERSION || process.versions.node, platform),
@@ -189,7 +190,7 @@ export async function doctor(opts: DoctorOptions = {}): Promise<{ checks: Check[
     if (!opts.skipLabels && originCheck.mark === '✓') checks.push(checkLabels(await missingLabels(GH, originCheck.detail!, config.labels, root, t)));
     if (raw !== null) checks.push(checkGate(config.gateCommand ?? ''));
   }
-  checks.push(checkRtdd(!rtdd.spawnFailed && rtdd.code === 0));
+  if (rtdd) checks.push(checkRtdd(!rtdd.spawnFailed && rtdd.code === 0));
   return { checks, code: exitCode(checks) };
 }
 
