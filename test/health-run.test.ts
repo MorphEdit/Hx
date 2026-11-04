@@ -116,6 +116,16 @@ test('a plain hx run runs one pass just before it exits', E2E, async () => {
   assert.ok(lines.findIndex((l) => /\[#1\] impl DONE/.test(l)) < pass && pass < done, lines.join('\n'));
 });
 
+test('the pass in hx run never calls rtdd (optional, never ✗): a run without rtdd set up never runs the binary', E2E, async () => {
+  const r = repo();
+  board({});
+  const rtddLog = path.join(tmp, `rtdd${k}.log`);
+  process.env.HX_FAKE_RTDD_LOG = rtddLog;
+  try { assert.equal(await plain(r), 0); } finally { delete process.env.HX_FAKE_RTDD_LOG; }
+  assert.equal(passes(r).length, 1);
+  assert.ok(!existsSync(rtddLog), 'the fake rtdd was never called');
+});
+
 test('selfHeal false in hx run: a stale PR is reported (with what would be done) and not closed', E2E, async () => {
   const r = repo({ selfHeal: false });
   board({ issues: [issue(5, 'CLOSED')], prs: [{ number: 91, head: 'issue/5', state: 'OPEN' }] });
