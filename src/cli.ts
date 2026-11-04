@@ -290,7 +290,7 @@ async function init(args: string[]): Promise<number> {
   workers     ${config.workers}   model ${config.model}   max ${config.maxIterations} turns/issue
   trusted     ${login} (+ config.trustedAuthors${config.trustedAuthors?.length ? `: ${config.trustedAuthors.join(', ')}` : ', none'}) — issues and PRDs by anyone else are skipped
   worktrees   ${config.worktreeRoot}
-  labels      ${L.ready}, ${L.working}, ${L.blocked}, ${L.prd}, ${L.hardened}, ${L.reviewed}, ${L.secured}, ${L.barPassed}, ${L.security}, ${L.bug}, ${L.triaged}
+  labels      ${L.ready}, ${L.working}, ${L.blocked}, ${L.prd}, ${L.hardened}, ${L.reviewed}, ${L.secured}, ${L.security}, ${L.barPassed}, ${L.bug}, ${L.triaged}
 
 Next: file a PRD with  hx prd <file.md>  or label an issue '${L.ready}', then run  hx status  and  hx run`);
   return initRtdd(root, effectiveRtddBin(config), args.includes('--rtdd'));
