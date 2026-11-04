@@ -47,7 +47,8 @@ The auditor (#1), the CI gate (#4), the grill session (#2, `hx grill`), the gaun
 reviser loop before decompose, a security pass before a PRD closes), rtdd (#5, #34: skills per role via
 `roleSkills`), the bug lane (#6, PRD #78: `hx bug`, triage sessions, bugs built first),
 inject (#7, PRD #97: `hx issue`, filing wakes `hx run --watch`) and multi-repo / multi-CLI (#10, PRD #98:
-`hx fleet` with a shared worker cap and usage hold, the `AgentCli` seam in `src/agents/`) are done.
+`hx fleet` with a shared worker cap and usage hold, the `AgentCli` seam in `src/agents/`) and the
+quality bar (PRD #254: a blind A/B against a named product after review, `barRounds`, `quality-bar-passed`) are done.
 Every item on the roadmap is built. New work starts as a PRD (`hx grill` or `hx issue`); run
 `hx run --watch` on this repo and review the merged PRs. Re-run the benchmark and the audit eval
 (`node bench/audit-eval.mjs`) after changes to prompts, roles or the merge path.

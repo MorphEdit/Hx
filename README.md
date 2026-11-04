@@ -465,7 +465,7 @@ windows in `live.json` (`budget.windows`) and the dashboard's Now section shows 
 ## PRD flow
 
 Write what you want as a PRD (a markdown file: goal, requirements, acceptance criteria) and file it
-with `hx prd`. `hx run` then takes it all the way — `gauntlet → decompose → building → review → security → done`:
+with `hx prd`. `hx run` then takes it all the way — `gauntlet → decompose → building → review → security → bar → done`:
 
 ```
 PRD #20 [prd] ──gauntlet──▶ [prd-hardened] ──decompose──▶ child issues [ready-for-agent], each ending in
@@ -480,7 +480,12 @@ PRD #20 [prd] ──gauntlet──▶ [prd-hardened] ──decompose──▶ ch
      │                                                  → implemented → review again → security again
      │                                               none     → label security-reviewed
      │
-     └─ security-reviewed + all children closed ──▶ Hx closes the PRD
+     ├─ security-reviewed + a `## Quality bar` section ──bar──▶ lost → one gap issue, prd-reviewed and
+     │                                                          security-reviewed removed → implemented
+     │                                                          → review → security → the next round
+     │                                                won / cap / no verdict → label quality-bar-passed
+     │
+     └─ security-reviewed (+ quality-bar-passed when the PRD has the section) ──▶ Hx closes the PRD
 ```
 
 - The gauntlet runs before decompose, one round per session: an independent critic reads the PRD and
@@ -496,6 +501,33 @@ PRD #20 [prd] ──gauntlet──▶ [prd-hardened] ──decompose──▶ ch
   new dependencies) and files one `security` issue per real finding. Every pass posts a
   `<!-- hx-security -->` comment; a pass that neither signs off nor files fails the PRD (`agent-blocked`).
   After `securityRounds` passes that each filed issues, Hx labels the PRD `agent-blocked` for a human.
+- The quality bar is opt-in per PRD, with a section the decomposer leaves alone (it is not a task):
+
+      ## Quality bar
+      Beat: <named product> — <URL>
+      Judged on:
+      - <2–4 dimensions>
+
+  A PRD without it closes as above. With it, a round runs once the review finds no gap and the security
+  pass (when `security` is on) has signed off. Both sessions of a round run as role `bar` (effort `high`
+  unless `roleModels.bar` says otherwise):
+  1. **Provision**: fetch, install or launch the reference under `.hx/bar/<prd>/ref/`. If it cannot be
+     (paywall, no public build, needs a credential), hx comments what failed and signs off on the criteria.
+  2. **Run**: one fixed task list from the `Judged on` dimensions, run in the same order against ours and
+     the reference, recorded into `.hx/bar/<prd>/r<N>/A` and `/B`. hx, not the session, picks at random
+     which side is A each round and writes it to `.mapping` next to `A/` and `B/`, never inside them.
+  3. **Judge**: a fresh session reads only those two directories and replies with two lines,
+     `winner: A|B` and `gap: <one sentence>` — no scores. A reply in any other shape is retried once on
+     the same recordings; a second failure concedes the round as `no verdict` and signs off.
+  4. **Resolve** through `.mapping`: **won** → sign off; **lost** below `barRounds` → one
+     `ready-for-agent` gap issue (a child of the PRD), `prd-reviewed` and `security-reviewed` removed, no
+     sign-off; **lost at the cap** → no gap issue, a cap comment naming the standing gap, then sign off.
+
+  Sign-off is the `quality-bar-passed` label; the next poll closes the PRD. Every round posts a
+  `<!-- hx-bar round=N -->` comment (won, lost with the gap and its issue, or `no verdict`). Rounds are
+  counted from those markers by trusted accounts only (the gh login plus `trustedAuthors`); one by any
+  other account never counts. `reviewRounds` counts only the reviews after the latest bar marker, so each
+  review a lost round triggers gets the full `reviewRounds`. The bar never blocks a PRD.
 - Decompose, review and security sessions only file issues, labels and comments; they never push code.
 
 ## Single issues
@@ -822,7 +854,7 @@ and the dashboard's per-model numbers use it). To spot one:
 |---|---|---|
 | `trustedAuthors` | `[]` | accounts besides the gh login whose issues and PRDs hx works on (case-insensitive); anything opened by anyone else is skipped and shown as `untrusted` |
 | `roleSkills` | `{"impl":["rtdd"],"audit":["rtdd"]}` | role → skills (`SKILL.md` from `<repo>/.claude/skills`, `~/.claude/skills`, `<repo>/.agents/skills`) appended to its prompt, resolved once per `hx run` (logged, and in `live.json`); `{}` = none. rtdd is used only when `.rtdd/config.yaml` is on `origin/<defaultBranch>` and `rtddBin --version` works; its sessions get `prompts/skills/rtdd.md` too, and a path `rtddBin` its directory first on `PATH` |
-| `roleModels` | `{}` | role (`impl`, `audit`, `triage`, `decompose`, `critic`, `revise`, `review`, `security`, `selfreview`, `bar`) → `{ "model", "effort" }` for its sessions; a field left out uses `model` / `effort` (see [Models per role](#models-per-role)) |
+| `roleModels` | `{}` | role (`impl`, `audit`, `triage`, `decompose`, `critic`, `revise`, `review`, `security`, `selfreview`, `bar`) → `{ "model", "effort" }` for its sessions; a field left out uses `model` / `effort` (`bar`'s effort defaults to `high`; see [Models per role](#models-per-role)) |
 | `skillMaxChars` | `12000` | a skill whose `SKILL.md` body (front matter and HTML comments stripped) is longer is skipped |
 | `rtddBin` | `"rtdd"` | the `rtdd` command (`HX_RTDD_BIN` overrides it) |
 | `workers` | 2 | sessions running in parallel |

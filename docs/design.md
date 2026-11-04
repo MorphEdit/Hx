@@ -70,6 +70,7 @@ role prompts, promise-based completion.
 | 7 | GitHub rate limits (PRD #138): a budget reserve (`ghReservePct`), the `github` line, rate-limited calls waited out in `hx run` and (briefly) in the worker scripts, a shared fleet hold | done |
 | 8 | Releases (PRD #139): `hx release` on a green gate (patch, minor once a PRD closed, major by hand), notes from git and GitHub, `autoRelease` in `hx run` | done |
 | 9 | Onboarding (PRD #183): `npx github:MorphEdit/Hx install`, `hx doctor` and the `hx run` startup gate, `hx start`, `hx update`, the `/hx` skill | done |
+| 10 | Quality bar (PRD #254): an opt-in `## Quality bar` section; after review and the security pass, a blind A/B against the named product, one gap issue per lost round, `barRounds`, `quality-bar-passed` | done |
 
 ### Next: the rest of Harness's features, ordered by how much they improve the quality of what Hx ships
 
@@ -454,6 +455,27 @@ Hx builds itself, so a watching runner would otherwise run the morning's code al
   back (detached at the old sha, which the next check still accepts as the default branch), records the bad sha in
   `.hx/selfupdate.json` and keeps working on the old code. A newer sha is tried.
 - **Not under `hx fleet run`:** the fleet owns its children and would read the old runner's exit as the end of the repo.
+
+## Quality bar (PRD #254)
+
+Review checks that every criterion is met, not that the result is good. A PRD may name a real product to
+beat; after review and the security pass, hx runs the same task list against both and a fresh session picks
+a winner. Decisions:
+- **A blind binary A/B, not scores.** "Which is better on these dimensions" is a question a model answers
+  consistently; a 1–10 score drifts between runs and invites a round that "passes" at 7. A binary verdict
+  plus one sentence of gap gives exactly one gap issue per lost round, which is what the pool can act on.
+  The judge reads only the two recording directories, never the repo or git history, so it cannot know
+  which side is ours.
+- **The mapping is hx's.** hx picks which side is A at random each round and writes `.mapping` next to `A/`
+  and `B/`, never inside them. A session that chose it could leak it into the recordings, and a judge that
+  saw it would not be blind. The run session never decides it, and the judge is never given it.
+- **Sign-off is a label.** `plan()` sees labels and bodies, not comments, so the settled bar is
+  `quality-bar-passed`, the same pattern as `prd-reviewed` and `security-reviewed`. The rounds themselves
+  are `<!-- hx-bar round=N -->` comments, counted only from trusted accounts like every other marker, and
+  the review cap counts only reviews after the latest one, so a lost round never trips `reviewRounds`.
+- **It never blocks.** The criteria already passed; the bar can only make a PRD better. A reference that
+  cannot be provisioned, a judge that fails twice (`no verdict`) or the last lost round (`barRounds`, the
+  gap left standing) all sign off on the criteria instead of labelling the PRD `agent-blocked`.
 
 ## Token optimisation (phase 4)
 
