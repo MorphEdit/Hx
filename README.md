@@ -113,6 +113,63 @@ node bench/security-eval.mjs
 node bench/figures.mjs
 ```
 
+### Real runs: before and after a change
+
+The benchmark above is six small issues. These numbers come from the fleet building Hx itself
+(`MorphEdit/Hx`, `claude-opus-5-5`, 3 workers), read from `.hx/usage.jsonl` with
+`hx usage --compare`, so no tokens are spent to get them. Each row compares the runs before and after a
+cutover. The samples are small (20 and 8 closed issues), so read them as a direction, not a verdict.
+
+**What changed at the cutovers:**
+- **2026-11-04 10:10:**
+  - faster end-to-end test fakes;
+  - audits read the whole change and show evidence for each criterion;
+  - the health pass and the self-review.
+- **2026-11-05 00:17:**
+  - a "pre-existing failure" needs proof from the base commit (#250);
+  - the auditor runs the new tests on the reverted code and must see them fail (#251);
+  - LF line endings (#252);
+  - self-update (#253, off by default).
+
+| Board | Before 10:10 | After 10:10 | After 00:17 |
+|---|---|---|---|
+| Issues closed | 103 | 20 | 8 |
+| Tokens per closed issue | 1.3M | 2.5M | 1.4M |
+| Cost per closed issue | $1.70 | $2.30 | $1.34 |
+| Audit FAIL share | 2% | 17% | 0% |
+| Sessions stopped: timed out | 6 | 3 | 0 |
+| Sessions stopped: not mergeable | 4 | 0 | 0 |
+| Rebase test retries | 21 | 0 | 0 |
+| Median audit session | 5m06s | 2m54s | — |
+
+"After 00:17" counts only the last batch. Its own "before" column (all earlier runs) is 1.5M tokens and
+$1.83 per issue, with a 5% audit FAIL share.
+
+**Escaped defects.** Speed counts as a win only if this does not rise. These are problems found after a PR
+merged, per closed issue:
+
+| | Before 10:10 | After 10:10 |
+|---|---|---|
+| `bug` issues filed after a merge | — | 0 |
+| `security` issues | — | 0 |
+| PRD review gaps (a PRD sent back after all its children closed) | — | 0 |
+| Gate-fix issues (`main` red after a merge) | 13 (13% of issues) | 2 (10%) |
+| Reverts of a merged PR | — | 0 |
+
+Both gate-fix issues after 10:10 were old tests that were fragile, not new code that was wrong. Both were
+fixed at the cause, with a new test that reproduces it and no test weakened:
+- **#266:** the dashboard gave up on a port Windows had reserved (`EACCES`); it now treats such a port
+  like one in use.
+- **#271:** `healthEveryMinutes` was counted from the start of a slow pass; it is now counted from the end.
+
+**Reading it:**
+- The audit got stricter after 10:10. It sent back 17% of first attempts, against 2% before.
+- Merges got clean: no rebase retries and no unmergeable stops since 10:10.
+- That rigour cost tokens at first, $2.30 against $1.70 per issue. The latest batch came in below the old
+  cost, $1.34 per issue with every audit passing first time.
+- The self-review records its starting commit on its first run and only reviews what merges after it.
+  Its findings for this batch will show in the next comparison.
+
 ## Requirements
 
 - Node ≥ 23.6 (runs the TypeScript directly: no dependencies, no build step)
