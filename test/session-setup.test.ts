@@ -108,7 +108,7 @@ test('worktreeSetup "" and no worktreeCopy: no setup line, no setup-* file, prom
   for (const p of prompts) assert.ok(!p.text.includes('{{SETUP_NOTE}}') && !p.text.includes(NOTE_START), p.role);
   // the lines around the placeholder follow each other as in the template without it
   assert.match(of(prompts, 'implement', 1), /processes you started\.\n\nBe economical/);
-  assert.match(of(prompts, 'audit', 1), /if it were wrong\?\n\nFAIL only/);
+  assert.match(of(prompts, 'audit', 1), /criterion is not testable\.\n\nFAIL only/);
   assert.match(of(prompts, 'triage', 2), /outside this checkout\.\nBe economical/);
 });
 
@@ -191,7 +191,7 @@ test("the audit's and the triage's notes come from their own worktree's setup", 
   assert.ok(lines.some((l) => /\[#31\] setup: .* \(\d+s\)$/.test(l)), lines.join('\n'));
   const audit = of(prompts, 'audit', 31);
   assert.ok(audit.includes(setupNote(cmd, readSetupRecord(stateDir, 'a31'))), audit);
-  assert.match(audit, /if it were wrong\?\nThe worktree setup command [^]*\n```\n\nFAIL only/);
+  assert.match(audit, /criterion is not testable\.\nThe worktree setup command [^]*\n```\n\nFAIL only/);
   const triage = of(prompts, 'triage', 32);
   assert.ok(triage.includes(setupNote(cmd, readSetupRecord(stateDir, 't32'))), triage);
   assert.match(triage, /outside this checkout\.\nThe worktree setup command [^]*\n```\nBe economical/);

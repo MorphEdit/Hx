@@ -40,7 +40,7 @@ test('impl.md: before shipping, the implementer sees a new test fail without the
   assert.match(p, /Before shipping, check once that your new tests fail without your change/);
   assert.match(p, /restore the non-test files to `origin\/\{\{BASE\}\}`/);
   assert.match(p, /run the new tests and see one fail, then restore your branch \(`git checkout HEAD -- \.`\) and see them pass/);
-  assert.match(p, /commit your work first (`git add -A` then `git commit`: the restore below would discard uncommitted work)/);
+  assert.match(p, /commit your work first \(`git add -A` then `git commit`: the restore below would discard uncommitted work\)/);
   assert.match(p, /Your final message names the test you saw fail/);
   // before step 4, the ship
   assert.ok(p.indexOf('Before shipping, check once') < p.indexOf('4. Ship in one call'));
