@@ -497,7 +497,7 @@ async function pool(p: Project, o: PoolOptions): Promise<number> {
   };
 
   // the health pass (PRD #194 §A): on an idle board, never during a hold or a low GitHub budget. Its lines go to the run log.
-  let healthAt = -Infinity; // when the last pass started (in memory: the first idle loop of a run may run one)
+  let healthAt = -Infinity; // when the last pass ended (in memory: the first idle loop of a run may run one), so a slow pass still leaves healthEveryMinutes until the next
   let healthChanges = 0; // a plain run's passes in a row that changed something: bounded, so a repair that never sticks cannot loop
   const healthCheck = async (): Promise<boolean> => {
     healthAt = Date.now();
@@ -518,7 +518,7 @@ async function pool(p: Project, o: PoolOptions): Promise<number> {
     } catch (e: any) {
       log(`health: the pass failed — ${String(e?.message ?? e).split(/\r?\n/)[0].slice(0, 200)}`);
       return false;
-    }
+    } finally { healthAt = Date.now(); }
   };
   // the self-review (PRD #194 §C): .hx/selfreview.json holds the head last reviewed. Run from healthCheck and awaited,
   // so no claim, pass or second review starts while it runs. True when it filed issues (the board changed).
