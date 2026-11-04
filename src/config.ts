@@ -10,6 +10,7 @@ export interface Labels {
   hardened: string; // the gauntlet is done with a PRD: it may be decomposed
   secured: string; // the security pass found nothing in a reviewed PRD's merged work: it may close
   security: string; // an issue the security pass filed
+  barPassed: string; // the PRD's quality bar is settled (won, conceded or capped): it may close
   gateFix: string;
   bug: string; // a bug report: triaged (reproduced) before it is built, and built before other work
   triaged: string; // a triage session reproduced the bug
@@ -27,6 +28,7 @@ export function labelSpecs(L: Labels): LabelSpec[] {
     { name: L.reviewed, color: '1d76db', description: 'hx: PRD reviewed and signed off' },
     { name: L.hardened, color: 'c5def5', description: 'hx: PRD passed the gauntlet (critique and revision) and may be decomposed' },
     { name: L.secured, color: '0052cc', description: "hx: the security pass found nothing in the PRD's merged work" },
+    { name: L.barPassed, color: '0e8a16', description: "hx: the PRD's quality bar is settled: it may close" },
     { name: L.security, color: 'e99695', description: 'hx: a security issue filed by the security pass' },
     { name: L.gateFix, color: 'b60205', description: 'hx: fixes a red default branch (the only work claimed while it is red)' },
     { name: L.bug, color: 'd73a4a', description: 'hx: a bug, triaged (reproduced) before it is built, then built first' },
@@ -44,6 +46,7 @@ export interface Config {
   gauntlet: boolean; // critique and revise a PRD in rounds before it is decomposed
   gauntletRounds: number; // critic → reviser rounds before the PRD is decomposed anyway
   reviewRounds: number; // PRD reviews (each may file gap issues) before a human has to look
+  barRounds: number; // quality-bar rounds (each lost one files a gap issue) before the PRD is signed off with the gap standing
   security: boolean; // a security pass checks a reviewed PRD's merged work before the PRD closes
   securityRounds: number; // security passes (each may file security issues) before a human has to look
   bugTriage: boolean; // a bug issue is triaged (reproduced) before it may be claimed
@@ -99,6 +102,7 @@ export const DEFAULTS: Omit<Config, 'repo' | 'defaultBranch' | 'worktreeRoot'> =
   gauntlet: true,
   gauntletRounds: 2,
   reviewRounds: 3,
+  barRounds: 3,
   security: true,
   securityRounds: 2,
   bugTriage: true,
@@ -138,20 +142,23 @@ export const DEFAULTS: Omit<Config, 'repo' | 'defaultBranch' | 'worktreeRoot'> =
   worktreeSetup: '',
   worktreeSetupMinutes: 10,
   worktreeCopy: [],
-  labels: { ready: 'ready-for-agent', working: 'agent-working', blocked: 'agent-blocked', prd: 'prd', reviewed: 'prd-reviewed', hardened: 'prd-hardened', secured: 'security-reviewed', security: 'security', gateFix: 'hx-gate-fix', bug: 'bug', triaged: 'bug-triaged' },
+  labels: { ready: 'ready-for-agent', working: 'agent-working', blocked: 'agent-blocked', prd: 'prd', reviewed: 'prd-reviewed', hardened: 'prd-hardened', secured: 'security-reviewed', security: 'security', barPassed: 'quality-bar-passed', gateFix: 'hx-gate-fix', bug: 'bug', triaged: 'bug-triaged' },
 };
 
 /** The roles a session runs as: the keys roleModels accepts. */
-export const ROLES = ['impl', 'audit', 'triage', 'decompose', 'critic', 'revise', 'review', 'security', 'selfreview'] as const;
+export const ROLES = ['impl', 'audit', 'triage', 'decompose', 'critic', 'revise', 'review', 'security', 'selfreview', 'bar'] as const;
+/** A role's effort when its roleModels entry sets none (else the top-level effort). */
+const ROLE_EFFORT: Record<string, string> = { bar: 'high' };
 /** claude --effort values a role may set (the top-level effort is not checked). */
 export const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'] as const;
 
 export interface RoleModel { model: string; effort: string }
 
-/** The model and effort a role's sessions run with: its roleModels entry, else the top-level model / effort. */
+/** The model and effort a role's sessions run with: its roleModels entry, else the top-level model / effort
+ *  (bar: effort high). */
 export function roleModel(c: Pick<Config, 'model' | 'effort' | 'roleModels'>, role: string): RoleModel {
   const r = c.roleModels?.[role];
-  return { model: r?.model ?? c.model, effort: r?.effort ?? c.effort };
+  return { model: r?.model ?? c.model, effort: r?.effort ?? ROLE_EFFORT[role] ?? c.effort };
 }
 
 /** Did a turn that asked for `asked` run on it? Same id, a dated id of it (`<asked>-20261001`), or a bare alias's family. */
@@ -165,9 +172,9 @@ export function roleModelMap(c: Pick<Config, 'model' | 'effort' | 'roleModels'>)
   return Object.fromEntries(ROLES.map((r) => [r, roleModel(c, r)]));
 }
 
-/** `impl claude-sonnet-5-5/medium, audit …` for the roles whose model or effort differs from the defaults; '' when none do. */
+/** `impl claude-sonnet-5-5/medium, audit …` for the roles whose model or effort differs from the role's defaults; '' when none do. */
 export function formatRoleModels(map: Record<string, RoleModel>, def: { model: string; effort: string }): string {
-  return Object.entries(map).filter(([, m]) => m.model !== def.model || m.effort !== def.effort)
+  return Object.entries(map).filter(([r, m]) => { const d = roleModel({ ...def, roleModels: {} }, r); return m.model !== d.model || m.effort !== d.effort; })
     .map(([r, m]) => `${r} ${m.model}/${m.effort}`).join(', ');
 }
 

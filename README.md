@@ -797,8 +797,8 @@ Every session runs with `model` and `effort` unless `roleModels` gives its role 
 "roleModels": { "impl": { "model": "claude-sonnet-5-5" }, "audit": { "model": "claude-sonnet-5-5", "effort": "high" } }
 ```
 
-- Roles: `impl`, `audit`, `triage`, `decompose`, `critic`, `revise`, `review`, `security`, `selfreview`. A field left out
-  falls back to the top-level one; `effort` must be one of `low`, `medium`, `high`, `xhigh`, `max`.
+- Roles: `impl`, `audit`, `triage`, `decompose`, `critic`, `revise`, `review`, `security`, `selfreview`, `bar`. A field left out
+  falls back to the top-level one (`bar`'s effort to `high`); `effort` must be one of `low`, `medium`, `high`, `xhigh`, `max`.
 - `hx run` checks `roleModels` before it claims anything and stops with the reason when it is wrong.
 - A checkpoint resumes its session with that session's model; continue turns keep it too.
 - `hx run` logs the roles that differ (`models: impl claude-sonnet-5-5/medium, …`), `hx status` shows them, and
@@ -821,7 +821,7 @@ and the dashboard's per-model numbers use it). To spot one:
 |---|---|---|
 | `trustedAuthors` | `[]` | accounts besides the gh login whose issues and PRDs hx works on (case-insensitive); anything opened by anyone else is skipped and shown as `untrusted` |
 | `roleSkills` | `{"impl":["rtdd"],"audit":["rtdd"]}` | role → skills (`SKILL.md` from `<repo>/.claude/skills`, `~/.claude/skills`, `<repo>/.agents/skills`) appended to its prompt, resolved once per `hx run` (logged, and in `live.json`); `{}` = none. rtdd is used only when `.rtdd/config.yaml` is on `origin/<defaultBranch>` and `rtddBin --version` works; its sessions get `prompts/skills/rtdd.md` too, and a path `rtddBin` its directory first on `PATH` |
-| `roleModels` | `{}` | role (`impl`, `audit`, `triage`, `decompose`, `critic`, `revise`, `review`, `security`, `selfreview`) → `{ "model", "effort" }` for its sessions; a field left out uses `model` / `effort` (see [Models per role](#models-per-role)) |
+| `roleModels` | `{}` | role (`impl`, `audit`, `triage`, `decompose`, `critic`, `revise`, `review`, `security`, `selfreview`, `bar`) → `{ "model", "effort" }` for its sessions; a field left out uses `model` / `effort` (see [Models per role](#models-per-role)) |
 | `skillMaxChars` | `12000` | a skill whose `SKILL.md` body (front matter and HTML comments stripped) is longer is skipped |
 | `rtddBin` | `"rtdd"` | the `rtdd` command (`HX_RTDD_BIN` overrides it) |
 | `workers` | 2 | sessions running in parallel |
@@ -832,6 +832,7 @@ and the dashboard's per-model numbers use it). To spot one:
 | `gauntlet` | `true` | critique and revise a PRD in rounds before it is decomposed |
 | `gauntletRounds` | 2 | critic → reviser rounds before the PRD is decomposed anyway |
 | `reviewRounds` | 3 | PRD reviews before a human has to look |
+| `barRounds` | 3 | quality-bar rounds for a PRD with a `## Quality bar` section; a lost round files one gap issue, and the last one signs the PRD off with the gap standing |
 | `security` | `true` | a security pass checks a reviewed PRD's merged work before the PRD closes |
 | `securityRounds` | 2 | security passes that file issues before a human has to look |
 | `bugTriage` | `true` | a `bug` issue (not a PRD's child) is triaged before it may be claimed; until `bug-triaged` it shows as `triage`, and a triage session (`prompts/triage.md`, worktree `t<n>`) reproduces it and posts a `VERDICT: REPRODUCED` (→ `bug-triaged` + `ready-for-agent`) or `NEEDS-INFO` (→ `agent-blocked`) comment |
@@ -865,7 +866,7 @@ and the dashboard's per-model numbers use it). To spot one:
 | `claudeArgs` | `[]` | extra flags for every `claude` call |
 | `leanWorkers` | `true` | workers start without MCP servers, skills, slash commands or user-level settings and plugins (~8K instead of ~44K tokens of base context per call) |
 | `workerTools` | `Bash Read Edit Write Glob Grep` | the only built-in tools a lean worker gets; add e.g. `Agent` or `WebFetch` if your issues need them |
-| `labels` | `ready-for-agent`, `agent-working`, `agent-blocked`, `prd`, `prd-hardened`, `prd-reviewed`, `security-reviewed`, `security`, `hx-gate-fix`, `bug`, `bug-triaged` (keys `ready`, `working`, `blocked`, `prd`, `hardened`, `reviewed`, `secured`, `security`, `gateFix`, `bug`, `triaged`) | `hx init` creates them all; `hx run` creates any missing at start, and a label edit that fails because a label is missing creates it and retries once |
+| `labels` | `ready-for-agent`, `agent-working`, `agent-blocked`, `prd`, `prd-hardened`, `prd-reviewed`, `security-reviewed`, `quality-bar-passed`, `security`, `hx-gate-fix`, `bug`, `bug-triaged` (keys `ready`, `working`, `blocked`, `prd`, `hardened`, `reviewed`, `secured`, `barPassed`, `security`, `gateFix`, `bug`, `triaged`) | `hx init` creates them all; `hx run` creates any missing at start, and a label edit that fails because a label is missing creates it and retries once |
 
 ## ⚠️ Safety
 

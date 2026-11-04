@@ -43,7 +43,19 @@ export const HANDOFF_MARKER = '<!-- hx-handoff -->';
 export const GAUNTLET_MARKER = '<!-- hx-gauntlet -->';
 export const ORIGINAL_MARKER = '<!-- hx-prd-original -->';
 export const SECURITY_MARKER = '<!-- hx-security -->';
+export const BAR_MARKER = '<!-- hx-bar round=';
 const firstLineIs = (marker: string) => (b: string) => b.trimStart().split(/\r?\n/, 1)[0].trim() === marker;
+
+/** Review rounds that count against reviewRounds, from a PRD's trusted comment bodies in order: the
+ *  `<!-- hx-review -->` comments after the latest one whose first line starts with `<!-- hx-bar round=`. */
+export function reviewRoundsDone(bodies: string[]): number {
+  let n = 0;
+  for (const b of bodies) {
+    if (b.trimStart().split(/\r?\n/, 1)[0].trim().startsWith(BAR_MARKER)) n = 0;
+    else if (b.trimStart().startsWith(REVIEW_MARKER)) n++;
+  }
+  return n;
+}
 
 type SessionAction = Extract<Action, { kind: 'impl' | 'gauntlet' | 'decompose' | 'review' | 'security' | 'triage' }>;
 
@@ -583,6 +595,7 @@ async function pool(p: Project, o: PoolOptions): Promise<number> {
   let idleLogged = false;
   const skipped = new Set<number>(); // untrusted issues / PRDs already logged this run
   const budgetLogged = new Set<string>(); // budget skips already logged: once per action per window reset
+  const barLogged = new Set<number>(); // PRDs whose skipped bar action was logged (once per run)
   let failures = 0;
   let engineRetries = 0;
   let fatal: string | undefined; // a setup error: stop claiming, let running sessions finish
@@ -683,6 +696,10 @@ async function pool(p: Project, o: PoolOptions): Promise<number> {
       }
 
       for (const a of actions) {
+        if (a.kind === 'bar') { // the round flow is a later slice: until then the PRD waits at its bar
+          if (!barLogged.has(a.prd)) { barLogged.add(a.prd); log('bar: quality bar round not implemented yet', a.prd); }
+          continue;
+        }
         if (a.kind !== 'close-prd' && a.kind !== 'label-ready') sharedHold();
         sharedGithubHold();
         if (stop.signal.aborted || fatal || live.draining || Date.now() < (live.pausedUntil ?? 0) || githubLowNow()) break; // fatal may land during readPlan
@@ -852,7 +869,7 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
 
   let round = 0;
   if (a.kind === 'review') {
-    round = (await gh.commentBodies(c.repo, n, ctx.trusted)).filter((b) => b.trimStart().startsWith(REVIEW_MARKER)).length + 1;
+    round = reviewRoundsDone(await gh.commentBodies(c.repo, n, ctx.trusted)) + 1;
     if (round > c.reviewRounds) {
       await gh.comment(c.repo, n, `**hx:** ${c.reviewRounds} review rounds have run and the PRD is still not signed off. A human needs to look; add the \`${c.labels.reviewed}\` label to sign it off, or remove \`${c.labels.blocked}\` to allow more rounds after raising \`reviewRounds\`.`);
       await gh.editLabels(c.repo, n, [c.labels.blocked]);
