@@ -279,6 +279,28 @@ it only reads. The page is one self-contained file under a strict CSP (no extern
 fonts), and every title, label, error and log line is rendered as **escaped text** (`textContent`,
 never `innerHTML`), so an issue titled `<img src=x onerror=…>` shows as that text.
 
+## Where the time goes
+
+hx measures how long workers spend running tests, from the stream-json events it already logs: no hooks,
+no extra sessions or tokens. A **test command** is a `Bash` tool call whose command matches one of the default
+patterns (`npm test`, `node --test`, `pnpm`/`yarn`/`bun test`, `vitest`, `jest`, `mocha`, `pytest`,
+`go test`, `cargo test`, `phpunit`, `rspec`, `dotnet test`, … — `src/timing.ts`), the repo's effective gate
+command (`gateCommand`, else the one learned in `gate.json`), or an entry of `testPatterns`. Tests run through a
+script (e.g. `node scripts/check.mjs`) are not counted unless the repo adds a pattern for it.
+
+- Each turn's `UsageRecord` in `.hx/usage.jsonl` gets `testMs` (the test commands' time, overlaps merged,
+  clipped to the turn), `testRuns` and `testFailedRuns` (an error result or a non-zero exit code). Older records
+  have none of them and show as `-` (unknown), never 0.
+- `hx usage` adds the columns `test` (total test time), `test %` (its share of session time) and `runs`;
+  `hx usage --tests` prints, per UTC day, the median and p90 test run and gate duration.
+- `hx status` prints a time line over the last 24 h:
+  `time     tests 31% of session time · median test run 2m10s · gate 4m05s (p90 5m30s)`.
+- The dashboard's Stats show the same numbers for the last 24 h and a chart of the median test run and gate
+  duration per UTC day over the last 14 days.
+- Every pool gate run is recorded in `.hx/gate-runs.jsonl` (see Files). `hx run` logs
+  `gate is slow: median … of a … timeout — tests may time out under load` once when the median of the last 5
+  gate runs is above 70% of `gateMinutes`.
+
 ## Several repos
 
 One `hx fleet run` works several repos at once, under one shared worker cap. The fleet is a list of
@@ -693,6 +715,7 @@ and the dashboard's per-model numbers use it). To spot one:
 | `gate` | `true` | test the default branch after every merge; while red, claim only its fix |
 | `gateCommand` | `""` | the gate's test command (empty: learned from the first audited merge) |
 | `gateMinutes` | `45` | the gate's test run is killed, with its process tree, after this long and counts as red |
+| `testPatterns` | `[]` | extra regexes (case-insensitive, matched anywhere in a worker's shell command) that mark it as a test run, on top of the defaults (see [Where the time goes](#where-the-time-goes)); an invalid one is refused |
 | `autoRelease` | `false` | `hx run` releases by itself, as `hx release` does: `minor` once a PRD closed since the last tag, `patch` once the last tag is older than `autoReleasePatchHours` and a `fix:` merged since; with `gate` on it uses the run's recorded gate result |
 | `autoReleasePatchHours` | 24 | how old the last tag must be before merged fixes make a patch release due |
 | `usagePauseAt` | 0.9 | claim nothing new once a usage window is this full (0..1) |
@@ -742,7 +765,7 @@ it reads. So Hx only works on text from **trusted accounts**: your `gh` login pl
 - `.hx/live.json` — the running `hx run`: its pid and live sessions (read by `hx status`)
 - `.hx/pause` — present while paused (`drain` or `now`)
 - `.hx/gate-runs.jsonl` — one line per pool gate run whose test command finished or timed out: `{ ts, sha, ok, durationMs, timedOut }`
-  (`durationMs` is the test command only). `hx run` logs `gate is slow: …` once when the median of the last 5 is above 70% of `gateMinutes`
+  (`durationMs` is the test command only; the release gate is not recorded). `hx run` logs `gate is slow: …` once when the median of the last 5 is above 70% of `gateMinutes`
 - `.hx/run.log` — the `hx run` log, `<ISO time> [#n] message` per line (rotated to `run.log.1` past 2 MiB), read by `hx dashboard`
 - `~/.hx/fleet/hold.json` — the shared usage hold of `hx fleet run` (`{ until, reason, repo }`); every runner copies it
 - `~/.hx/fleet/github-hold.json` — the shared GitHub hold, same shape: written by a runner whose GitHub API budget is

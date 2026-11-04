@@ -301,6 +301,22 @@ Decisions:
   not fix that; running the suite once does.
 - Unchanged: at least one test must fail without the change, and no test is deleted, skipped or weakened.
 
+## Test time (PRD #182)
+
+How long workers spend in tests, and how long the gate takes, so a slow suite shows up before it costs turns.
+Decisions:
+- Test time is derived from the stream-json events hx already logs: a test command's span runs from the
+  assistant event with its `tool_use` to the user event with its `tool_result`, clipped to a turn window taken
+  from hx's wall clock (when hx started the turn and when it ended) and merged where spans overlap. There are
+  no new hooks, no new sessions and no new tokens: nothing is asked of the agent.
+- What counts as a test is a pattern match on the shell command (defaults in `src/timing.ts`, the effective
+  gate command, `testPatterns`). A suite run through a wrapper script is missed unless the repo adds a
+  pattern; a false match only over-counts one command.
+- Missing data is unknown, never 0: records written before this have no `testMs` and show as `-`.
+- The pool gate appends one line per run to `.hx/gate-runs.jsonl` with the test command's duration only
+  (setup excluded); the release gate is not recorded. The slow-gate warning compares the median of the last 5
+  with `gateMinutes`, since a gate near its timeout turns red under load.
+
 ## Token optimisation (phase 4)
 
 Measured before (see the [benchmark](../README.md#benchmark), `bench/results/phase3/`):

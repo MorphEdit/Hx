@@ -350,3 +350,22 @@ test('onboarding: README npx install before the clone path and a First run secti
     '`✓`', '`✗`', '`–`', '`?`', 'startup gate', '`hx start`', 'templates/hx-skill.md']) assert.ok(ds.includes(w), w);
   assert.match(d, /\| 9 \| Onboarding[^\n]*\| done \|/);
 });
+
+test('test time: README Where the time goes, gate-runs.jsonl, testPatterns, design.md, CLAUDE.md (#207)', () => {
+  const r = read('README.md');
+  const at = r.indexOf('## Where the time goes');
+  assert.ok(at >= 0, 'README has a Where the time goes section');
+  const sec = r.slice(at, r.indexOf('\n## ', at + 1));
+  for (const w of ['Bash', 'testPatterns', 'gateCommand', 'node scripts/check.mjs', 'testMs', 'testRuns', 'testFailedRuns',
+    'hx usage --tests', 'hx usage', 'hx status', 'time     tests', 'dashboard', 'gate is slow', 'gate-runs.jsonl']) assert.ok(sec.includes(w), w);
+  assert.ok(hasRow(r, 'testPatterns', `\`${JSON.stringify(DEFAULTS.testPatterns)}\``), 'testPatterns config row');
+  const files = r.slice(r.indexOf('## Files'), r.indexOf('\n## ', r.indexOf('## Files') + 1));
+  for (const w of ['.hx/gate-runs.jsonl', '{ ts, sha, ok, durationMs, timedOut }', 'release gate']) assert.ok(files.includes(w), `Files: ${w}`);
+  const d = read('docs/design.md');
+  const d0 = d.indexOf('## Test time');
+  assert.ok(d0 >= 0, 'design.md has a Test time section');
+  const ds = d.slice(d0, d.indexOf('\n## ', d0 + 1));
+  for (const w of ['stream-json', 'wall clock', 'no new hooks', 'tokens']) assert.ok(ds.includes(w), w);
+  const c = read('CLAUDE.md');
+  assert.ok(c.slice(c.indexOf('## Where things are'), c.indexOf('## Conventions')).includes('`timing.ts`'), 'timing.ts in the file map');
+});
