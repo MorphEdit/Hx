@@ -15,7 +15,7 @@ import { clearLive, otherRunner, readLive, readPause, writeLive, type LiveSessio
 import { fmt, recordUsage, totalTokens } from './usage.ts';
 import { testMatcher, turnTiming, type TurnTiming } from './timing.ts';
 import { actionBudget, budgetFilter, newSkipLines, readBudget, readBudgetWindows, readingOf, recordReading, type Budget } from './budget.ts';
-import { gateIssueBody, gateIssueTitle, readGate, remoteSha, runGate, writeGate, type GateResult } from './gate.ts';
+import { appendGateRun, gateIssueBody, gateIssueTitle, readGate, readGateRuns, remoteSha, runGate, slowGateWarning, writeGate, type GateResult } from './gate.ts';
 import { run as runCmd } from './exec.ts';
 import { dueRelease, release, releaseGate } from './release.ts';
 import { acquireSlot, DEFAULT_FLEET_WORKERS, readGithubHold, readHold, releaseSlot, writeGithubHold, writeHold } from './fleet.ts';
@@ -348,6 +348,7 @@ async function pool(p: Project, o: PoolOptions): Promise<number> {
   let gateRunning: Promise<void> | null = null;
   let gateAgain = false;
   let gateWarned = false;
+  let gateSlowWarned = false;
   const gateCommand = () => c.gateCommand || gs.command;
   const gateRed = () => c.gate && !!gs.last && !gs.last.ok;
   const showGate = () => { live.gate = gs.last ? { ok: gs.last.ok, sha: gs.last.sha, at: gs.last.at, fixIssue: gs.fixIssue } : undefined; save(); };
@@ -378,7 +379,14 @@ async function pool(p: Project, o: PoolOptions): Promise<number> {
           if (lastSetup) log(`gate: ${setupLine(lastSetup, r.command, { suffix: `try ${setupTries} of ${SETUP_TRIES}`, minutes: c.worktreeSetupMinutes })}`);
           // between tries gs.last, gate.json and live.gate keep the previous result
           if (setupTries < SETUP_TRIES) { gateAgain = true; continue; }
-        } else setupTries = 0;
+        } else {
+          setupTries = 0;
+          try {
+            appendGateRun(p.stateDir, r);
+            const slow = !gateSlowWarned && slowGateWarning(readGateRuns(p.stateDir), c.gateMinutes);
+            if (slow) { log(slow); gateSlowWarned = true; }
+          } catch (e: any) { log(`gate: recording the run failed: ${e.message}`); }
+        }
         const wasRed = gateRed();
         gs.last = r;
         if (!r.ok && r.setupFailed) {
