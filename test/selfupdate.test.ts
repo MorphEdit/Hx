@@ -97,7 +97,7 @@ async function stopNew() {
   clearPause(stateDir);
 }
 
-test('pure parts: code paths, release tags, config checks', () => {
+test('pure parts: code paths, release tags, config checks', E2E, () => {
   for (const f of ['src/pool.ts', 'bin/hx.mjs', 'scripts/ship.mjs', 'package.json', 'package-lock.json']) assert.ok(isCode(f), f);
   for (const f of ['prompts/impl.md', 'README.md', 'docs/design.md', 'test/x.test.ts', 'templates/hx-skill.md']) assert.ok(!isCode(f), f);
   assert.ok(newerTag('0.1.0', 'v0.2.0') && newerTag('0.1.9', 'v0.1.10') && !newerTag('0.2.0', 'v0.2.0') && !newerTag('1.0.0', 'v0.9.9'));
