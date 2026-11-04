@@ -1,5 +1,6 @@
 // Test time in hx usage (--by columns, --tests) and the time line in hx status (PRD #182 D.9, D.10): testSeries and
 // timeWindow in src/timing.ts, and the commands run on fixture usage records and gate lines.
+import { E2E } from './isolate.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -37,7 +38,7 @@ function hx(cwd: string, ...args: string[]): string {
 }
 const cells = (out: string, key: string) => out.split(/\r?\n/).find((l) => l.split(/\s+/)[0] === key)?.trim().split(/\s+/) ?? [];
 
-test('testSeries: median and p90 per UTC day, days without data left out, oldest first', () => {
+test('testSeries: median and p90 per UTC day, days without data left out, oldest first', E2E, () => {
   const recs = [
     rec('2026-11-03T23:30:00Z', 'impl', 10 * M, { testMs: 120 * S, testRuns: 2 }), // 60s per run
     rec('2026-11-03T01:00:00Z', 'impl', 10 * M, { testMs: 30 * S, testRuns: 1 }),
@@ -55,7 +56,7 @@ test('testSeries: median and p90 per UTC day, days without data left out, oldest
   assert.deepEqual(testSeries([], []), []);
 });
 
-test('timeWindow: share over the records with testMs, median test run, gate median and p90; nothing outside the window', () => {
+test('timeWindow: share over the records with testMs, median test run, gate median and p90; nothing outside the window', E2E, () => {
   const from = Date.parse('2026-11-03T00:00:00Z'), to = Date.parse('2026-11-04T00:00:00Z');
   const recs = [rec('2026-11-03T01:00:00Z', 'impl', 100 * S, { testMs: 30 * S, testRuns: 1 }), rec('2026-11-03T02:00:00Z', 'impl', 100 * S, { testMs: 10 * S, testRuns: 2 }),
     rec('2026-11-03T03:00:00Z', 'impl', 1000 * S), rec('2026-11-02T03:00:00Z', 'impl', 1 * S, { testMs: 1 * S, testRuns: 1 })];
@@ -65,7 +66,7 @@ test('timeWindow: share over the records with testMs, median test run, gate medi
     { share: undefined, testRunMedian: undefined, gateMedian: undefined, gateP90: undefined, hasData: false });
 });
 
-test('hx usage --by role: test, test % and runs columns; a group of old records only shows -, not 0', () => {
+test('hx usage --by role: test, test % and runs columns; a group of old records only shows -, not 0', E2E, () => {
   const root = app('by-role', [
     rec('2026-11-03T01:00:00Z', 'impl', 10 * M, { testMs: 2 * M, testRuns: 3 }),
     rec('2026-11-03T02:00:00Z', 'impl', 10 * M, { testMs: 3 * M, testRuns: 1 }),
@@ -79,7 +80,7 @@ test('hx usage --by role: test, test % and runs columns; a group of old records 
   assert.deepEqual(cells(out, 'TOTAL').slice(-3), ['5m', '25%', '4'], out);
 });
 
-test('hx usage --tests: one row per UTC day, oldest first, - for a missing part', () => {
+test('hx usage --tests: one row per UTC day, oldest first, - for a missing part', E2E, () => {
   const root = app('tests', [
     rec('2026-11-03T01:00:00Z', 'impl', 10 * M, { testMs: 30 * S, testRuns: 1 }),
     rec('2026-11-03T02:00:00Z', 'impl', 10 * M, { testMs: 90 * S, testRuns: 1 }),
@@ -90,7 +91,7 @@ test('hx usage --tests: one row per UTC day, oldest first, - for a missing part'
   assert.deepEqual(rows, [['2026-11-01', '-', '-', '3m20s', '6m40s'], ['2026-11-03', '1m30s', '2m', '1m05s', '1m05s']]);
 });
 
-test('hx status: the time line over the last 24 h, - for a missing part, no line without data in the last 24 h', () => {
+test('hx status: the time line over the last 24 h, - for a missing part, no line without data in the last 24 h', E2E, () => {
   const ago = (min: number) => new Date(Date.now() - min * M).toISOString();
   const old = ago(25 * 60);
   const full = app('status-full', [rec(ago(30), 'impl', 10 * M, { testMs: 4 * M, testRuns: 2 }), rec(old, 'impl', 10 * M, { testMs: 10 * M, testRuns: 1 })],
