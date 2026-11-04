@@ -5,7 +5,7 @@ import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { createInterface } from 'node:readline';
 import { PROMISE_RE } from './state.ts';
-import { killTree, resolveCmd } from './exec.ts';
+import { hideWindow, killTree, resolveCmd } from './exec.ts';
 import { claude } from './agents/claude.ts';
 import type { AgentCli } from './agents/types.ts';
 
@@ -79,7 +79,7 @@ export function runTurn(o: TurnOptions): Promise<TurnResult> {
   return new Promise((resolve) => {
     const [cmd, argv] = resolveCmd(o.bin, args);
     const extra = { ...agent.env?.(o, process.env), ...o.env };
-    const child = spawn(cmd, argv, { cwd: o.cwd, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'],
+    const child = spawn(cmd, argv, { cwd: o.cwd, windowsHide: hideWindow(), stdio: ['pipe', 'pipe', 'pipe'],
       detached: process.platform !== 'win32', ...(Object.keys(extra).length ? { env: { ...process.env, ...extra } } : {}) });
     if (child.pid) live.add(child.pid);
     const res: TurnResult = { ok: false, text: '', usage: emptyUsage(), costUsd: 0, durationMs: 0, numTurns: 0 };

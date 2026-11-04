@@ -6,7 +6,8 @@
   "bin": { "hx": "bin/hx.mjs" },
   "engines": { "node": ">=23.6" },
   "scripts": {
-    "test": "node --test --disable-warning=ExperimentalWarning \"test/**/*.test.ts\""
+    "test": "node --test --disable-warning=ExperimentalWarning \"test/**/*.test.ts\"",
+    "test:profile": "node --test --disable-warning=ExperimentalWarning --test-reporter=spec --test-reporter-destination=stdout --test-reporter=./test/profile-reporter.mjs --test-reporter-destination=stdout \"test/**/*.test.ts\""
   },
   "license": "MIT"
 }

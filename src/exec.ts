@@ -11,12 +11,17 @@ export function resolveCmd(cmd: string, args: string[]): [string, string[]] {
   return /\.m?js$/i.test(cmd) ? [process.execPath, [cmd, ...args]] : [cmd, args];
 }
 
+/** windowsHide for a child: a hidden console of its own, so no window flashes when hx has no console to share (a
+ *  fleet's detached runner). It costs ~200 ms per spawn on Windows; HX_SHARE_CONSOLE=1 (the tests: thousands of gh,
+ *  git and claude calls from a console they can share) lets children share the parent's console instead. */
+export const hideWindow = (): boolean => process.env.HX_SHARE_CONSOLE !== '1';
+
 /** Run a program (no shell, so no quoting surprises on Windows) and capture its output. */
 export function run(cmd: string, args: string[], opts: { cwd?: string; input?: string } = {}): Promise<ExecResult> {
   return new Promise((resolve) => {
     const child = execFile(
       ...resolveCmd(cmd, args),
-      { cwd: opts.cwd, maxBuffer: 64 * 1024 * 1024, windowsHide: true, encoding: 'utf8' },
+      { cwd: opts.cwd, maxBuffer: 64 * 1024 * 1024, windowsHide: hideWindow(), encoding: 'utf8' },
       (err, stdout, stderr) => {
         const code = err ? (typeof (err as any).code === 'number' ? (err as any).code : 1) : 0;
         resolve({ code, stdout: stdout ?? '', stderr: stderr || (err && !stderr ? String(err.message) : '') });

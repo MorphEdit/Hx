@@ -332,6 +332,32 @@ Decisions:
   (setup excluded); the release gate is not recorded. The slow-gate warning compares the median of the last 5
   with `gateMinutes`, since a gate near its timeout turns red under load.
 
+## Where the suite's time goes (#234)
+
+`npm run test:profile` runs the suite with `test/profile-reporter.mjs` next to the spec reporter: it writes every
+test's file, name and duration (slowest first) to `test-profile.json` and prints the 20 slowest.
+Findings (2026-11-04, 12 cores, 3 workers busy; the suite runs 11 files at a time, `--test-concurrency` default):
+- Baseline: 622 tests, 824 s wall, 7942 s summed over tests. Nearly all of it is end-to-end tests; the slowest
+  files (`session-setup`, `release-cmd`, `role-models`) sum 530–560 s each.
+- One full PRD run traced (`roleModels {}`: decompose, four impl + audit sessions, two reviews; 59 s): no long
+  waits. Git calls, fake `gh` and fake `claude` follow each other with gaps of 150–450 ms, the start-up of each
+  process; gaps over 150 ms add up to 16 s. The only multi-second gap is the first board read after startup.
+  hx's waits (`pollSeconds: 1`, `HX_SHIP_RETRY_MS`, fetch retries) are already short or never hit.
+- So the cost is the number of processes times the cost of each start. Each call through `exec.ts` set
+  `windowsHide`, which gives every child a hidden console of its own: a gh + git pair took 1012 ms median
+  against 604 ms when the child shares the parent's console (40 alternating pairs in one process, same load).
+- Git: `git maintenance run --auto` ran after each fetch, commit and push (41 times in one PRD test).
+Decisions:
+- `HX_SHARE_CONSOLE=1` (set by `test/isolate.ts`) turns `windowsHide` off for hx's own calls (`exec.ts`,
+  the agent process, the doctor probes). Real runs keep it: a fleet's detached runner has no console to share.
+  Two e2e files run side by side under the same load: 158 s with it, 219 s without (−28%).
+- The tests' git config turns off auto gc, maintenance, commit-graph writes on fetch and fsync, and every node the
+  tests start shares one `NODE_COMPILE_CACHE`.
+- Not done: creating the missing labels in parallel (GitHub asks for mutating calls one at a time), a shared seed
+  repo (git setup is a few calls per file, not where the time goes).
+- Before / after on an idle machine (three full `npm test` runs each, median): not measured yet — every run
+  in this session shared the machine with busy workers. Measure with every worker stopped and record it here.
+
 ## Token optimisation (phase 4)
 
 Measured before (see the [benchmark](../README.md#benchmark), `bench/results/phase3/`):

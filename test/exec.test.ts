@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { runShell } from '../src/exec.ts';
+import { hideWindow, runShell } from '../src/exec.ts';
 
 test('runShell: an abort kills the whole tree and resolves promptly with aborted set', E2E, async () => {
   const tmp = mkdtempSync(path.join(os.tmpdir(), 'hx-x-'));
@@ -38,4 +38,16 @@ test('runShell: without an abort the result has no aborted flag', E2E, async () 
   const r = await runShell(`node -e "process.exit(3)"`, { timeoutMs: 60_000, signal: new AbortController().signal });
   assert.equal(r.code, 3);
   assert.equal(r.aborted, undefined);
+});
+
+test('hideWindow: children get a hidden console of their own unless HX_SHARE_CONSOLE=1 (the tests) shares this one', () => {
+  const saved = process.env.HX_SHARE_CONSOLE;
+  try {
+    delete process.env.HX_SHARE_CONSOLE;
+    assert.equal(hideWindow(), true);
+    process.env.HX_SHARE_CONSOLE = '0';
+    assert.equal(hideWindow(), true);
+    process.env.HX_SHARE_CONSOLE = '1';
+    assert.equal(hideWindow(), false);
+  } finally { if (saved === undefined) delete process.env.HX_SHARE_CONSOLE; else process.env.HX_SHARE_CONSOLE = saved; }
 });
