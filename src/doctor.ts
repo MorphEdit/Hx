@@ -6,7 +6,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { DEFAULTS, effectiveRtddBin, labelSpecs, STATE_DIR, type Config, type Labels } from './config.ts';
 import { agentFor } from './agents/index.ts';
-import { resolveCmd } from './exec.ts';
+import { hideWindow, resolveCmd } from './exec.ts';
 import { nodeOk } from '../bin/node-check.mjs';
 
 export type Mark = '✓' | '✗' | '–' | '?';
@@ -146,7 +146,7 @@ export interface DoctorOptions {
 export function probe(cmd: string, args: string[], cwd?: string, timeoutMs = 15_000): Promise<Probe> {
   if (/\.m?js$/i.test(cmd) && !existsSync(cmd)) return Promise.resolve({ code: 1, stdout: '', stderr: `${cmd}: not found`, spawnFailed: true });
   return new Promise((resolve) => {
-    execFile(...resolveCmd(cmd, args), { cwd, timeout: timeoutMs, windowsHide: true, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 },
+    execFile(...resolveCmd(cmd, args), { cwd, timeout: timeoutMs, windowsHide: hideWindow(), encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 },
       (err: any, stdout, stderr) => {
         if (!err) return resolve({ code: 0, stdout, stderr });
         if (typeof err.code === 'string' && /ENOENT|EACCES|EINVAL/.test(err.code)) return resolve({ code: 1, stdout: '', stderr: String(err.message), spawnFailed: true });

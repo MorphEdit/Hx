@@ -3,3 +3,4 @@ node_modules/
 bench/results/audit-eval-logs/
 bench/results/critic-eval-logs/
 bench/results/security-eval-logs/
+test-profile.json

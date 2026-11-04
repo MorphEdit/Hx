@@ -58,7 +58,8 @@ import path from 'node:path';\n` +
     `let d = process.cwd();
 while (!existsSync(path.join(d, 'board.json')) && path.dirname(d) !== d) d = path.dirname(d);\n` +
     `process.env.HX_FAKE_STATE = path.join(d, 'board.json'); process.env.HX_FAKE_DIR = path.join(d, 'sessions');\n` +
-    `await import(${JSON.stringify(pathToFileURL(path.join(here, 'fakes', fake)).href)});\n`);
+    // gh.mjs answers through its cli(), claude.mjs on import
+    `(await import(${JSON.stringify(pathToFileURL(path.join(here, 'fakes', fake)).href)})).cli?.();\n`);
   return f;
 }
 const GH = router('gh.mjs'), CLAUDE = router('claude.mjs');
@@ -134,15 +135,15 @@ test('skips: a live runner (live.json with a live pid) and a missing root; with 
   assert.equal(await startFleetRun({ entry: ENTRY, print: () => {} }).done, 0);
 });
 
-test('children get HX_FLEET_DIR, HX_FLEET_WORKERS and --workers <cap> (fleet.json workers, else 2; --workers overrides), an IPC channel, cwd = root', E2E, async () => {
+test('children get HX_FLEET_DIR, HX_FLEET_WORKERS and --workers <cap> (fleet.json workers, else 2; --workers overrides), an IPC channel, cwd = root, no HX_SHARE_CONSOLE (a detached child has no console to share)', E2E, async () => {
   const entry = (root: string) => JSON.parse(readFileSync(path.join(root, 'entry.json'), 'utf8'));
   const a = plain('a');
   let h = home({ repos: [{ root: a }] });
   await startFleetRun({ entry: ENTRY, print: () => {} }).done;
-  assert.deepEqual(entry(a), { args: ['run', '--workers', '2'], cwd: a, HX_FLEET_DIR: path.join(h, '.hx', 'fleet'), HX_FLEET_WORKERS: '2', ipc: true });
+  assert.deepEqual(entry(a), { args: ['run', '--workers', '2'], cwd: a, HX_FLEET_DIR: path.join(h, '.hx', 'fleet'), HX_FLEET_WORKERS: '2', HX_SHARE_CONSOLE: null, ipc: true });
   h = home({ repos: [{ root: a }], workers: 3 });
   await startFleetRun({ entry: ENTRY, watch: true, print: () => {} }).done;
-  assert.deepEqual(entry(a), { args: ['run', '--workers', '3', '--watch'], cwd: a, HX_FLEET_DIR: path.join(h, '.hx', 'fleet'), HX_FLEET_WORKERS: '3', ipc: true });
+  assert.deepEqual(entry(a), { args: ['run', '--workers', '3', '--watch'], cwd: a, HX_FLEET_DIR: path.join(h, '.hx', 'fleet'), HX_FLEET_WORKERS: '3', HX_SHARE_CONSOLE: null, ipc: true });
   await startFleetRun({ entry: ENTRY, workers: 7, print: () => {} }).done;
   assert.equal(entry(a).HX_FLEET_WORKERS, '7');
   assert.deepEqual(entry(a).args, ['run', '--workers', '7']);

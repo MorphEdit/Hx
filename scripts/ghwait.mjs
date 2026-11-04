@@ -6,14 +6,26 @@
 //   `gh api rate_limit` shows at 0 (else the later reset; a failed read 60 s) — the same rules as hx (src/ghlimit.ts)
 // HX_GH_BIN swaps gh (as in hx itself); a .js/.mjs one runs under this node.
 import { spawnSync } from 'node:child_process';
+import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { classifyLimit, hhmm, limitWaitMs, parseRateLimit } from '../src/ghlimit.ts';
+
+// HX_GH_INPROC (set by the tests): the fake gh it names runs in-process, the same answers without a node start per call
+const INPROC = process.env.HX_GH_INPROC;
+const fake = INPROC ? await import(pathToFileURL(path.resolve(INPROC)).href) : null;
 
 const sleep = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 
 /** A sync `gh(args, opts)` → spawnSync result; `name` prefixes its stderr lines. */
 export function ghCaller(name) {
   const GH = process.env.HX_GH_BIN || 'gh';
-  const raw = (a, opts = {}) => (/\.m?js$/i.test(GH)
+  // null: run it as a program (another gh, a call with its own env, or one the fake keeps out of process)
+  const inProcess = (a, opts) => {
+    if (!fake || opts.env || path.resolve(GH) !== path.resolve(INPROC)) return null;
+    const r = fake.gh(a, { input: () => opts.input ?? '', cwd: opts.cwd ?? process.cwd(), inProcess: true });
+    return r && { status: r.code, stdout: r.stdout, stderr: r.stderr };
+  };
+  const raw = (a, opts = {}) => inProcess(a, opts) ?? (/\.m?js$/i.test(GH)
     ? spawnSync(process.execPath, [GH, ...a], { encoding: 'utf8', ...opts })
     : spawnSync(GH, a, { encoding: 'utf8', ...opts }));
   const env = Number(process.env.HX_GH_WAIT_MAX_SECONDS);

@@ -23,7 +23,7 @@ roadmap and the agreed order of the next features) before changing anything.
 - `scripts/ghwait.mjs` — the gh caller both scripts share: short rate limits waited out, capped by `HX_GH_WAIT_MAX_SECONDS`
 - `scripts/ship.mjs` — the one-call commit → rebase → test → push → PR → merge → close routine workers use
 - `test/` — `npm test`. End-to-end tests use real git (local bare origin) with fake `gh` and `claude`
-  in `test/fakes/` (`HX_GH_BIN`, `claudeBin` pointing at a `.mjs` run under node)
+  in `test/fakes/` (`HX_GH_BIN`, `claudeBin` pointing at a `.mjs` run under node; `test/isolate.ts` sets `HX_GH_INPROC`, so the fake gh answers in-process)
 - `bench/` — the six-issue benchmark (`node bench/run.mjs chat|hx1|hx3`, then `node bench/figures.mjs`).
   It creates private GitHub repos and spends real usage: run it only when asked.
 
