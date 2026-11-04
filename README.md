@@ -262,7 +262,9 @@ open), and keeps the last data with an "offline / last updated" note when a fetc
   sha, when, the fix issue).
 - **Board** — PRDs with their status and `closed/total done`, and the open issues with their status.
   If `gh` fails, the error shows here and the rest of the page keeps working.
-- **Stats** — tokens per day, tokens/turns/sessions/time by PRD, role and model, and outcomes parsed
+- **Stats** — tokens per day; test time (last 24 h: test share of session time, median test run, gate
+  median and p90, and a chart of the median test run and gate duration per UTC day over the last 14 days);
+  tokens/turns/sessions/time by PRD, role and model, and outcomes parsed
   from the run log: audit PASS/FAIL and average rounds, gauntlet rounds and FAILs, security passes and
   how many of them filed issues, gate REDs with the average RED → green time, and the median issue wall time.
 - **Log** — the tail of `.hx/run.log`, newest last.
