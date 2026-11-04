@@ -82,7 +82,8 @@ class N { childNodes: N[] = []; parentNode: N | null = null;
   appendChild(c: N) { c.parentNode = this; this.childNodes.push(c); return c; }
   replaceChildren(...cs: N[]) { this.childNodes = []; for (const c of cs) this.appendChild(c); }
   get textContent(): string { return this.childNodes.map((c) => c.textContent).join(''); }
-  set textContent(v: string) { this.childNodes = []; this.appendChild(new T(String(v))); }
+  set textContent(v: string) { this.viaTextContent = true; this.childNodes = []; this.appendChild(new T(String(v))); }
+  viaTextContent = false; // set by the textContent setter
 }
 class T extends N { data: string; constructor(data: string) { super(); this.data = data; }
   override get textContent() { return this.data; } override set textContent(v: string) { this.data = v; } }
@@ -193,6 +194,40 @@ test('the page script renders hostile strings as text, links issues by integer, 
   const p3 = page({ ...state, repo: 'javascript:alert(1)//x/y' }, { ...board, repo: 'javascript:alert(1)//x/y' });
   await p3.flush();
   assert.deepEqual(links(p3.ids.get('board-body')!), []);
+});
+
+test('Stats: test share, median test run, gate median and p90 set with textContent, a 14-day chart of the two series, - when missing', E2E, async () => {
+  const base = { repo: 'me/app', runner: { running: false }, sessions: [], gate: null, usage: {}, outcomes: {}, log: [] };
+  const time = { last24h: { share: 0.237, testRunMedian: 45_000, gateMedian: 192_000, gateP90: 3_900_000 },
+    days: { from: '2026-10-07', testRun: [{ day: '2026-10-07', ms: 20_000 }, { day: '2026-10-10', ms: 10_000 }, { day: '2026-10-20', ms: 30_000 }],
+      gate: [{ day: '2026-10-12', ms: 60_000 }] } };
+  const p = page({ ...base, time }, null);
+  await p.flush();
+  const st = p.ids.get('stats-body')!;
+  const v = (k: string) => st.all().find((e) => e.getAttribute('data-time') === k)!;
+  assert.deepEqual(['share', 'testRunMedian', 'gateMedian', 'gateP90'].map((k) => text(v(k))), ['24%', '45s', '3m 12s', '1h 05m']);
+  for (const k of ['share', 'testRunMedian', 'gateMedian', 'gateP90']) assert.ok(v(k).viaTextContent, `${k} is set with textContent`);
+  assert.ok(text(st).includes('Test time'));
+  const svg = st.all().find((e) => e.tag === 'svg' && /test run and gate/.test(e.getAttribute('aria-label') ?? ''))!;
+  assert.equal(svg.ns, 'http://www.w3.org/2000/svg');
+  const dots = (cls: string) => svg.all().filter((e) => e.tag === 'circle' && e.getAttribute('class') === cls);
+  assert.equal(dots('test').length, 3, 'one point per day with data');
+  assert.equal(dots('gate').length, 1);
+  const cx = (e: E) => Number(e.getAttribute('cx'));
+  assert.ok(cx(dots('test')[0]) < cx(dots('gate')[0]) && cx(dots('gate')[0]) < cx(dots('test')[2]), 'points sit on their day');
+  assert.equal(svg.all().filter((e) => e.tag === 'polyline').length, 2);
+  assert.ok(text(dots('gate')[0]).includes('2026-10-12') && text(dots('gate')[0]).includes('1m 00s'));
+  assert.ok(svg.all().filter((e) => e.tag === 'text' || e.tag === 'title').every((e) => e.viaTextContent), 'chart text set with textContent');
+
+  // missing values show '-'; no data in the 14 days: no chart; an older payload without time renders the same
+  for (const t of [{ last24h: { share: null, testRunMedian: null, gateMedian: null, gateP90: null }, days: { from: '2026-10-07', testRun: [], gate: [] } }, undefined]) {
+    const q = page({ ...base, time: t }, null);
+    await q.flush();
+    const sq = q.ids.get('stats-body')!;
+    for (const k of ['share', 'testRunMedian', 'gateMedian', 'gateP90']) assert.equal(text(sq.all().find((e) => e.getAttribute('data-time') === k)!), '-', k);
+    assert.ok(!sq.all().some((e) => e.tag === 'circle'));
+    assert.ok(text(sq).includes('no test time in the last 14 days'));
+  }
 });
 
 test('a failed fetch shows "offline" and keeps the last data', E2E, async () => {

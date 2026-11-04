@@ -34,6 +34,7 @@ td.wrap { white-space: normal; min-width: 12em; }
 svg { display: block; max-width: 100%; height: auto; }
 svg text { fill: var(--mute); font-size: 10px; }
 svg rect { fill: var(--bar); }
+svg .test { stroke: var(--bar); fill: var(--bar); } svg .gate { stroke: var(--warn); fill: var(--warn); } svg polyline { fill: none; stroke-width: 2; }
 #log { margin: 0; max-height: 360px; overflow: auto; font: 12px/1.4 ui-monospace, Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 8px; }
 </style>
 </head>
@@ -194,6 +195,67 @@ function barChart(days) {
   svg.appendChild(top);
   return svg;
 }
+// Test time: missing values are '-'; every value is set with textContent.
+const tdur = (ms) => (ms === null || ms === undefined || !Number.isFinite(Number(ms)) ? '-' : dur(ms));
+function timeValue(key, text) { const b = el('b', { 'data-time': key }); b.textContent = text; return b; }
+function timeNumbers(t) {
+  const l = (t && t.last24h) || {};
+  const share = l.share === null || l.share === undefined || !Number.isFinite(Number(l.share)) ? '-' : Math.round(Number(l.share) * 100) + '%';
+  return el('div', { class: 'kv' }, el('span', {}, 'last 24 h: tests ', timeValue('share', share), ' of session time'),
+    el('span', {}, 'median test run ', timeValue('testRunMedian', tdur(l.testRunMedian))),
+    el('span', {}, 'gate ', timeValue('gateMedian', tdur(l.gateMedian)), ' (p90 ', timeValue('gateP90', tdur(l.gateP90)), ')'));
+}
+/** The two per-day series of the last 14 UTC days as lines with a dot per day that has a value. */
+function timeChart(days) {
+  const W = 600, H = 160, pad = 24, N = 14, DAY = 86400000;
+  const from = Date.parse(String(days.from) + 'T00:00:00Z');
+  const series = [['test', 'median test run', days.testRun || []], ['gate', 'median gate', days.gate || []]];
+  const max = Math.max(1, ...series.flatMap(([, , pts]) => pts.map((p) => Number(p.ms) || 0)));
+  const svg = document.createElementNS(SVG, 'svg');
+  svg.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
+  svg.setAttribute('role', 'img');
+  svg.setAttribute('aria-label', 'median test run and gate duration per day');
+  const bw = (W - pad) / N;
+  const x = (day) => pad + Math.round((Date.parse(String(day) + 'T00:00:00Z') - from) / DAY) * bw + bw / 2;
+  const y = (ms) => H - pad - ((Number(ms) || 0) / max) * (H - 2 * pad);
+  for (const [cls, label, pts] of series) {
+    const ok = pts.filter((p) => Number.isFinite(x(p.day)));
+    const line = document.createElementNS(SVG, 'polyline');
+    line.setAttribute('class', cls);
+    line.setAttribute('points', ok.map((p) => x(p.day) + ',' + y(p.ms)).join(' '));
+    svg.appendChild(line);
+    for (const p of ok) {
+      const c = document.createElementNS(SVG, 'circle');
+      c.setAttribute('class', cls);
+      c.setAttribute('cx', String(x(p.day)));
+      c.setAttribute('cy', String(y(p.ms)));
+      c.setAttribute('r', '3');
+      const t = document.createElementNS(SVG, 'title');
+      t.textContent = String(p.day) + ': ' + label + ' ' + tdur(p.ms);
+      c.appendChild(t);
+      svg.appendChild(c);
+    }
+  }
+  for (let i = 0; i < N; i += 2) {
+    const l = document.createElementNS(SVG, 'text');
+    l.setAttribute('x', String(pad + i * bw + bw / 2));
+    l.setAttribute('y', String(H - 8));
+    l.setAttribute('text-anchor', 'middle');
+    l.textContent = Number.isFinite(from) ? new Date(from + i * DAY).toISOString().slice(5, 10) : '';
+    svg.appendChild(l);
+  }
+  const top = document.createElementNS(SVG, 'text');
+  top.setAttribute('x', '2');
+  top.setAttribute('y', '12');
+  top.textContent = 'max ' + tdur(max) + ' · test run (blue) · gate (amber)';
+  svg.appendChild(top);
+  return svg;
+}
+function timeSection(t) {
+  const d = (t && t.days) || {};
+  const any = (d.testRun || []).length || (d.gate || []).length;
+  return [timeNumbers(t), any ? timeChart(d) : el('p', { class: 'mute' }, 'no test time in the last 14 days')];
+}
 function usageTable(label, rows, link) {
   return table([label, 'tokens', 'turns', 'sessions', 'time'], (rows || []).map((r) =>
     [link ? issueLink(r.key) : String(r.key ?? ''), num(r.tokens), num(r.turns), num(r.sessions), dur(r.durationMs)]), [1, 2, 3, 4]);
@@ -208,6 +270,8 @@ function renderStats(s) {
       el('span', {}, el('b', {}, num(u.total?.sessions ?? 0)), ' sessions'), el('span', {}, el('b', {}, dur(u.total?.durationMs ?? 0)), ' session time')),
     el('h3', {}, 'Tokens per day'),
     (u.byDay || []).length ? barChart(u.byDay) : el('p', { class: 'mute' }, 'no usage recorded yet'),
+    el('h3', {}, 'Test time'),
+    timeSection(s.time),
     el('h3', {}, 'Outcomes'),
     table(['', ''], [
       ['audit', (a.pass ?? 0) + ' PASS · ' + (a.fail ?? 0) + ' FAIL · avg rounds ' + (a.avgRounds === null || a.avgRounds === undefined ? '–' : Number(a.avgRounds).toFixed(1))],

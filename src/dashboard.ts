@@ -11,11 +11,12 @@ import { budgetLine } from './budget.ts';
 import { loadProject, type Project, STATE_DIR } from './config.ts';
 import { DEFAULT_FLEET_WORKERS, type Fleet, fleetDir, fleetWorkers, type ListedRepo, listRepos, readFleet, readHold, readRepos, slotsInUse } from './fleet.ts';
 import { githubLine } from './ghlimit.ts';
-import { readGate } from './gate.ts';
+import { type GateRun, readGate, readGateRuns } from './gate.ts';
 import { parseOutcomes } from './outcomes.ts';
 import { lookupTrusted, readPlan, runLogFile } from './pool.ts';
 import { pidAlive, readLive, readPause } from './runstate.ts';
 import type { Plan } from './state.ts';
+import { testSeries, timeWindow } from './timing.ts';
 import { localDay, readUsage, summarize, totalTokens, type UsageRecord, type UsageRow } from './usage.ts';
 
 export const HTML_FILE = path.join(path.dirname(fileURLToPath(import.meta.url)), 'dashboard.html');
@@ -82,6 +83,23 @@ function rows(recs: UsageRecord[], keyOf: (r: UsageRecord) => string): Row[] {
   return summarize(recs, keyOf).map((r) => ({ ...r, tokens: totalTokens(r.usage), durationMs: dur.get(r.key) ?? 0 }));
 }
 
+const DAY_MS = 86_400_000;
+export const TIME_DAYS = 14;
+
+/** Stats' test time: the hx status numbers over the last 24 h, and per UTC day of the last 14 (today included)
+ *  the median test-run and gate duration. A missing value is null; a day with no value for a series has no point in it. */
+export function testTime(recs: UsageRecord[], gates: GateRun[], now = Date.now()) {
+  const w = timeWindow(recs, gates, now - DAY_MS, Infinity);
+  const from = Math.floor(now / DAY_MS) * DAY_MS - (TIME_DAYS - 1) * DAY_MS;
+  const inRange = (r: { ts: string }) => Date.parse(r.ts) >= from;
+  const days = testSeries(recs.filter(inRange), gates.filter(inRange));
+  const points = (k: 'testRunMedian' | 'gateMedian') => days.filter((d) => d[k] !== undefined).map((d) => ({ day: d.day, ms: d[k]! }));
+  return {
+    last24h: { share: w.share ?? null, testRunMedian: w.testRunMedian ?? null, gateMedian: w.gateMedian ?? null, gateP90: w.gateP90 ?? null },
+    days: { from: new Date(from).toISOString().slice(0, 10), testRun: points('testRunMedian'), gate: points('gateMedian') },
+  };
+}
+
 /** Reads .hx/ only and never calls gh: usage by PRD comes from the last board /api/board fetched, null before one. */
 export function dashboardState(p: Project, board: () => BoardSeen): object {
   const dir = p.stateDir, now = Date.now();
@@ -116,7 +134,7 @@ export function dashboardState(p: Project, board: () => BoardSeen): object {
   const read = (f: string) => (existsSync(f) ? readFileSync(f, 'utf8') : '');
   // run.log.1 (the one rotated file, when there is one) then run.log, as one line sequence
   const outcomes = parseOutcomes([...read(`${logFile}.1`).split(/\r?\n/), ...read(logFile).split(/\r?\n/)]);
-  return { repo: p.config.repo, runner, sessions, gate, usage, log: tailLines(logFile, LOG_LINES), outcomes };
+  return { repo: p.config.repo, runner, sessions, gate, usage, time: testTime(recs, readGateRuns(dir), now), log: tailLines(logFile, LOG_LINES), outcomes };
 }
 
 function send(res: ServerResponse, status: number, type: string, body: string, headers: Record<string, string> = {}): void {
