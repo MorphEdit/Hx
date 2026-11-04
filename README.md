@@ -644,6 +644,68 @@ bug ──triage──▶ REPRODUCED ──▶ bug-triaged + ready-for-agent ─
 Labels: `bug` (a bug report), `bug-triaged` (a triage session reproduced it). Config: `bugTriage`,
 `triageRounds` (see below).
 
+## Self-check
+
+When the board runs dry, hx looks over its own state, repairs what it safely can and files the rest as work.
+
+**When it runs.** A **health pass** runs when nothing is claimable and no session is running: in
+`hx run --watch` at most once per `healthEveryMinutes` (default 60), once at the end of a plain `hx run`
+before it exits, and on demand with `hx health [--fix]`. `hx health` without `--fix` only reports;
+`--fix` repairs, even with `selfHeal: false`. With `selfHeal: false` the passes `hx run` starts only report,
+file nothing and start no self-review. A pass never runs during a usage hold or while the GitHub budget is
+low (`ghReservePct`). Every check skips an issue in a live runner's session, and reads comments from trusted
+accounts only.
+
+**The checks**, in this order; an issue one check acts on or reports is skipped by the checks after it:
+
+1. **Stale PR** — an open PR from `issue/<N>` whose issue is closed, or that already has another merged PR:
+   closed with a comment saying why. The branch is kept.
+2. **Blocked after a passed audit** — `agent-blocked`, an open PR from `issue/<N>`, and the last hx audit
+   comment says `PASS ✓`. A `MERGEABLE` PR is merged through the `ship --resume` path (as right after an
+   audit); a `CONFLICTING` one, or a resume that exits non-zero, goes back to `ready-for-agent` with the
+   reason; `UNKNOWN` waits for the next pass. Once per issue: each comment it writes carries
+   `<!-- hx:health resume -->`, and an issue blocked again after one gets a `health:` issue instead.
+3. **Gate-fix issue on a green main** — an open `hx-gate-fix` issue is closed as not planned once the last
+   two lines of `.hx/gate-runs.jsonl` are green at the head of `origin/<default>`. With only the last one
+   green there, a pass in `hx run` asks its gate for one more run (never while one runs); `hx health`
+   reports `waiting for a second green gate run`. A red or empty record leaves the issue alone.
+4. **Blocked by a transient error** — `agent-blocked` whose last hx comment is a stop with a transient
+   reason (`stalled: no output`, `turn timed out after`, `claude exited <code> with no result`, `API 429`,
+   `API 5xx`, `rate limit`; never `merging the audited PR failed`): unblocked with a comment starting
+   `<!-- hx:health unblock <time> -->` (ISO UTC). Once per issue per 24 h, read from that marker.
+5. **Leftover worktrees** — `i<N>`, `a<N>`, `t<N>` or `p<N>` under `worktreeRoot`, N not open, untouched
+   for 24 h: removed (`git worktree remove`, then `git worktree prune`). The local branch is kept; any other
+   name (`gate`, `r`, `sr`) is never touched.
+6. **Stuck labels** — `agent-working` in no live session: `.hx/health.json` records when a pass first saw it,
+   and a pass more than `stallMinutes` later removes the label.
+7. **Environment** — the `hx doctor` checks and less than 5 GB free on the worktree drive: reported only.
+
+**What files a `health:` issue.** Only an issue blocked again after its resume repair: one `bug` issue titled
+`health: …` whose body carries `<!-- hx:health <key> -->` (`<key>` = `resume:<N>`). hx looks for the marker
+among open and closed issues first, so a `health:` issue a human closed is never refiled; the bug lane fixes
+and closes them. Every other ✗ waits for time or a gate run, or is about the machine, and files nothing.
+
+**Self-review.** After a pass in `hx run` that changed nothing (`selfHeal` on, the board still empty), a
+read-only `selfreview` session (`prompts/selfreview.md`, worktree `sr` on `origin/<default>`) reviews what
+merged since the head recorded in `.hx/selfreview.json` (`{ sha, at }`), at most once per
+`selfReviewEveryHours` (default 12) and only when that range has a commit. With no `selfreview.json`, or a
+sha the head does not descend from, the first pass only records the head as a start point: the first review
+covers what merges after it. It reports real defects only, each a `## Finding` block; up to
+`selfReviewMaxFindings` (default 5) become `bug` issues carrying `<!-- hx:selfreview <sha> -->` and go
+through the bug lane (triage → impl → audit → merge), the rest are dropped. A finished session records the
+head (`self-review: no findings since <sha>` when it found none); one that did not finish records nothing.
+Its model is `roleModels.selfreview`, and its turns go to `usage.jsonl` with role `selfreview`. `hx health`
+never starts one.
+
+**Where it shows.** Each pass writes one `health:` line to the run log, e.g.
+`health: 3 ✓ · 1 ✗ · fixed 2 (closed stale PR #91, merged PR #171 (#170)) · filed 1 (#200)`, plus a line per
+finding. `hx status` shows the last pass and how long ago it ran, the dashboard's Now shows the same line, and
+its Stats count passes, repairs, filed issues and self-review findings.
+
+**What it never does.** No direct commit to `main` (every fix goes issue → PR → audit → merge), no delete of a
+remote branch or a local branch, no force push, and no other block touched: a `NEEDS-INFO` triage block, the
+review / security / triage round caps, an audit that kept failing and a failed merge stay for a human.
+
 ## What happens to an issue
 
 | Outcome | Hx does |
@@ -697,7 +759,7 @@ Every session runs with `model` and `effort` unless `roleModels` gives its role 
 "roleModels": { "impl": { "model": "claude-sonnet-5-5" }, "audit": { "model": "claude-sonnet-5-5", "effort": "high" } }
 ```
 
-- Roles: `impl`, `audit`, `triage`, `decompose`, `critic`, `revise`, `review`, `security`. A field left out
+- Roles: `impl`, `audit`, `triage`, `decompose`, `critic`, `revise`, `review`, `security`, `selfreview`. A field left out
   falls back to the top-level one; `effort` must be one of `low`, `medium`, `high`, `xhigh`, `max`.
 - `hx run` checks `roleModels` before it claims anything and stops with the reason when it is wrong.
 - A checkpoint resumes its session with that session's model; continue turns keep it too.
@@ -796,6 +858,8 @@ it reads. So Hx only works on text from **trusted accounts**: your `gh` login pl
 - `.hx/pause` — present while paused (`drain` or `now`)
 - `.hx/gate-runs.jsonl` — one line per pool gate run whose test command finished or timed out: `{ ts, sha, ok, durationMs, timedOut }`
   (`durationMs` is the test command only; the release gate is not recorded). `hx run` logs `gate is slow: …` once when the median of the last 5 is above 70% of `gateMinutes`
+- `.hx/health.json` — the health pass: when it first saw each `agent-working` issue with no live session, and the last pass's time and line (see [Self-check](#self-check))
+- `.hx/selfreview.json` — the head of `origin/<default>` the last self-review reviewed, and when: `{ sha, at }`
 - `.hx/run.log` — the `hx run` log, `<ISO time> [#n] message` per line (rotated to `run.log.1` past 2 MiB), read by `hx dashboard`
 - `~/.hx/fleet/hold.json` — the shared usage hold of `hx fleet run` (`{ until, reason, repo }`); every runner copies it
 - `~/.hx/fleet/github-hold.json` — the shared GitHub hold, same shape: written by a runner whose GitHub API budget is
