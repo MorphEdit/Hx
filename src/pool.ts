@@ -15,6 +15,7 @@ import { clearLive, otherRunner, readLive, readPause, writeLive, type LiveSessio
 import { fmt, recordUsage, totalTokens } from './usage.ts';
 import { testMatcher, turnTiming, type TurnTiming } from './timing.ts';
 import { actionBudget, budgetFilter, newSkipLines, readBudget, readBudgetWindows, readingOf, recordReading, type Budget } from './budget.ts';
+import { healthPass, renderResult } from './health.ts';
 import { appendGateRun, gateIssueBody, gateIssueTitle, readGate, readGateRuns, remoteSha, runGate, slowGateWarning, writeGate, type GateResult } from './gate.ts';
 import { run as runCmd } from './exec.ts';
 import { dueRelease, release, releaseGate } from './release.ts';
@@ -462,6 +463,29 @@ async function pool(p: Project, o: PoolOptions): Promise<number> {
     return releasing;
   };
 
+  // the health pass (PRD #194 §A): on an idle board, never during a hold or a low GitHub budget. Its lines go to the run log.
+  let healthAt = -Infinity; // when the last pass started (in memory: the first idle loop of a run may run one)
+  let healthChanges = 0; // a plain run's passes in a row that changed something: bounded, so a repair that never sticks cannot loop
+  const healthCheck = async (): Promise<boolean> => {
+    healthAt = Date.now();
+    try {
+      const r = await healthPass(p, {
+        repairs: c.selfHeal,
+        live: new Set(live.sessions.map((s) => s.number)),
+        // one more gate run for a gate-fix issue; never a second while one runs, never without a command
+        requestGate: () => { if (!c.gate || !gateCommand() || gateRunning) return false; void gateCheck(); return true; },
+        closedGateFix: (n) => { if (gs.fixIssue === n) { gs.fixIssue = undefined; writeGate(p.stateDir, gs); showGate(); } },
+        merged: (test) => ctx.merged(test), // a resumed audited PR: the gate and release checks as after any merge
+      });
+      for (const x of r.results) if (x.mark !== '✓') log(`health: ${renderResult(x)}`);
+      log(r.line);
+      return r.changed;
+    } catch (e: any) {
+      log(`health: the pass failed — ${String(e?.message ?? e).split(/\r?\n/)[0].slice(0, 200)}`);
+      return false;
+    }
+  };
+
   const inFlight = new Map<string, Promise<void>>();
   let idleLogged = false;
   const skipped = new Set<number>(); // untrusted issues / PRDs already logged this run
@@ -598,12 +622,15 @@ async function pool(p: Project, o: PoolOptions): Promise<number> {
             if (gateRunning) await gateRunning;
             if (!(releasing && (await releasing))) await releaseCheck(true);
           }
+          // one pass before the exit; one that changed the board (work unblocked, a gate run asked for) reads it again
+          if (!stop.signal.aborted && await healthCheck() && ++healthChanges <= 3) continue;
           log('nothing left to do — done');
           if (stuck.length) log(`WARNING: still labelled ${c.labels.working} with no session running: ${stuck.map((n) => `#${n}`).join(', ')} — remove the label to let hx pick ${stuck.length > 1 ? 'them' : 'it'} up again`);
           break;
         }
         if (engineOnly) { await sleep(2000, stop.signal); continue; }
         if (o.watch) void releaseCheck();
+        if (o.watch && !limited && !actions.length && Date.now() - healthAt >= c.healthEveryMinutes * 60_000 && await healthCheck()) continue;
         if (!idleLogged) { log(budgetBlocked ? 'budget: waiting for usage to leave room for the next session…' : githubLowNow() ? 'waiting for the GitHub API budget to reset…' : limited ? 'waiting for the usage limit to reset…' : 'board empty — watching for new issues'); idleLogged = true; }
       }
       // wake on the first finished task, a pause, or after a poll interval (new / unblocked issues, a limit reset)

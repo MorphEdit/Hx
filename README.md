@@ -191,12 +191,14 @@ hx start "idea"         # doctor, init, grill, the dry-run plan, then hx run --w
 hx doctor               # check the prerequisites, each with a fix for this OS; exit 1 when a required one fails
 hx health [--fix]       # one health pass: stale PRs from issue/<N> branches, agent-blocked after a passed audit
                         # (merged with ship --resume or sent back to ready-for-agent; blocked again → one health:
-                        # bug issue), agent-blocked by a transient error (unblocked at most once per 24 h),
+                        # bug issue), agent-blocked by a transient error (unblocked at most once per 24 h), gate-fix
+                        # issues on a green main (closed as not planned once the last two gate runs are green at
+                        # origin's head),
                         # leftover worktrees (i/a/t/p<N>, N not
                         # open, untouched 24 h), agent-working with no live session (released after stallMinutes),
                         # the environment (doctor checks, < 5 GB free); --fix repairs; exit 1 while a ✗ remains;
                         # hx status and the dashboard show the last pass, the dashboard Stats count passes,
-                        # repairs and self-review findings
+                        # repairs and self-review findings; hx run runs the same pass when the board is idle (see selfHeal)
 hx init                 # writes .hx/config.json and creates the GitHub labels; --rtdd also runs
                         # rtdd init in the repo root (commit .rtdd/), without it a hint if rtdd is installed;
                         # an unset worktreeSetup comes from the first lockfile (pnpm-lock.yaml → pnpm install
@@ -750,8 +752,8 @@ and the dashboard's per-model numbers use it). To spot one:
 | `turnTimeoutMinutes` | 60 | wall-clock limit for one turn; above ship's test timeout, since one shell command may run ship's test timeout + 5 min (`BASH_MAX_TIMEOUT_MS`) |
 | `stallMinutes` | 15 | a turn with no stdout for this long is killed (0 = off) |
 | `pollSeconds` | 60 | how often the board is re-read |
-| `selfHeal` | `true` | `hx run` runs a health pass every `healthEveryMinutes` and applies its repairs (`hx health --fix` repairs even when it is `false`) |
-| `healthEveryMinutes` | 60 | minutes between `hx run`'s health passes |
+| `selfHeal` | `true` | `hx run` runs a health pass when the board is idle (`--watch`: at most every `healthEveryMinutes`; a plain run: once before it exits; never during a usage hold or a low GitHub budget) and applies its repairs, asking its gate for one more run when a gate-fix issue has only one green run at the head; `false`: the pass only reports (`hx health --fix` repairs even then). Its lines go to the run log |
+| `healthEveryMinutes` | 60 | minutes between `hx run --watch`'s health passes |
 | `worktreeRoot` | `<drive>:\hx-wt\<repo>` | keep it short: Windows path-length limits |
 | `worktreeSetup` | `""` | a shell command run in every new worktree (sessions and the gate) before it is used, e.g. `npm ci`; `hx init` proposes one from the lockfile (see [Worktree setup](#worktree-setup)) |
 | `worktreeSetupMinutes` | `10` | the setup command is killed, with its process tree, after this long and counts as failed |

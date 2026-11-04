@@ -87,6 +87,28 @@ test('environment: a failing doctor check and disk below 5 GB are ✗, with no a
   assert.equal(ok.results[0].mark, '✓');
 });
 
+test('gate-fix: two green at the head → close; red last or no runs → ✓; otherwise → ask for a gate run', E2E, () => {
+  const run = (sha: string, ok: boolean) => ({ ts: '', sha, ok, durationMs: 1, timedOut: false });
+  const issues = [issue(50, 'OPEN', [L.gateFix]), issue(51, 'CLOSED', [L.gateFix]), issue(52, 'OPEN')];
+  const check = (gateRuns: any[], o: Partial<Snap> = {}) => H.gateFixCheck(snap({ issues, gateRuns, headSha: 'head', ...o }), new Set());
+  const two = check([run('old', false), run('head', true), run('head', true)]);
+  assert.deepEqual(two.actions.map((a: any) => [a.kind, a.issue]), [['close-issue', 50]]);
+  assert.match((two.actions[0] as any).comment, /^\*\*hx:\*\* closing as not planned — the last two gate runs are green at head/);
+  for (const runs of [[], [run('head', false)], [run('head', true), run('head', false)], [run('old', true), run('old', true), run('old', false)]]) {
+    const r = check(runs);
+    assert.deepEqual(r.actions, [], JSON.stringify(runs));
+    assert.deepEqual(r.results.map((x) => x.mark), ['✓']);
+  }
+  for (const runs of [[run('head', true)], [run('head', false), run('head', true)], [run('old', true), run('head', true)], [run('old', true), run('old', true)]]) {
+    const r = check(runs);
+    assert.deepEqual(r.actions.map((a: any) => [a.kind, a.issue]), [['request-gate', 50]], JSON.stringify(runs));
+    assert.deepEqual(r.results.map((x) => [x.mark, x.text]), [['✗', 'gate-fix #50 — waiting for a second green gate run']]);
+  }
+  // a live gate-fix session is skipped; no gate-fix issue → ✓ none
+  assert.deepEqual(check([run('head', true), run('head', true)], { live: new Set([50]) }).actions, []);
+  assert.deepEqual(H.gateFixCheck(snap(), new Set()).results, [{ mark: '✓', text: 'gate-fix issues — none' }]);
+});
+
 test('seen: an issue an earlier check acted on is not looked at by a later one', E2E, () => {
   const s = snap({
     issues: [issue(5, 'OPEN', [L.working]), issue(6, 'CLOSED')],
