@@ -34,6 +34,10 @@ test('parseTime: ISO and local "YYYY-MM-DD HH:MM"; anything else is undefined', 
   assert.equal(parseTime('2026-11-04T09:00:00Z'), Date.parse('2026-11-04T09:00:00Z'));
   assert.equal(parseTime('2026-11-04T09:00+07:00'), Date.parse('2026-11-04T02:00:00Z'));
   assert.equal(parseTime('2026-11-04 09:30'), new Date(2026, 10, 4, 9, 30).getTime());
+  assert.equal(parseTime('2024-02-29'), Date.parse('2024-02-29'));
+  assert.equal(parseTime('2026-12-31T23:59:59.5Z'), Date.parse('2026-12-31T23:59:59.5Z'));
+  // impossible ISO dates must not roll into the next month
+  for (const bad of ['2026-02-30', '2026-02-29', '2026-11-31', '2026-04-31T10:00Z', '2026-00-10', '2026-11-00', '2026-11-04T24:00Z', '2026-11-04T09:60Z', '2026-11-04T09:00:60Z', '2026-11-04T09:00+25:00']) assert.equal(parseTime(bad), undefined, bad);
   for (const bad of ['yesterday', '2026-13-04 09:00', '2026-11-04 25:00', '04/11/2026', '', '1730707200']) assert.equal(parseTime(bad), undefined, bad);
 });
 
@@ -186,7 +190,7 @@ test('hx usage --compare: no small-sample note with 10 or more closed issues in 
 
 test('hx usage --compare: a bad time exits 1 with a clear message, before any GitHub call', E2E, () => {
   const { hx, calls } = app('bad', [], {});
-  for (const args of [['--compare', 'last tuesday'], ['--compare', '2026-11-04 25:00'], ['--compare', AT, '--from', 'soon'], ['--compare', AT, '--from', A(1)]]) {
+  for (const args of [['--compare', 'last tuesday'], ['--compare', '2026-11-04 25:00'], ['--compare', '2026-02-30'], ['--compare', '2026-04-31T10:00Z'], ['--compare', AT, '--from', '2026-11-31'], ['--compare', AT, '--from', 'soon'], ['--compare', AT, '--from', A(1)]]) {
     const r = hx('usage', ...args);
     assert.equal(r.status, 1, args.join(' '));
     assert.match(r.stderr, /is not a time|--from must be before --compare/, r.stderr);

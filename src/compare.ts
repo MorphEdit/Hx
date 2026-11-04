@@ -67,7 +67,13 @@ export function parseTime(s: string): number | undefined {
     const t = new Date(y, mo - 1, d, h, mi);
     return t.getFullYear() === y && t.getMonth() === mo - 1 && t.getDate() === d && t.getHours() === h && t.getMinutes() === mi ? t.getTime() : undefined;
   }
-  if (!/^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})?)?$/i.test(s.trim())) return undefined;
+  const iso = /^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2})(?::(\d{2})(?:\.\d+)?)?(Z|[+-](\d{2}):?(\d{2}))?)?$/i.exec(s.trim());
+  if (!iso) return undefined;
+  // Date.parse rolls an impossible date into the next month (2026-02-30 → 03-02): check every field first
+  const [y, mo, d, h, mi, sec, , oh, om] = iso.slice(1).map((v) => Number(v ?? 0));
+  const day = new Date(Date.UTC(y, mo - 1, d));
+  if (day.getUTCFullYear() !== y || day.getUTCMonth() !== mo - 1 || day.getUTCDate() !== d) return undefined;
+  if (h > 23 || mi > 59 || sec > 59 || oh > 23 || om > 59) return undefined;
   const t = Date.parse(s.trim());
   return Number.isFinite(t) ? t : undefined;
 }
