@@ -125,6 +125,9 @@ function renderNow(s) {
   parts.push(el('div', { class: 'kv' }, el('span', {}, 'gate ', !g ? badge('mute', 'no run yet') : g.ok ? badge('ok', 'green') : badge('bad', 'RED')),
     g ? el('span', {}, 'at ', el('code', {}, String(g.sha ?? '').slice(0, 7)), ' · ', when(g.at)) : null,
     g && g.fixIssue ? el('span', {}, 'fix issue ', issueLink(g.fixIssue)) : null));
+  const h = s.health;
+  parts.push(el('div', { class: 'kv' }, el('span', {}, 'health ', h ? el('b', {}, String(h.line ?? '')) : badge('mute', 'no pass yet')),
+    h ? el('span', {}, 'at ', when(h.at)) : null));
   sessions = s.sessions || [];
   if (r.running) {
     parts.push(sessions.length ? table(['issue', 'title', 'kind', 'turn', 'tokens', 'elapsed'], sessions.map((x) =>
@@ -264,7 +267,7 @@ function renderStats(s) {
   const body = $('stats-body');
   body.className = '';
   const u = s.usage || {}, o = s.outcomes || {};
-  const a = o.audit || {}, ga = o.gauntlet || {}, se = o.security || {}, gt = o.gate || {}, is = o.issues || {}, tr = o.triage || {}, rl = o.releases || {};
+  const a = o.audit || {}, ga = o.gauntlet || {}, se = o.security || {}, gt = o.gate || {}, is = o.issues || {}, tr = o.triage || {}, rl = o.releases || {}, he = o.health || {}, sr = o.selfReview || {};
   fill(body,
     el('div', { class: 'kv' }, el('span', {}, 'total ', el('b', {}, num(u.total?.tokens ?? 0)), ' tokens'),
       el('span', {}, el('b', {}, num(u.total?.sessions ?? 0)), ' sessions'), el('span', {}, el('b', {}, dur(u.total?.durationMs ?? 0)), ' session time')),
@@ -280,6 +283,8 @@ function renderStats(s) {
       ['security', (se.passes ?? 0) + ' passes · ' + (se.filed ?? 0) + ' filed issues'],
       ['gate', (gt.red ?? 0) + ' RED · avg RED → green ' + dur(gt.avgRedMs) + (gt.openRed ? ' · RED now' : '')],
       ['issues', (is.done ?? 0) + ' done · median wall time ' + dur(is.medianMs)],
+      ['health', (he.passes ?? 0) + ' passes · ' + (he.fixed ?? 0) + ' fixed · ' + (he.filed ?? 0) + ' filed'],
+      ['self-review', (sr.sessions ?? 0) + ' sessions · ' + (sr.findings ?? 0) + ' findings'],
       ['releases', rl.count ? 'latest ' + String(rl.latest ?? '–') + ' · ' + num(rl.count) + ' release(s)' : 'none yet'],
       ['model mismatch', (o.modelMismatch ?? 0) + ' session(s) ran another model — see the log'],
     ]),

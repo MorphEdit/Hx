@@ -63,6 +63,7 @@ const newLog = [
 ];
 writeFileSync(path.join(stateDir, 'run.log.1'), oldLog.join('\n') + '\n');
 writeFileSync(path.join(stateDir, 'run.log'), newLog.join('\n') + '\n');
+writeFileSync(path.join(stateDir, 'health.json'), JSON.stringify({ stuck: {}, last: { at: '2026-10-01T11:40:00.000Z', line: 'health: 3 ✓ · fixed 1 (closed stale PR #91)' } }));
 writeFileSync(path.join(stateDir, 'gate.json'), JSON.stringify({ command: 'npm test', fixIssue: 14,
   last: { sha: 'abc1234', ok: false, command: 'npm test', output: 'boom', at: '2026-10-01T11:21:00Z' } }));
 
@@ -113,6 +114,7 @@ test('/api/state: runner, sessions, gate, usage by role and by PRD, log, outcome
   assert.deepEqual({ ...s.sessions[0], elapsedMs: undefined }, { number: 12, kind: 'impl', title: 'part b', turn: 2, tokens: 1234, since, elapsedMs: undefined });
   assert.ok(s.sessions[0].elapsedMs >= 4000);
   assert.deepEqual(s.gate, { sha: 'abc1234', ok: false, at: '2026-10-01T11:21:00Z', command: 'npm test', fixIssue: 14 });
+  assert.deepEqual(s.health, { at: '2026-10-01T11:40:00.000Z', line: 'health: 3 ✓ · fixed 1 (closed stale PR #91)' }, 'the last health pass');
 
   const row = (rows: any[], k: string) => rows.find((x) => x.key === k);
   assert.equal(s.usage.total.tokens, 357);

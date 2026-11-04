@@ -127,6 +127,7 @@ test('the page script renders hostile strings as text, links issues by integer, 
   await p.flush();
   const now = p.ids.get('now-body')!, bd = p.ids.get('board-body')!, log = p.ids.get('log')!, st = p.ids.get('stats-body')!;
   assert.match(text(now), /not running/);
+  assert.match(text(now), /health no pass yet/, 'no health.json: no pass yet');
   assert.ok(text(bd).includes(XSS), 'the title is shown verbatim, as text');
   assert.ok(bd.all().every((e) => e.tag !== 'img'));
   assert.ok(links(bd).includes('https://github.com/me/app/issues/7'));
@@ -150,22 +151,26 @@ test('the page script renders hostile strings as text, links issues by integer, 
       rateLimit: { status: 'allowed_warning', utilization: 0.81, type: 'five_hour' } },
     sessions: [{ number: '9"><x', kind: 'impl', title: XSS, turn: 4, tokens: 5000, since, elapsedMs: 192_000 }],
     gate: { sha: 'abcdef1234567', ok: false, at: since, fixIssue: 14.7 },
+    health: { at: since, line: `health: 3 ✓ · fixed 1 (${XSS})` },
     usage: { ...state.usage, byPrd: null, byDay: [{ key: '2026-10-01', tokens: 300 }, { key: '2026-10-02', tokens: 57 }] },
     outcomes: { audit: { pass: 3, fail: 1, mergedIssues: 2, avgRounds: 1.5 }, gauntlet: { rounds: 4, pass: 3, fail: 1 },
       security: { passes: 2, filed: 1 }, gate: { red: 2, recovered: 1, openRed: true, redMs: [600_000], avgRedMs: 600_000 },
       issues: { done: 2, medianMs: 3_900_000 }, triage: { reproduced: 2, needsInfo: 1, failed: 0, gaveUp: 0 }, modelMismatch: 2,
-      releases: { count: 3, latest: 'v0.3.1' } } };
+      releases: { count: 3, latest: 'v0.3.1' }, health: { passes: 5, fixed: 3, filed: 2 }, selfReview: { sessions: 4, findings: 6 } } };
   const p2 = page(s2, { ...board, prds: [], board: [], error: `HTTP 502 ${XSS}` });
   await p2.flush();
   const now2 = p2.ids.get('now-body')!, st2 = p2.ids.get('stats-body')!, bd2 = p2.ids.get('board-body')!;
   for (const w of ['draining', 'pid 42', 'uptime 1h 05m', 'workers 3', 'five_hour: allowed_warning 81%', 'RED', 'abcdef1', XSS, '3m 12s'])
     assert.ok(text(now2).includes(w), w);
+  assert.ok(text(now2).includes(`health health: 3 ✓ · fixed 1 (${XSS})`), 'the last health pass, as text');
+  assert.ok(text(now2).includes(new Date(since).toLocaleString()), 'the last health pass time');
+  assert.ok(now2.all().every((e) => e.tag !== 'img'), 'the health line is text');
   assert.ok(links(now2).includes('https://github.com/me/app/issues/14'), 'the gate fix issue, coerced to an integer');
   assert.ok(links(now2).every((h) => /^https:\/\/github\.com\/me\/app\/issues\/\d+$/.test(h!)), String(links(now2)));
   assert.equal(text(bd2), `board unavailable: HTTP 502 ${XSS}`);
   for (const w of ['3 PASS', '1 FAIL', 'avg rounds 1.5', '4 rounds', '2 passes · 1 filed issues', '2 RED', 'avg RED → green 10m 00s', 'RED now',
     'median wall time 1h 05m', 'waiting for the board', '2 REPRODUCED · 1 NEEDS-INFO · 0 FAILED · 0 GAVE UP', 'model mismatch', '2 session(s) ran another model',
-    'latest v0.3.1 · 3 release(s)']) assert.ok(text(st2).includes(w), w);
+    'latest v0.3.1 · 3 release(s)', '5 passes · 3 fixed · 2 filed', '4 sessions · 6 findings']) assert.ok(text(st2).includes(w), w);
   const svg = st2.all().find((e) => e.tag === 'svg')!;
   assert.equal(svg.ns, 'http://www.w3.org/2000/svg');
   assert.equal(svg.all().filter((e) => e.tag === 'rect').length, 2);

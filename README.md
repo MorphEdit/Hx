@@ -191,7 +191,9 @@ hx start "idea"         # doctor, init, grill, the dry-run plan, then hx run --w
 hx doctor               # check the prerequisites, each with a fix for this OS; exit 1 when a required one fails
 hx health [--fix]       # one health pass: stale PRs from issue/<N> branches, leftover worktrees (i/a/t/p<N>, N not
                         # open, untouched 24 h), agent-working with no live session (released after stallMinutes),
-                        # the environment (doctor checks, < 5 GB free); --fix repairs; exit 1 while a ✗ remains
+                        # the environment (doctor checks, < 5 GB free); --fix repairs; exit 1 while a ✗ remains;
+                        # hx status and the dashboard show the last pass, the dashboard Stats count passes,
+                        # repairs and self-review findings
 hx init                 # writes .hx/config.json and creates the GitHub labels; --rtdd also runs
                         # rtdd init in the repo root (commit .rtdd/), without it a hint if rtdd is installed;
                         # an unset worktreeSetup comes from the first lockfile (pnpm-lock.yaml → pnpm install

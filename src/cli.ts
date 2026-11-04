@@ -20,7 +20,7 @@ import { agentFor } from './agents/index.ts';
 import { ideaFrom, sessionPaths, sessionPrompt } from './grill.ts';
 import { formatSkills, installSkill } from './skills.ts';
 import { doctor, render } from './doctor.ts';
-import { healthPass, renderResult } from './health.ts';
+import { healthPass, readHealth, renderResult } from './health.ts';
 import { addRepo, type Fleet, fleetDir, fleetFile, fleetWorkers, readFleet, readGithubHold, readHold, readRepos, registerRepo, removeRepo, sameRoot, slotsInUse, startFleetRun, writeFleet, writeRepos } from './fleet.ts';
 import { change, compare, parseTime, SMALL_SAMPLE, type Period } from './compare.ts';
 import { fmt, localDay, mismatchedSessions, readUsage, summarize, totalTokens, type UsageRow } from './usage.ts';
@@ -525,6 +525,8 @@ async function status(p = loadProject(), o: { github?: boolean } = {}): Promise<
   }
   const gate = readGate(p.stateDir).last;
   if (c.gate && gate) console.log(`gate     ${gate.ok ? 'green' : 'RED'} at ${gate.sha.slice(0, 7)} (${gate.command})${gate.ok ? '' : ' — only its fix issue is claimed'}`);
+  const health = readHealth(p.stateDir).last; // runner or not; none before the first pass
+  if (health) console.log(`health   ${ago(health.at)} ago — ${health.line}`);
   if (paused) console.log(`paused   ${paused} — hx resume to clear`);
   if (c.worktreeSetup) console.log(`setup    ${c.worktreeSetup} (timeout ${c.worktreeSetupMinutes} min)`);
   if (c.worktreeCopy?.length) console.log(`copy     ${c.worktreeCopy.join(', ')}`);
