@@ -68,9 +68,21 @@ if (a[0] === 'issue' && a[1] === 'list') {
   // state.prListLag = k: a new PR is missing from the next k lists (GitHub's delay, see #65)
   const hidden = mutate((cur) => (cur.prs ?? []).filter((p) => p.head === opt('--head') && p.state === 'OPEN' && p.hide > 0)
     .map((p) => { p.hide--; return p.number; }));
-  const prs = (s.prs ?? []).filter((p) => p.head === opt('--head') && p.state === 'OPEN' && !hidden.includes(p.number));
+  // without --head: every PR in --state (open | merged), e.g. the health pass's stale-PR check
+  const want = (opt('--state') ?? 'open').toUpperCase();
+  const prs = (s.prs ?? []).filter((p) => (opt('--head') === undefined || p.head === opt('--head')) && p.state === want && !hidden.includes(p.number));
   if (opt('-q')) process.stdout.write(prs[0] ? `${prs[0].number}\n` : '\n');
-  else process.stdout.write(JSON.stringify(prs.map((p) => ({ number: p.number, title: p.title, isCrossRepository: !!p.fork }))));
+  else process.stdout.write(JSON.stringify(prs.map((p) => ({ number: p.number, title: p.title, headRefName: p.head,
+    mergeable: p.mergeable ?? 'MERGEABLE', isCrossRepository: !!p.fork }))));
+} else if (a[0] === 'pr' && a[1] === 'close') {
+  // a PR's comment is stored as { pr, body }; --delete-branch is recorded on the PR (tests check it is never passed)
+  mutate((cur) => {
+    const pr = (cur.prs ?? []).find((p) => p.number === Number(a[2]));
+    if (!pr) return;
+    pr.state = 'CLOSED';
+    if (a.includes('--delete-branch')) pr.deletedBranch = true;
+    if (opt('--comment')) cur.comments.push({ pr: pr.number, body: opt('--comment'), author: LOGIN });
+  });
 } else if (a[0] === 'pr' && a[1] === 'create') {
   const number = mutate((cur) => {
     cur.prs ??= [];
