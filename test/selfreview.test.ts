@@ -70,6 +70,15 @@ test('parseFindings: each `## Finding` block up to the cap, the promise and text
   assert.equal(findingBody(f[0], 'abc'), `${f[0].body}\n\n<!-- hx:selfreview abc -->\n`);
 });
 
+test('parseFindings: a `# ` or `## ` line inside a code fence is code, not the end of the finding', E2E, () => {
+  const a = '## Finding: a\nFile: x.ts:1\nWhat breaks: y\nReproduce:\n```sh\n# build first\nnpm run build\n## still code\n```\n';
+  const b = '## Finding: b\nFile: z:2\nReproduce:\n~~~~\n## Finding: not a heading\n```\n~~~~\n# after the fence\nignored';
+  const f = parseFindings(`${a}\n${b}\n<promise>SELFREVIEW DONE</promise>`, 5);
+  assert.deepEqual(f.map((x) => x.title), ['a', 'b']);
+  assert.equal(f[0].body, a.trim());
+  assert.equal(f[1].body, '## Finding: b\nFile: z:2\nReproduce:\n~~~~\n## Finding: not a heading\n```\n~~~~');
+});
+
 test('selfReviewDecision: record without state or with a sha the head does not descend from; otherwise commits and hours decide', E2E, () => {
   const now = Date.parse('2026-11-04T12:00:00Z');
   const s = { sha: 'a', at: new Date(now - 13 * HOUR).toISOString() };

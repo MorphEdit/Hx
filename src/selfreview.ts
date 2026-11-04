@@ -26,13 +26,17 @@ export function writeSelfReview(stateDir: string, s: SelfReviewState): void {
 
 export interface Finding { title: string; body: string }
 
-/** The `## Finding: <title>` blocks of a reply, up to `max`; a block ends at the next heading or the promise. */
+/** The `## Finding: <title>` blocks of a reply, up to `max`; a block ends at the next heading outside a code fence or the promise. */
 export function parseFindings(text: string, max: number): Finding[] {
   const out: Finding[] = [];
   const lines = text.replace(/<promise>[\s\S]*?<\/promise>/g, '').split(/\r?\n/);
   let cur: { title: string; lines: string[] } | null = null;
+  let fence = ''; // the open fence's marker (``` or ~~~ run); headings inside it are code
   const flush = () => { if (cur && cur.title) out.push({ title: cur.title, body: [`## Finding: ${cur.title}`, ...cur.lines].join('\n').trim() }); cur = null; };
   for (const l of lines) {
+    const f = /^\s{0,3}(`{3,}|~{3,})/.exec(l);
+    if (f && (!fence || (f[1][0] === fence[0] && f[1].length >= fence.length && /^\s{0,3}[`~]+\s*$/.test(l)))) fence = fence ? '' : f[1];
+    else if (fence) { if (cur) cur.lines.push(l); continue; }
     const m = /^##\s+Finding:\s*(.*?)\s*$/.exec(l);
     if (m) { flush(); cur = { title: m[1], lines: [] }; continue; }
     if (cur && /^#{1,2}\s/.test(l)) { flush(); continue; }
