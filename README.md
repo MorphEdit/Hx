@@ -203,7 +203,8 @@ hx init                 # writes .hx/config.json and creates the GitHub labels; 
                         # rtdd init in the repo root (commit .rtdd/), without it a hint if rtdd is installed;
                         # an unset worktreeSetup comes from the first lockfile (pnpm-lock.yaml → pnpm install
                         # --frozen-lockfile, package-lock.json → npm ci, …), an unset worktreeCopy is [".env"]
-                        # when .env is git-ignored
+                        # when .env is git-ignored; no .gitattributes: offers one with
+                        # "* text=auto eol=lf" (--yes adds it)
 hx bug "status hangs"   # file a bug issue (label bug, text or a .md file; --title T); hx run triages it
 hx prd feature.md       # file a PRD issue (title from the file's first "# " line)
 hx grill "dark mode"    # an interactive claude session interviews you into a PRD (idea: text or a .md file),
@@ -616,6 +617,23 @@ worktree is set up again.
 A setup command that rewrites tracked files (a lockfile an install updates) leaves those changes in the
 worktree, where the session sees them as its own. Use frozen installs — `npm ci`, `--frozen-lockfile` —
 which never rewrite the lockfile; that is the guard.
+
+## Line endings
+
+Every file hx works on is LF. A checkout on Windows is CRLF when git's `core.autocrlf` is `true` (Git for
+Windows sets it), and CRLF has broken work before: diffs that touch every line, rebases that conflict on
+lines nobody changed, tests that compare file text. So:
+
+- Every worktree hx creates (impl, audit, triage, the PRD roles, self-review, the gate) is checked out with
+  `core.autocrlf=false` and `core.eol=lf`, and keeps both in its own config (`git config --worktree`,
+  with `extensions.worktreeConfig` set in the repo). Your global and system git config are never changed.
+- `hx init` offers a `.gitattributes` with `* text=auto eol=lf` when the repo has none (`--yes` adds it);
+  an existing one is never touched. Commit it, and run `git add --renormalize .` once if files were
+  committed with CRLF.
+- `hx doctor` shows a `–` note (never a failure) when `.gitattributes` has no `eol` rule or
+  `core.autocrlf` is `true`, with the fix.
+- `ship.mjs` rewrites a changed text file that holds CRLF as LF before it commits, when `.gitattributes`
+  asks for LF (binary files are left alone).
 
 ## Bug lane
 
