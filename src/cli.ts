@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
@@ -19,7 +19,7 @@ import { fileBug, filePrd } from './prd.ts';
 import { agentFor } from './agents/index.ts';
 import { ideaFrom, sessionPaths, sessionPrompt } from './grill.ts';
 import { formatSkills, installSkill } from './skills.ts';
-import { doctor, render } from './doctor.ts';
+import { doctor, GITATTRIBUTES_LF, render } from './doctor.ts';
 import { healthPass, readHealth, renderResult } from './health.ts';
 import { addRepo, type Fleet, fleetDir, fleetFile, fleetWorkers, readFleet, readGithubHold, readHold, readRepos, registerRepo, removeRepo, sameRoot, slotsInUse, startFleetRun, writeFleet, writeRepos } from './fleet.ts';
 import { change, compare, parseTime, SMALL_SAMPLE, type Period } from './compare.ts';
@@ -32,8 +32,9 @@ const HELP = `usage: hx <command> [options]
                            missing), grill the idea into a PRD (without one: skipped when the board has
                            an open PRD or ready issue, else it asks), the dry-run plan, then
                            hx run --watch (--yes: answer yes to every question)
-  init [--rtdd]            set up hx in the current repo (.hx/config.json + GitHub labels); --rtdd also
-                           runs rtdd init in the repo root (commit .rtdd/ yourself)
+  init [--rtdd] [--yes]    set up hx in the current repo (.hx/config.json + GitHub labels); --rtdd also
+                           runs rtdd init in the repo root (commit .rtdd/ yourself). A repo without
+                           .gitattributes is offered one with "* text=auto eol=lf" (--yes: add it)
   prd <file.md> [--title T] file a PRD issue from a markdown file (title: --title or its first '# ' line)
   bug <file.md | "text"> [--title T]
                            file a bug issue (label bug); hx run triages it
@@ -182,7 +183,7 @@ async function start(args: string[]): Promise<number> {
   if (existsSync(path.join(top, STATE_DIR, 'config.json'))) console.log('\ninit: already done');
   else {
     console.log('\ninit: no .hx/config.json — running hx init');
-    const code = await init([]);
+    const code = await init(yes ? ['--yes'] : []);
     if (code !== 0) return code;
   }
   const p = loadProject(top);
@@ -268,6 +269,7 @@ async function init(args: string[]): Promise<number> {
   const exclude = path.join((await runOk('git', ['-C', root, 'rev-parse', '--git-common-dir'])).trim(), 'info', 'exclude');
   const abs = path.isAbsolute(exclude) ? exclude : path.join(root, exclude);
   if (!existsSync(abs) || !readFileSync(abs, 'utf8').split(/\r?\n/).includes(`/${STATE_DIR}/`)) appendFileSync(abs, `\n/${STATE_DIR}/\n`);
+  await offerGitattributes(root, args.includes('--yes'));
 
   const login = await gh.ghLogin().catch((e) => `?? (${e.message})`);
   const L = config.labels;
@@ -282,6 +284,19 @@ async function init(args: string[]): Promise<number> {
 
 Next: file a PRD with  hx prd <file.md>  or label an issue '${L.ready}', then run  hx status  and  hx run`);
   return initRtdd(root, effectiveRtddBin(config), args.includes('--rtdd'));
+}
+
+/** hx init: a repo without .gitattributes is offered one with GITATTRIBUTES_LF, one question `--yes` answers.
+ *  An existing .gitattributes is never touched. */
+async function offerGitattributes(root: string, yes: boolean): Promise<void> {
+  const file = path.join(root, '.gitattributes');
+  if (existsSync(file)) return;
+  if (!yes && !/^y(es)?$/i.test((await ask(`No .gitattributes: add one with "${GITATTRIBUTES_LF}" so every checkout is LF? [y/N] `)).trim())) {
+    console.log('line endings: no .gitattributes added — hx doctor shows the fix');
+    return;
+  }
+  writeFileSync(file, `${GITATTRIBUTES_LF}\n`);
+  console.log(`line endings: wrote .gitattributes (${GITATTRIBUTES_LF}) — commit it; git add --renormalize . converts files committed with CRLF`);
 }
 
 /** The lockfiles hx init looks for in the repo root, in order, and the setup command each one implies. */

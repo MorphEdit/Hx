@@ -83,11 +83,36 @@ const fetchBase = () => {
   }
 };
 
-const branch = ok('git', ['rev-parse', '--abbrev-ref', 'HEAD'], 'reading the branch');
+// A session may write CRLF, or the checkout has core.autocrlf=true: each staged text file that .gitattributes wants LF
+// (eol=lf, not binary) and that holds CRLF is rewritten LF before the commit. Returns the files it rewrote.
+function toLf() {
+  const top = ok('git', ['rev-parse', '--show-toplevel'], 'reading the top level');
+  const files = run('git', ['diff', '--cached', '--name-only', '-z', '--diff-filter=ACMR'], { cwd: top }).stdout.split('\0').filter(Boolean);
+  if (!files.length) return [];
+  const out = run('git', ['check-attr', '--stdin', '-z', 'text', 'eol'], { cwd: top, input: files.join('\0') + '\0' }).stdout.split('\0');
+  const attr = new Map(); // path -> { text, eol }
+  for (let i = 0; i + 2 < out.length; i += 3) attr.set(out[i], { ...attr.get(out[i]), [out[i + 1]]: out[i + 2] });
+  const fixed = [];
+  for (const f of files) {
+    const a = attr.get(f);
+    if (a?.eol !== 'lf' || a.text === 'unset') continue;
+    const file = path.join(top, f);
+    let buf;
+    try { buf = readFileSync(file); } catch { continue; }
+    if (buf.includes(0) || !buf.includes('\r\n')) continue; // binary, or LF already
+    writeFileSync(file, Buffer.from(buf.toString('latin1').replace(/\r\n/g, '\n'), 'latin1'));
+    fixed.push(f);
+  }
+  if (fixed.length) say(`converted CRLF to LF: ${fixed.join(', ')}`);
+  return fixed;
+}
+
+const branch = ok('git',['rev-parse', '--abbrev-ref', 'HEAD'], 'reading the branch');
 if (branch === base) { console.error(`ship: on ${base}; run from the issue branch`); process.exit(2); }
 
 // 1. commit whatever is left
 ok('git', ['add', '-A'], 'git add');
+if (toLf().length) ok('git', ['add', '-A'], 'git add');
 if (run('git', ['diff', '--cached', '--quiet']).status !== 0) {
   ok('git', ['commit', '-q', '-m', `${title} (closes #${issue})`], 'git commit');
   say('committed');

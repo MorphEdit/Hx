@@ -120,6 +120,28 @@ export function checkRtdd(installed: boolean): Check {
       : 'adds test selection per change (roleSkills rtdd): https://github.com/VocanicZ/rtdd', required: false };
 }
 
+/** The `eol` rule .gitattributes must hold for hx's worktrees and diffs to stay LF. */
+export const GITATTRIBUTES_LF = '* text=auto eol=lf';
+
+/** True when a .gitattributes text has an uncommented line that sets `eol` (`eol=lf`, `eol=crlf`). */
+export const hasEolRule = (text: string): boolean => text.split(/\r?\n/).some((l) => !/^\s*#/.test(l) && /\seol=\S/.test(` ${l}`));
+
+/** Line endings, informational: `attributes` = the repo's .gitattributes (null = none), `autocrlf` = its core.autocrlf. */
+export function checkEol(attributes: string | null, autocrlf: string): Check {
+  const label = 'line endings';
+  const issues: string[] = [], fixes: string[] = [];
+  if (attributes === null || !hasEolRule(attributes)) {
+    issues.push(attributes === null ? 'no .gitattributes' : 'no eol rule in .gitattributes');
+    fixes.push(`add  ${GITATTRIBUTES_LF}  to .gitattributes (hx init offers it), then  git add --renormalize .  and commit`);
+  }
+  if (autocrlf.trim().toLowerCase() === 'true') {
+    issues.push('core.autocrlf is true');
+    fixes.push('git config core.autocrlf false   (this repo only; hx worktrees set it themselves)');
+  }
+  return issues.length ? { mark: '–', label, detail: issues.join(', '), fix: fixes.join('; '), required: false }
+    : { mark: '✓', label, detail: 'LF', required: false };
+}
+
 export function checkNoRepo(): Check {
   return { mark: '–', label: 'repo checks', detail: 'skipped: not inside a git repo', fix: 'run hx doctor in your repo', required: false };
 }
@@ -189,6 +211,9 @@ export async function doctor(opts: DoctorOptions = {}): Promise<{ checks: Check[
     checks.push(originCheck, checkConfig(raw !== null, opts.configOptional));
     if (!opts.skipLabels && originCheck.mark === '✓') checks.push(checkLabels(await missingLabels(GH, originCheck.detail!, config.labels, root, t)));
     if (raw !== null) checks.push(checkGate(config.gateCommand ?? ''));
+    const attrs = path.join(root, '.gitattributes');
+    const autocrlf = await probe(GIT, ['config', '--get', 'core.autocrlf'], root, t);
+    checks.push(checkEol(existsSync(attrs) ? readFileSync(attrs, 'utf8') : null, autocrlf.code === 0 ? autocrlf.stdout : ''));
   }
   if (rtdd) checks.push(checkRtdd(!rtdd.spawnFailed && rtdd.code === 0));
   return { checks, code: exitCode(checks) };

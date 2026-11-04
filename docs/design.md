@@ -285,6 +285,21 @@ Decisions:
 - No shared dependency folders (a symlinked `node_modules` and the like): each worktree installs its own,
   and the package manager's cache makes that fast enough without one worktree's install breaking another.
 
+## Line endings (#252)
+
+CRLF broke work three times (#204, #223, #238): a worktree checked out under `core.autocrlf=true`, or a
+session that wrote CRLF, gave diffs on every line, rebase conflicts on untouched lines and failing text
+comparisons. Decisions:
+- LF is enforced in three places, because each catches what the others miss: `.gitattributes`
+  (`* text=auto eol=lf`) for every clone, the worktree's own config for repos without one, and `ship.mjs`
+  for files a session writes with CRLF.
+- The worktree settings go in `config.worktree` (`git config --worktree`), and the checkout itself runs
+  with `-c core.autocrlf=false -c core.eol=lf`, so the first checkout is LF too. The user's global and
+  system config are never written: other repos on the machine keep their settings.
+- `ship.mjs` converts only files `.gitattributes` marks `eol=lf` and not binary: `text=auto` alone does
+  not renormalize a file whose committed copy already has CRLF.
+- The doctor line is informational: a repo that wants CRLF is the user's choice, not a broken setup.
+
 ## Test runs (#223)
 
 The full suite runs once per ship: `ship.mjs` runs the `--test` command after the rebase, on exactly what

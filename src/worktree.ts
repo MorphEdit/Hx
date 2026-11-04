@@ -49,7 +49,7 @@ async function addWorktreeNow(checkout: string, root: string, { name, branch, ba
   // A worktree left by an interrupted run (Ctrl+C, usage limit) may hold uncommitted work: keep it.
   if (existsSync(dir)) {
     const head = await run(GIT, ['-C', dir, 'rev-parse', '--abbrev-ref', 'HEAD']);
-    if (!fresh && head.code === 0 && head.stdout.trim() === branch) return { dir, resumed: true, created: false };
+    if (!fresh && head.code === 0 && head.stdout.trim() === branch) { await setLf(checkout, dir); return { dir, resumed: true, created: false }; }
     await removeWorktreeNow(checkout, dir);
   }
   const lp = await run(GIT, ['-C', checkout, 'config', '--get', 'core.longpaths']);
@@ -64,8 +64,21 @@ async function addWorktreeNow(checkout: string, root: string, { name, branch, ba
   const remote = fresh ? null : await run(GIT, ['-C', checkout, 'ls-remote', '--heads', 'origin', branch]);
   const resumed = !!remote && remote.code === 0 && remote.stdout.trim() !== '';
   if (resumed) await runOk(GIT, ['-C', checkout, 'fetch', '-q', 'origin', `${branch}:refs/remotes/origin/${branch}`]);
-  await runOk(GIT, ['-C', checkout, 'worktree', 'add', '-f', '--no-track', '-B', branch, dir, resumed ? `origin/${branch}` : `origin/${base}`]);
+  // checked out with LF whatever the user's git config says (core.autocrlf=true from Git for Windows)
+  await runOk(GIT, ['-C', checkout, ...LF_CONFIG.flatMap(([k, v]) => ['-c', `${k}=${v}`]), 'worktree', 'add', '-f', '--no-track', '-B', branch, dir, resumed ? `origin/${branch}` : `origin/${base}`]);
+  await setLf(checkout, dir);
   return { dir, resumed, created: true };
+}
+
+/** The line-ending settings every worktree hx creates has in its own config. */
+export const LF_CONFIG: readonly (readonly [key: string, value: string])[] = [['core.autocrlf', 'false'], ['core.eol', 'lf']];
+
+/** LF_CONFIG in the worktree's own config.worktree (extensions.worktreeConfig, set in the repo's config once);
+ *  the user's global and system config are never touched. */
+async function setLf(checkout: string, dir: string): Promise<void> {
+  const ext = await run(GIT, ['-C', checkout, 'config', '--get', 'extensions.worktreeConfig']);
+  if (ext.stdout.trim() !== 'true') await runOk(GIT, ['-C', checkout, 'config', 'extensions.worktreeConfig', 'true']);
+  for (const [k, v] of LF_CONFIG) await runOk(GIT, ['-C', dir, 'config', '--worktree', k, v]);
 }
 
 /** Deletes a worktree directory; replaceable so tests can simulate Windows holding a file open. */
