@@ -97,7 +97,26 @@ test('seen: an issue an earlier check acted on is not looked at by a later one',
   const { actions } = H.runChecks(s);
   assert.deepEqual(actions.map((a: any) => [a.kind, a.pr ?? a.issue ?? a.name]), [['close-pr', 92], ['close-pr', 93]]);
   // the order has named slots for the checks added later
-  assert.deepEqual(H.CHECKS.map((c) => c.name), ['stale-pr', 'blocked-after-pass', 'gate-fix', 'transient-block', 'stuck-label', 'leftover-worktree', 'environment']);
+  assert.deepEqual(H.CHECKS.map((c) => c.name), ['stale-pr', 'blocked-after-pass', 'gate-fix', 'transient-block', 'leftover-worktree', 'stuck-label', 'environment']);
+});
+
+test('order: leftover worktrees run before stuck labels (PRD §B), so the worktree check claims its issue first', E2E, () => {
+  const s = snap({
+    issues: [issue(3, 'CLOSED'), issue(4, 'OPEN', [L.working])],
+    worktrees: [{ name: 'i3', mtimeMs: NOW - 48 * HOUR }],
+    health: { stuck: { 3: new Date(NOW - HOUR).toISOString() } },
+  });
+  const r = H.runChecks(s);
+  assert.deepEqual(r.actions.map((a: any) => `${a.kind}:${a.issue ?? a.name}`), ['remove-worktree:i3', 'first-seen:4']);
+  const wt = r.results.findIndex((x) => /leftover worktree i3/.test(x.text));
+  const st = r.results.findIndex((x) => /#4 /.test(x.text));
+  assert.ok(wt >= 0 && st > wt, 'the leftover-worktree line comes before the stuck-label line');
+});
+
+test('stuck label: a first-seen time that is not a date is recorded again, not left at NaN', E2E, () => {
+  const r = H.stuckLabelCheck(snap({ issues: [issue(3, 'OPEN', [L.working])], health: { stuck: { 3: 'garbage' } } }), new Set());
+  assert.deepEqual(r.actions.map((a: any) => a.kind), ['first-seen']);
+  assert.doesNotMatch(r.results[0].text, /NaN/);
 });
 
 test('healthLine: k ✓ always; ✗, fixed and filed only when above 0', E2E, () => {

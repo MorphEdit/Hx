@@ -89,7 +89,7 @@ export const stuckLabelCheck: HealthCheck = (s, seen) => {
     stuck.add(i.number);
     seen.add(i.number);
     const first = known[String(i.number)];
-    if (!first) {
+    if (!first || Number.isNaN(Date.parse(first))) {
       actions.push({ kind: 'first-seen', issue: i.number, at: new Date(s.now).toISOString() });
       results.push({ mark: '✗', text: `#${i.number} ${L.working} with no live session — first seen now, released after ${s.config.stallMinutes} min` });
       continue;
@@ -144,8 +144,8 @@ export const CHECKS: { name: string; check: HealthCheck | null }[] = [
   { name: 'blocked-after-pass', check: null },
   { name: 'gate-fix', check: null },
   { name: 'transient-block', check: null },
-  { name: 'stuck-label', check: stuckLabelCheck },
   { name: 'leftover-worktree', check: leftoverWorktreeCheck },
+  { name: 'stuck-label', check: stuckLabelCheck },
   { name: 'environment', check: environmentCheck },
 ];
 
