@@ -279,9 +279,12 @@ export function startFleetRun(o: FleetRunOptions = {}): FleetRun {
     const name = p.config.repo || r.root;
     const other = otherRunner(p.stateDir);
     if (other) { print(`[${name}] skipped: hx is already running (pid ${other.pid})`); continue; }
+    const env: NodeJS.ProcessEnv = { ...process.env, ...o.env, HX_FLEET_DIR: fleetDir(), HX_FLEET_WORKERS: String(cap) };
+    // detached, the child has no console to share: with HX_SHARE_CONSOLE (the tests) each of its spawns would open a
+    // console of its own (~3.5 s each)
+    delete env.HX_SHARE_CONSOLE;
     const child = spawn(process.execPath, [entry, 'run', '--workers', String(cap), ...(o.watch ? ['--watch'] : [])], {
-      cwd: p.root, detached: true, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
-      env: { ...process.env, ...o.env, HX_FLEET_DIR: fleetDir(), HX_FLEET_WORKERS: String(cap) },
+      cwd: p.root, detached: true, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe', 'ipc'], env,
     });
     kids.push(child);
     const streams = Promise.all([pipeLines(child.stdout!, `[${name}] `, print), pipeLines(child.stderr!, `[${name}] `, print)]);

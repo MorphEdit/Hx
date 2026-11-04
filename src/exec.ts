@@ -1,4 +1,6 @@
 import { execFile, execFileSync, spawn } from 'node:child_process';
+import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 export interface ExecResult {
   code: number;
@@ -16,8 +18,20 @@ export function resolveCmd(cmd: string, args: string[]): [string, string[]] {
  *  git and claude calls from a console they can share) lets children share the parent's console instead. */
 export const hideWindow = (): boolean => process.env.HX_SHARE_CONSOLE !== '1';
 
+/** HX_GH_INPROC (set by the tests): the fake gh it names runs in-process through its exported gh(), the same answers
+ *  without a node start per call; null = run it as a program (another command, or a call the fake keeps out of process). */
+export async function inProcess(cmd: string, args: string[], opts: { cwd?: string; input?: string } = {}): Promise<ExecResult | null> {
+  const file = process.env.HX_GH_INPROC;
+  if (!file || !/.m?js$/i.test(cmd) || path.resolve(cmd) !== path.resolve(file)) return null;
+  const { gh } = await import(pathToFileURL(path.resolve(file)).href);
+  await new Promise((r) => setImmediate(r)); // answers on a later turn of the event loop, as a child would
+  return gh(args, { input: () => opts.input ?? '', cwd: opts.cwd ?? process.cwd(), inProcess: true });
+}
+
 /** Run a program (no shell, so no quoting surprises on Windows) and capture its output. */
-export function run(cmd: string, args: string[], opts: { cwd?: string; input?: string } = {}): Promise<ExecResult> {
+export async function run(cmd: string, args: string[], opts: { cwd?: string; input?: string } = {}): Promise<ExecResult> {
+  const fake = await inProcess(cmd, args, opts);
+  if (fake) return fake;
   return new Promise((resolve) => {
     const child = execFile(
       ...resolveCmd(cmd, args),

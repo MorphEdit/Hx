@@ -5,6 +5,7 @@ import { afterEach } from 'node:test';
 import { mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 // HX_GH_BIN, HX_GIT_BIN, HX_SHIP_*, HX_FAKE_*, FAKE_CLAUDE_* … each test file sets the ones it needs
 for (const k of Object.keys(process.env)) if (/^(HX_|FAKE_)/i.test(k)) delete process.env[k];
@@ -23,6 +24,9 @@ writeFileSync(path.join(gitHome, 'config'), GIT_TEST_CONFIG);
 // compiled code of the one before instead of compiling the same files again
 // children share this console instead of each getting a hidden one of its own (~200 ms per spawn on Windows)
 process.env.HX_SHARE_CONSOLE = '1';
+// the fake gh answers hx's and the scripts' calls in-process (test/fakes/gh.mjs): a full PRD run made ~110 gh calls,
+// each a node start, most of its time
+process.env.HX_GH_INPROC = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fakes', 'gh.mjs');
 process.env.NODE_COMPILE_CACHE ??= path.join(os.tmpdir(), 'hx-test-compile-cache');
 Object.assign(process.env, {
   GIT_CONFIG_GLOBAL: path.join(gitHome, 'config'), GIT_CONFIG_NOSYSTEM: '1', GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'never',

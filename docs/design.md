@@ -353,10 +353,44 @@ Decisions:
   Two e2e files run side by side under the same load: 158 s with it, 219 s without (−28%).
 - The tests' git config turns off auto gc, maintenance, commit-graph writes on fetch and fsync, and every node the
   tests start shares one `NODE_COMPILE_CACHE`.
+- The fake `gh` answers in-process: `test/fakes/gh.mjs` exports `gh(args, { input, cwd })`, and when
+  `HX_GH_INPROC` (set by `test/isolate.ts`) names that file, `src/exec.ts` (hx's calls) and `scripts/ghwait.mjs`
+  (ship.mjs, issue.mjs) call it instead of starting node for each call. A full PRD run made ~110 gh calls; the PRD
+  test alone went from 17.9 s to 12.3 s. The answers, board changes and recorded calls are the same as the
+  program's (`test/gh-inproc.test.ts` runs one set of calls both ways); a call with its own env, or a slow read
+  the fake keeps for the program, still starts one. Real runs never set `HX_GH_INPROC`.
+- A fleet's detached runner has no console to share, so `startFleetRun` drops `HX_SHARE_CONSOLE` from its env.
 - Not done: creating the missing labels in parallel (GitHub asks for mutating calls one at a time), a shared seed
   repo (git setup is a few calls per file, not where the time goes).
-- Before / after on an idle machine (three full `npm test` runs each, median): not measured yet — every run
-  in this session shared the machine with busy workers. Measure with every worker stopped and record it here.
+
+Before / after (2026-11-04, 3 workers busy, not idle): the 20 slowest tests of one `npm run test:profile` run
+of the branch, each run alone (`--test-name-pattern`) once on `origin/main` (f6844b6) and once on the branch,
+the pair side by side under the same load. The PRD flow test needs the test before it in its file, so both ran.
+Summed: 528.6 s → 281.7 s (−47%). The full suite on an idle machine is timed by the maintainer.
+
+  | test | before (s) | after (s) |
+  |---|---|---|
+  | `fleet-run.test.ts` hx fleet run: every output line carries the [owner/name] prefix of its repo | 8.3 | 6.5 |
+  | `fleet-run.test.ts` interrupt(): both children checkpoint their running sessions and exit; done resolves to t… | 8.4 | 8.4 |
+  | `role-models.test.ts` roleModels {}: every session gets --model and --effort as before; no models: line; live.j… | 24.4 | 15.2 |
+  | `bug-note.test.ts` bugTriage false: a bug runs impl without triage, both prompts carry their note, it merges… | 13.7 | 7.4 |
+  | `role-models.test.ts` impl and audit set: their sessions get their model and effort, a PRD role the default; us… | 27.9 | 17.4 |
+  | `audit.test.ts` audit PASS but the merge hits a rebase conflict: logged and commented, back to the implem… | 11.4 | 6.9 |
+  | `audit.test.ts` audit FAIL: the findings go back to a fresh implementer, then PASS and merge | 9.3 | 4.9 |
+  | `pool.test.ts` PRD flow: decompose → build → review (gap, then sign-off) → close, PRDs sequenced | 26.8 | 21.2 |
+  | `actual-model.test.ts` records carry actualModel when the CLI reports it (a dated id of the asked model: no mism… | 14.0 | 6.6 |
+  | `session-setup.test.ts` every session worktree is set up before its first turn: impl, audit, triage, gauntlet cri… | 54.2 | 25.0 |
+  | `audit.test.ts` audit PASS: hx merges the PR the implementer left open | 21.8 | 14.6 |
+  | `gate-setup.test.ts` the sha changes between setup tries: the count restarts at 1 | 27.1 | 15.4 |
+  | `auto-release.test.ts` autoRelease: a run in which a PRD closes releases a minor (PRD #n) on the run's own gate … | 23.9 | 9.6 |
+  | `gate.test.ts` main moves while the fix session is still finishing: the gate waits for that session, not… | 25.3 | 20.4 |
+  | `session-setup.test.ts` worktreeSetup "" and no worktreeCopy: no setup line, no setup-* file, prompts as before | 40.8 | 21.9 |
+  | `audit.test.ts` audit keeps failing: after auditRounds the issue goes to a human, nothing is merged | 27.9 | 9.1 |
+  | `security.test.ts` security files an issue → prd-reviewed removed → fixed → review again → security PASS → P… | 49.0 | 17.6 |
+  | `auto-release.test.ts` patch: only feat: / docs: / other commits → no release | 18.2 | 9.2 |
+  | `fleet-hold.test.ts` a rate-limit event in repo A writes hold.json; repo B copies the hold and claims nothing … | 85.7 | 39.5 |
+  | `audit.test.ts` a repo that only takes auto-merge: hx waits for it to land instead of failing the issue | 10.4 | 5.0 |
+  | **sum of the 20** | **528.6** | **281.7** |
 
 ## Token optimisation (phase 4)
 
