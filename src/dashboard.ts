@@ -187,8 +187,9 @@ async function serve(handle: (route: string, res: ServerResponse) => Promise<voi
   const last = first === 0 ? 0 : first + 9;
   for (let at = first; ; at++) {
     try { port = await listen(server, at); break; } catch (e: any) {
-      if (e?.code !== 'EADDRINUSE') throw e;
-      if (at >= last) throw new Error(first === last ? `port ${first} is in use` : `ports ${first}-${last} are all in use: pick another with --port`);
+      // EACCES: a port Windows has reserved (an excluded port range) — as unusable as one in use.
+      if (e?.code !== 'EADDRINUSE' && e?.code !== 'EACCES') throw e;
+      if (at >= last) throw new Error(first === last ? `port ${first} is in use or reserved` : `ports ${first}-${last} are all in use or reserved: pick another with --port`);
     }
   }
   const url = `http://${HOST}:${port}/`;
