@@ -56,7 +56,9 @@ export function writeLive(stateDir: string, s: LiveState): void {
   renameSync(f + '.tmp', f);
 }
 
-export function clearLive(stateDir: string): void {
+/** Removes live.json; with `pid`, only while it is that runner's (a self-update's new runner may own it by now). */
+export function clearLive(stateDir: string, pid?: number): void {
+  if (pid !== undefined && readLive(stateDir)?.pid !== pid) return;
   rmSync(liveFile(stateDir), { force: true });
 }
 

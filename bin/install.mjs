@@ -1,7 +1,7 @@
 // `hx install` (npx github:MorphEdit/Hx install) and `hx update`: npm install -g the latest release tag, verify the
 // new hx runs from PATH, run hx doctor, offer the /hx skill. Plain JS, Node built-ins only: it runs before the
 // type-stripping hook, so it works on a Node that cannot load hx's .ts files.
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { createInterface } from 'node:readline';
@@ -68,6 +68,19 @@ function npmBin(env) {
   if (process.platform !== 'win32') return 'npm';
   const cli = path.join(path.dirname(process.execPath), 'node_modules', 'npm', 'bin', 'npm-cli.js');
   return existsSync(cli) ? cli : which('npm', env) ?? 'npm.cmd';
+}
+
+// npm with `args` in `cwd`, without blocking (a watching runner's self-update): { code, out }.
+export function npmInstall(args, env = process.env, cwd = undefined) {
+  const [cmd, argv] = command(npmBin(env), args);
+  return new Promise((resolve) => {
+    let out = '';
+    const p = spawn(cmd, argv, { cwd, env, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'],
+      windowsVerbatimArguments: cmd !== process.execPath && /cmd(\.exe)?$/i.test(cmd) });
+    p.stdout.on('data', (d) => { out += d; }); p.stderr.on('data', (d) => { out += d; });
+    p.on('error', (e) => resolve({ code: 1, out: String(e.message) }));
+    p.on('close', (code) => resolve({ code: code ?? 1, out }));
+  });
 }
 
 // The checkout an `npm link` install of `hxPath` points at, or null: hx's package folder (two up from its

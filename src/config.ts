@@ -68,6 +68,8 @@ export interface Config {
   healthEveryMinutes: number; // minutes between hx run's health passes
   selfReviewEveryHours: number; // hours between self-review sessions (a health pass in hx run on an idle board, selfHeal on)
   selfReviewMaxFindings: number; // findings of a self-review filed as bug issues; the rest are dropped
+  selfUpdate: boolean; // hx run --watch updates its own hx install when idle and restarts itself (rolled back if the new code does not start)
+  selfUpdateMinutes: number; // minutes between self-update checks
   worktreeRoot: string; // keep it short: Windows MAX_PATH
   agentCli: string; // the agent CLI workers and hx grill / hx issue run (src/agents): claude
   claudeBin: string; // the claude adapter's binary
@@ -121,6 +123,8 @@ export const DEFAULTS: Omit<Config, 'repo' | 'defaultBranch' | 'worktreeRoot'> =
   healthEveryMinutes: 60,
   selfReviewEveryHours: 12,
   selfReviewMaxFindings: 5,
+  selfUpdate: false,
+  selfUpdateMinutes: 15,
   agentCli: 'claude',
   claudeBin: 'claude',
   claudeArgs: [],
