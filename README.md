@@ -213,6 +213,7 @@ hx release --dry-run    # the next version, its notes and the gate it would use 
                         # --dry-run it asks, then releases (--yes: no question; patch|minor|major by hand)
 hx usage --by role      # recorded token usage and test time (by issue | role | model | day)
 hx usage --tests        # per UTC day: median and p90 test-run and gate duration
+hx usage --compare "2026-11-04 09:00"   # the runs before and after a change, side by side (see below)
 hx dashboard [--open]   # a read-only page on http://127.0.0.1:4777/ (localhost only; --port N)
 hx dashboard --fleet [--open]   # one page over every hx repo on this machine (alias: hx fleet dashboard)
 hx fleet run --watch    # one hx run per repo in the fleet, sharing one worker cap (see Several repos)
@@ -220,6 +221,18 @@ hx install-skill        # write the /hx Claude Code skill to ~/.claude/skills/hx
 hx update [--force]     # install the latest hx release, check it runs, run hx doctor
 hx --version            # the installed version
 ```
+
+**Did a change help?** After changing a setting (effort per role, workers, a prompt), compare the real runs
+before and after it, without spending tokens on the benchmark: `hx usage --compare <time>` (an ISO time or
+`"YYYY-MM-DD HH:MM"`, local time; `--from <time>` drops older runs). Per role it prints sessions, median
+duration, median time outside tests (only records with `testMs`), median tokens and output tokens, cost per
+session and failed sessions, from `.hx/usage.jsonl`. Per period it counts, from one paged GraphQL query over
+the issues and their comments: audits PASS/FAIL and the FAIL share, first-round FAILs, issues closed (not
+PRDs), gate-fix issues opened, tokens and cost per closed issue, stops by cause (timed out, not mergeable or
+conflict, out of audit rounds, other) and "tests fail after the rebase" retries; also the hours of runs.
+Only hx's own markers count (`<!-- hx-audit -->`, `**hx:** impl stopped`, `<!-- hx-retry -->`, the gate-fix
+label), from a trusted account; each line shows the change (`+12%`, `-3`), and a period with fewer than 10
+closed issues is flagged as a small sample.
 
 ## Adding work to a running fleet
 

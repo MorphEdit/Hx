@@ -131,6 +131,17 @@ if (a[0] === 'issue' && a[1] === 'list') {
     rl = { core: b(phase.core), graphql: b(phase.graphql) };
   }
   process.stdout.write(JSON.stringify({ resources: { core: rl.core ?? full, graphql: rl.graphql ?? full } }));
+} else if (a[0] === 'api' && a[1] === 'graphql') {
+  // the paged issues query of hx usage --compare: state.graphqlPage issues per page (default 50), the cursor is the
+  // next index; an issue may store createdAt, closedAt and stateReason, a comment createdAt
+  const field = (k) => all('-f').find((x) => x.startsWith(`${k}=`))?.slice(k.length + 1);
+  const size = s.graphqlPage ?? 50, at = Number(field('after') ?? 0);
+  const ghAuthor = (login) => (login ? { login } : null);
+  const nodes = s.issues.slice(at, at + size).map((i) => ({ number: i.number, state: i.state, stateReason: i.stateReason ?? null,
+    createdAt: i.createdAt ?? '', closedAt: i.closedAt ?? null, author: ghAuthor(i.author ?? LOGIN), labels: { nodes: ghLabels(i) },
+    comments: { nodes: s.comments.filter((c) => c.issue === i.number).map((c) => ({ author: ghAuthor(c.author ?? LOGIN), body: c.body, createdAt: c.createdAt ?? '' })) } }));
+  const more = at + size < s.issues.length;
+  process.stdout.write(JSON.stringify({ data: { repository: { issues: { pageInfo: { hasNextPage: more, endCursor: more ? String(at + size) : null }, nodes } } } }));
 } else if (a[0] === 'api') {
   const path = a.find((x) => x.startsWith('repos/'));
   const one = /issues\/(\d+)$/.exec(path);

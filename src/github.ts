@@ -217,3 +217,38 @@ export async function releaseExists(repo: string, tag: string): Promise<boolean>
 export async function createRelease(repo: string, tag: string, notesFile: string): Promise<void> {
   await ghOk(['release', 'create', tag, '-R', repo, '--title', tag, '--notes-file', notesFile, '--latest', '--verify-tag']);
 }
+
+export interface IssueWithComments {
+  number: number; state: 'OPEN' | 'CLOSED'; stateReason: string | null; createdAt: string; closedAt: string | null;
+  labels: string[]; author: string; comments: { author: string; body: string; createdAt: string }[];
+}
+
+const ISSUES_QUERY = `query($owner: String!, $name: String!, $after: String) {
+  repository(owner: $owner, name: $name) {
+    issues(first: 50, after: $after, orderBy: { field: CREATED_AT, direction: ASC }) {
+      pageInfo { hasNextPage endCursor }
+      nodes { number state stateReason createdAt closedAt author { login } labels(first: 30) { nodes { name } }
+        comments(first: 100) { nodes { author { login } body createdAt } } }
+    }
+  }
+}`;
+
+/** Every issue with its labels and comments: one GraphQL query, paged 50 issues at a time (not one call per issue). */
+export async function issuesWithComments(repo: string): Promise<IssueWithComments[]> {
+  const [owner, name] = repo.split('/');
+  const out: IssueWithComments[] = [];
+  for (let after: string | undefined; ;) {
+    const page = JSON.parse(await ghOk(['api', 'graphql', '-f', `query=${ISSUES_QUERY}`, '-f', `owner=${owner}`, '-f', `name=${name}`,
+      ...(after ? ['-f', `after=${after}`] : [])]));
+    const issues = page?.data?.repository?.issues;
+    if (!issues) throw new Error(`gh api graphql: no issues in the answer for ${repo}`);
+    for (const n of issues.nodes ?? []) out.push({
+      number: n.number, state: String(n.state).toUpperCase() === 'CLOSED' ? 'CLOSED' : 'OPEN', stateReason: n.stateReason ?? null,
+      createdAt: n.createdAt ?? '', closedAt: n.closedAt ?? null, labels: (n.labels?.nodes ?? []).map((l: any) => l.name),
+      author: n.author?.login ?? '',
+      comments: (n.comments?.nodes ?? []).map((c: any) => ({ author: c.author?.login ?? '', body: c.body ?? '', createdAt: c.createdAt ?? '' })),
+    });
+    if (!issues.pageInfo?.hasNextPage) return out;
+    after = issues.pageInfo.endCursor;
+  }
+}

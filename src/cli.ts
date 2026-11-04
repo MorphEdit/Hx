@@ -21,6 +21,7 @@ import { ideaFrom, sessionPaths, sessionPrompt } from './grill.ts';
 import { formatSkills, installSkill } from './skills.ts';
 import { doctor, render } from './doctor.ts';
 import { addRepo, type Fleet, fleetDir, fleetFile, fleetWorkers, readFleet, readGithubHold, readHold, readRepos, registerRepo, removeRepo, sameRoot, slotsInUse, startFleetRun, writeFleet, writeRepos } from './fleet.ts';
+import { change, compare, parseTime, SMALL_SAMPLE, type Period } from './compare.ts';
 import { fmt, localDay, mismatchedSessions, readUsage, summarize, totalTokens, type UsageRow } from './usage.ts';
 
 const HELP = `usage: hx <command> [options]
@@ -59,6 +60,10 @@ const HELP = `usage: hx <command> [options]
   resume                   clear a pause; then hx run continues where it stopped
   usage [--by issue|role|model|day]   token usage and test time recorded by hx
   usage --tests            per UTC day: median and p90 test-run and gate duration
+  usage --compare <time> [--from <time>]
+                           the runs before and after <time> (ISO or "YYYY-MM-DD HH:MM") side by side: per role
+                           from usage.jsonl, audits, closed issues, stops and retries from hx's own GitHub
+                           comments, each with its change (--from: drop older runs)
   dashboard [--port N] [--open]
                            a read-only page on http://127.0.0.1:${DEFAULT_PORT}/ (localhost only): the runner,
                            sessions, gate, usage by PRD/role/model/day, run log and the board (--open: browser)
@@ -542,8 +547,9 @@ export function timeLine(s: TimeSummary): string | undefined {
   return `time     tests ${share} of session time · median test run ${dur(s.testRunMedian)} · gate ${dur(s.gateMedian)} (p90 ${dur(s.gateP90)})`;
 }
 
-function usage(args: string[]): number {
+function usage(args: string[]): number | Promise<number> {
   const p = loadProject();
+  if (args.includes('--compare')) return usageCompare(p, args);
   const by = flag(args, '--by') ?? 'issue';
   const recs = readUsage(p.stateDir);
   if (args.includes('--tests')) {
@@ -570,6 +576,72 @@ function usage(args: string[]): number {
   for (const r of rows) console.log(line(r));
   console.log(line(all));
   return 0;
+}
+
+async function usageCompare(p: ReturnType<typeof loadProject>, args: string[]): Promise<number> {
+  const time = (name: string) => {
+    const v = flag(args, name);
+    if (v === undefined) return { t: undefined };
+    const t = parseTime(v);
+    if (t === undefined) console.error(`hx: ${name} "${v}" is not a time — use an ISO time (2026-11-04T09:00:00Z) or "YYYY-MM-DD HH:MM" (local time)`);
+    return { t, bad: t === undefined };
+  };
+  const at = time('--compare'), from = time('--from');
+  if (at.bad || from.bad || at.t === undefined) return 1;
+  if (from.t !== undefined && from.t >= at.t) { console.error('hx: --from must be before --compare'); return 1; }
+  const trusted = await lookupTrusted(p.config);
+  const issues = await gh.issuesWithComments(p.config.repo);
+  const { before, after } = compare(readUsage(p.stateDir), issues, { at: at.t, from: from.t, trusted, labels: p.config.labels });
+  printCompare(before, after);
+  return 0;
+}
+
+function printCompare(b: Period, a: Period): void {
+  const when = (t?: number) => (t === undefined ? '' : `${localDay(new Date(t).toISOString())} ${new Date(t).toTimeString().slice(0, 5)}`);
+  const W = [24, 12, 12, 9];
+  const row = (cells: string[]) => console.log(cells.map((c, i) => (i ? c.padStart(W[i]) : c.padEnd(W[i]))).join(' '));
+  const money = (n?: number) => (n === undefined ? '-' : `$${n.toFixed(2)}`);
+  const num = (n?: number) => (n === undefined ? '-' : fmt(Math.round(n)));
+  const pct = (n?: number) => (n === undefined ? '-' : `${Math.round(n * 100)}%`);
+  type Line = [string, number | undefined, number | undefined, (n?: number) => string, 'count' | 'pct' | 'share'];
+  const lines = (ls: Line[]) => { for (const [k, x, y, f, kind] of ls) row([`  ${k}`, f(x), f(y), change(x, y, kind)]); };
+  console.log(`before  ${b.from === undefined ? 'the first run' : when(b.from)} → ${when(b.to)} · ${b.hours.toFixed(1)} h of runs`);
+  console.log(`after   ${when(a.from)} → now · ${a.hours.toFixed(1)} h of runs`);
+  for (const [name, p] of [['before', b], ['after', a]] as const)
+    if (p.smallSample) console.log(`note: ${p.closed} closed issue(s) ${name} the change (fewer than ${SMALL_SAMPLE}) — small sample`);
+  const roles = [...new Set([...b.roles, ...a.roles].map((r) => r.role))].sort();
+  for (const role of roles) {
+    const x = b.roles.find((r) => r.role === role), y = a.roles.find((r) => r.role === role);
+    console.log('');
+    row([role, 'before', 'after', 'change']);
+    lines([
+      ['sessions', x?.sessions ?? 0, y?.sessions ?? 0, String, 'count'],
+      ['median duration', x?.medianDurationMs, y?.medianDurationMs, dur, 'pct'],
+      ['median outside tests', x?.medianOutsideTestsMs, y?.medianOutsideTestsMs, dur, 'pct'],
+      ['median tokens', x?.medianTokens, y?.medianTokens, num, 'pct'],
+      ['median output', x?.medianOutput, y?.medianOutput, num, 'pct'],
+      ['cost/session', x?.costPerSession, y?.costPerSession, money, 'pct'],
+      ['failed sessions', x?.failed ?? 0, y?.failed ?? 0, String, 'count'],
+    ]);
+  }
+  console.log('');
+  row(['board', 'before', 'after', 'change']);
+  lines([
+    ['hours of runs', b.hours, a.hours, (n) => (n === undefined ? '-' : n.toFixed(1)), 'pct'],
+    ['issues closed', b.closed, a.closed, String, 'count'],
+    ['tokens/closed issue', b.tokensPerClosed, a.tokensPerClosed, num, 'pct'],
+    ['cost/closed issue', b.costPerClosed, a.costPerClosed, money, 'pct'],
+    ['audits PASS', b.auditPass, a.auditPass, String, 'count'],
+    ['audits FAIL', b.auditFail, a.auditFail, String, 'count'],
+    ['audit FAIL share', b.failShare, a.failShare, pct, 'share'],
+    ['first-round FAILs', b.firstRoundFails, a.firstRoundFails, String, 'count'],
+    ['gate-fix issues', b.gateFixOpened, a.gateFixOpened, String, 'count'],
+    ['stops: timed out', b.stops.timedOut, a.stops.timedOut, String, 'count'],
+    ['stops: not mergeable', b.stops.conflict, a.stops.conflict, String, 'count'],
+    ['stops: audit rounds', b.stops.auditRounds, a.stops.auditRounds, String, 'count'],
+    ['stops: other', b.stops.other, a.stops.other, String, 'count'],
+    ['rebase test retries', b.rebaseTestRetries, a.rebaseTestRetries, String, 'count'],
+  ]);
 }
 
 async function fleetStatus(f: Fleet): Promise<number> {
