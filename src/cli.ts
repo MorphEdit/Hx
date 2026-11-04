@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { DEFAULTS, defaultWorktreeRoot, healthConfigError, effectiveRtddBin, findProjectRoot, formatRoleModels, labelSpecs, loadProject, saveConfig, STATE_DIR, type Config } from './config.ts';
 import * as gh from './github.ts';
 import { resolveCmd, run, runOk } from './exec.ts';
-import { log, lookupTrusted, printPlan, readPlan, runPool, trustedEnv } from './pool.ts';
+import { log, lookupTrusted, printPlan, readBar, readPlan, runPool, trustedEnv } from './pool.ts';
 import { killAllSessions } from './agent.ts';
 import { clearPause, nextLine, otherRunner, pidAlive, readLive, readPause, setPause, writeWake } from './runstate.ts';
 import { fmtDuration, readGate, readGateRuns } from './gate.ts';
@@ -567,7 +567,7 @@ async function status(p = loadProject(), o: { github?: boolean } = {}): Promise<
   // the board (only issues and PRDs opened by a trusted account are worked on)
   let trusted: Set<string>;
   try { trusted = await lookupTrusted(c); } catch (e: any) { console.error(`hx: ${e.message}`); return 2; }
-  const pl = await readPlan(p, trusted);
+  const pl = await readBar(p, await readPlan(p, trusted), trusted);
   console.log(`${c.repo} — ${pl.prds.length} open PRD(s), ${pl.board.length} open '${c.labels.ready}' issue(s)\n`);
   printPlan(pl, c.repo);
   const recs = readUsage(p.stateDir);
@@ -680,6 +680,8 @@ function printCompare(b: Period, a: Period): void {
     ['audits FAIL', b.auditFail, a.auditFail, String, 'count'],
     ['audit FAIL share', b.failShare, a.failShare, pct, 'share'],
     ['first-round FAILs', b.firstRoundFails, a.firstRoundFails, String, 'count'],
+    ['bar rounds won', b.barWon, a.barWon, String, 'count'],
+    ['bar rounds lost', b.barLost, a.barLost, String, 'count'],
     ['gate-fix issues', b.gateFixOpened, a.gateFixOpened, String, 'count'],
     ['stops: timed out', b.stops.timedOut, a.stops.timedOut, String, 'count'],
     ['stops: not mergeable', b.stops.conflict, a.stops.conflict, String, 'count'],

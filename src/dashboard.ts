@@ -14,7 +14,7 @@ import { githubLine } from './ghlimit.ts';
 import { readHealth } from './health.ts';
 import { type GateRun, readGate, readGateRuns } from './gate.ts';
 import { parseOutcomes } from './outcomes.ts';
-import { lookupTrusted, readPlan, runLogFile } from './pool.ts';
+import { lookupTrusted, readBar, readPlan, runLogFile } from './pool.ts';
 import { pidAlive, readLive, readPause } from './runstate.ts';
 import type { Plan } from './state.ts';
 import { testSeries, timeWindow } from './timing.ts';
@@ -44,8 +44,10 @@ export function boardCache(p: Project, ttl = BOARD_TTL_MS): BoardCache {
     fetch: () => {
       if (entry && Date.now() - entry.at < ttl) return Promise.resolve(entry);
       return inFlight ??= (async () => {
-        try { entry = { at: Date.now(), plan: lastPlan = await readPlan(p, await lookupTrusted(p.config)) }; }
-        catch (e: any) { entry = { at: Date.now(), error: String(e?.message ?? e) }; }
+        try {
+          const trusted = await lookupTrusted(p.config);
+          entry = { at: Date.now(), plan: lastPlan = await readBar(p, await readPlan(p, trusted), trusted) };
+        } catch (e: any) { entry = { at: Date.now(), error: String(e?.message ?? e) }; }
         inFlight = null;
         return entry;
       })();

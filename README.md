@@ -240,9 +240,10 @@ duration, median time outside tests (only records with `testMs`), median tokens 
 session and failed sessions, from `.hx/usage.jsonl`. Per period it counts, from one paged GraphQL query over
 the issues and their comments: audits PASS/FAIL and the FAIL share, first-round FAILs, issues closed (not
 PRDs), gate-fix issues opened, tokens and cost per closed issue, stops by cause (timed out, not mergeable or
-conflict, out of audit rounds, other) and "tests fail after the rebase" retries; also the hours of runs.
-Only hx's own markers count (`<!-- hx-audit -->`, `**hx:** impl stopped`, `<!-- hx-retry -->`, the gate-fix
-label), from a trusted account; each line shows the change (`+12%`, `-3`), and a period with fewer than 10
+conflict, out of audit rounds, other), "tests fail after the rebase" retries and quality-bar rounds won and
+lost (a `no verdict` round is neither); also the hours of runs.
+Only hx's own markers count (`<!-- hx-audit -->`, `**hx:** impl stopped`, `<!-- hx-retry -->`, `<!-- hx-bar round=N -->`,
+the gate-fix label), from a trusted account; each line shows the change (`+12%`, `-3`), and a period with fewer than 10
 closed issues is flagged as a small sample.
 
 ## Adding work to a running fleet
@@ -832,7 +833,7 @@ and the dashboard's per-model numbers use it). To spot one:
 | `gauntlet` | `true` | critique and revise a PRD in rounds before it is decomposed |
 | `gauntletRounds` | 2 | critic → reviser rounds before the PRD is decomposed anyway |
 | `reviewRounds` | 3 | PRD reviews before a human has to look |
-| `barRounds` | 3 | quality-bar rounds for a PRD with a `## Quality bar` section; a lost round files one gap issue, and the last one signs the PRD off with the gap standing |
+| `barRounds` | 3 | quality-bar rounds for a PRD with a `## Quality bar` section; a lost round files one gap issue, and the last one signs the PRD off with the gap standing. `hx status` and the dashboard show each such PRD's round and last result (`bar round 1/3 · last: lost — <gap>`, or `bar: not run yet`) |
 | `security` | `true` | a security pass checks a reviewed PRD's merged work before the PRD closes |
 | `securityRounds` | 2 | security passes that file issues before a human has to look |
 | `bugTriage` | `true` | a `bug` issue (not a PRD's child) is triaged before it may be claimed; until `bug-triaged` it shows as `triage`, and a triage session (`prompts/triage.md`, worktree `t<n>`) reproduces it and posts a `VERDICT: REPRODUCED` (→ `bug-triaged` + `ready-for-agent`) or `NEEDS-INFO` (→ `agent-blocked`) comment |

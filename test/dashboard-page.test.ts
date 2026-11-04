@@ -396,3 +396,22 @@ test('fleet page: a failed fetch shows "offline" and keeps the last cards; refre
   assert.equal(cards(p).length, 1);
   assert.deepEqual(p.fetched, ['api/fleet', 'api/fleet']);
 });
+
+test('a quality-bar PRD renders its status label and round / last result as text; a PRD without one shows no bar', E2E, async () => {
+  const gap = `slower than Stripe ${XSS}`;
+  const b = { at: new Date().toISOString(), repo: 'me/app', board: [], prds: [
+    { number: 1, title: 'billing', status: 'bar', open: 0, closed: 2, waitingOn: [], qualityBar: true, bar: { round: 2, rounds: 3, result: 'lost', gap } },
+    { number: 3, title: 'reports', status: 'building', open: 1, closed: 0, waitingOn: [], qualityBar: true, bar: { round: 0, rounds: 3, result: null, gap: '' } },
+    { number: 5, title: 'plain', status: 'building', open: 1, closed: 0, waitingOn: [] },
+  ] };
+  const p = page({ repo: 'me/app', runner: { running: false }, sessions: [], gate: null, health: null, log: [],
+    usage: { total: null, byRole: [], byModel: [], byDay: [], byPrd: null } }, b);
+  await p.flush();
+  const bd = p.ids.get('board-body')!;
+  const rows = bd.all().filter((e) => e.tag === 'tr').map((r) => r.all().filter((c) => c.tag === 'td' || c.tag === 'th').map(text));
+  assert.deepEqual(rows[0], ['PRD', 'title', 'status', 'progress', 'quality bar']);
+  assert.deepEqual(rows[1].slice(2), ['quality bar', '2/2 done', `round 2/3 · last: lost — ${gap}`]);
+  assert.deepEqual(rows[2].slice(2), ['building', '0/1 done', 'not run yet']);
+  assert.deepEqual(rows[3].slice(2), ['building', '0/1 done', '']);
+  assert.ok(bd.all().every((e) => e.tag !== 'img'), 'the gap is text');
+});

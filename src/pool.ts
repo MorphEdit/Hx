@@ -23,7 +23,7 @@ import { dueRelease, release, releaseGate } from './release.ts';
 import { acquireSlot, DEFAULT_FLEET_WORKERS, readGithubHold, readHold, releaseSlot, writeGithubHold, writeHold } from './fleet.ts';
 import { checkGit, checkRelease, handover, hxRoot, installKind, readSelfUpdate, restart, selfUpdateConfigError, short, writeSelfUpdate, type Check } from './selfupdate.ts';
 import { findingBody, parseFindings, readSelfReview, selfReviewDecision, SELFREVIEW_PROMISE, writeSelfReview } from './selfreview.ts';
-import { BAR_JUDGE_PROMISE, BAR_PROMISE, barCapComment, barMarker, barRound, gapIssueBody, parseJudgeReply, pickMapping, readMapping, refDir, roundDir, writeMapping, type Side } from './bar.ts';
+import { BAR_JUDGE_PROMISE, BAR_PROMISE, barCapComment, barLine, barMarker, barRound, barStatus, gapIssueBody, parseJudgeReply, pickMapping, readMapping, refDir, roundDir, writeMapping, type Side } from './bar.ts';
 import { parseQualityBar } from './prd.ts';
 import { appendSkills, resolveSkills, rtddCheck, rtddEnv, SKILL_CHECKS, skillNames, skillsLogLine, type Skill } from './skills.ts';
 
@@ -217,6 +217,14 @@ export async function readPlan(p: Project, trusted: Set<string>, busy: Set<strin
   return plan(issues, repo, labels, states, busy, { ...p.config, trusted });
 }
 
+/** Adds each quality-bar PRD's round and last result (hx status, the dashboard): its trusted comments are
+ *  fetched only for the PRDs whose body has the section, so a board without one costs no extra gh call. */
+export async function readBar(p: Project, pl: Plan, trusted: Set<string>): Promise<Plan> {
+  for (const r of pl.prds)
+    if (r.qualityBar) r.bar = barStatus(await gh.commentBodies(p.config.repo, r.number, trusted), p.config.barRounds);
+  return pl;
+}
+
 const target = (a: Action) => ('issue' in a ? a.issue : a.prd);
 const keyOf = (a: SessionAction) => ('issue' in a ? issueKey(a.issue) : prdKey(a.prd));
 
@@ -236,7 +244,8 @@ export function skipLine(r: { number: number; author?: string }): string {
 export function printPlan(pl: Plan, repo: string): void {
   const refs = (rs: { repo: string; number: number }[]) => rs.map((w) => (w.repo === repo ? '' : w.repo) + '#' + w.number).join(', ');
   for (const r of pl.prds)
-    console.log(`  PRD #${String(r.number).padEnd(4)} ${r.status.padEnd(13)} ${untrustedNote(r)}${r.title.slice(0, 50)}  [${r.closed}/${r.open + r.closed} done]${r.waitingOn.length ? `  waits on ${refs(r.waitingOn)}` : ''}`);
+    console.log(`  PRD #${String(r.number).padEnd(4)} ${r.status.padEnd(13)} ${untrustedNote(r)}${r.title.slice(0, 50)}  [${r.closed}/${r.open + r.closed} done]${r.waitingOn.length ? `  waits on ${refs(r.waitingOn)}` : ''}${r.bar ? `
+             ${barLine(r.bar)}` : ''}`);
   if (pl.prds.length) console.log('');
   for (const r of pl.board)
     console.log(`  #${String(r.number).padEnd(8)} ${r.status.padEnd(13)} ${untrustedNote(r)}${r.title.slice(0, 60)}${r.waitingOn.length ? `  waits on ${refs(r.waitingOn)}` : ''}`);

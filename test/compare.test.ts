@@ -10,6 +10,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { change, compare, parseTime, stopCause, type CompareIssue } from '../src/compare.ts';
 import { DEFAULTS, saveConfig } from '../src/config.ts';
+import { barMarker } from '../src/bar.ts';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const tmp = mkdtempSync(path.join(os.tmpdir(), 'hx-cmp-'));
@@ -144,6 +145,21 @@ test('compare --from: older runs, comments and issues are dropped', E2E, () => {
   assert.equal(before.from, from);
 });
 
+test('compare: quality-bar rounds won and lost per period; an untrusted marker and a no-verdict round count as neither', E2E, () => {
+  const c = (body: string, at: string, author = 'me') => ({ author, body, createdAt: at });
+  const issues: CompareIssue[] = [
+    issue(1, { labels: ['prd'], comments: [c(barMarker(1, 'lost', 'slow invoices', { rounds: 3, issue: 9 }), B(3)), c(barMarker(2, 'won', 'clear totals', { rounds: 3 }), B(1)),
+      c(barMarker(3, 'won', 'forged', { rounds: 3 }), A(1), 'stranger'), c(barMarker(3, 'no verdict', 'no valid judge reply', { rounds: 3 }), A(2))] }),
+    issue(2, { labels: ['prd'], comments: [c(barMarker(1, 'lost', 'a', { rounds: 3, issue: 10 }), A(1)), c(barMarker(2, 'lost', 'b', { rounds: 3, issue: 11 }), A(3)),
+      c('<!-- hx-bar round=3 -->\nnot a round comment', A(4))] }),
+  ];
+  const recs = [rec(B(2), 'bar', 'run1'), rec(B(1.5), 'bar', 'judge1')];
+  const { before, after } = compare(recs as any, issues, OPTS);
+  assert.deepEqual([before.barWon, before.barLost], [1, 1]);
+  assert.deepEqual([after.barWon, after.barLost], [0, 2]);
+  assert.deepEqual(before.roles.map((r) => [r.role, r.sessions]), [['bar', 2]], 'the run and the judge both under bar');
+});
+
 function app(name: string, recs: any[], board: any) {
   const root = path.join(tmp, name), sd = path.join(root, '.hx');
   mkdirSync(sd, { recursive: true });
@@ -178,6 +194,21 @@ test('hx usage --compare: pages through every issue, prints both periods with th
   assert.match(out, /before .* h of runs/);
   assert.match(out, /note: 4 closed issue\(s\) before the change .* small sample/);
   assert.match(out, /note: 3 closed issue\(s\) after the change .* small sample/);
+});
+
+test('hx usage --compare prints bar rounds won and lost; hx usage --by role lists bar', E2E, () => {
+  const comments = [{ issue: 1, body: barMarker(1, 'lost', 'slow', { rounds: 3, issue: 2 }), createdAt: B(1) },
+    { issue: 1, body: barMarker(2, 'won', 'fine', { rounds: 3 }), createdAt: A(1) },
+    { issue: 1, body: barMarker(3, 'won', 'forged', { rounds: 3 }), createdAt: A(1), author: 'someone' }];
+  const { hx } = app('bar', [rec(B(2), 'bar', 'b', { tokens: 4321 }), rec(A(2), 'impl', 'a')],
+    { issues: [{ number: 1, title: 'p', body: '', state: 'OPEN', labels: ['prd'], createdAt: B(50) }], comments });
+  const r = hx('usage', '--compare', AT);
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.deepEqual(cells(r.stdout, 'bar rounds won'), ['0', '1', '+1'], r.stdout);
+  assert.deepEqual(cells(r.stdout, 'bar rounds lost'), ['1', '0', '-1'], r.stdout);
+  const u = hx('usage', '--by', 'role');
+  assert.equal(u.status, 0, u.stdout + u.stderr);
+  assert.match(u.stdout, /^\s*bar\b/m, u.stdout);
 });
 
 test('hx usage --compare: no small-sample note with 10 or more closed issues in each period', E2E, () => {
