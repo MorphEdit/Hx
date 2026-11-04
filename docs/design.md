@@ -301,6 +301,21 @@ Decisions:
   not fix that; running the suite once does.
 - Unchanged: at least one test must fail without the change, and no test is deleted, skipped or weakened.
 
+## Audit depth (#233)
+
+Audits were shallow: over 145 audits 3 failed (2%) while `main` went red 13 times after a merge, and an
+auditor could PASS after reading only the diff, with `FINDINGS: none`. Decisions:
+- The audit prompt says what an audit must read: the issue and its parent PRD (through `issue.mjs`), the
+  full diff, every changed file in full, the callers and callees of the changed code (`grep`), and the parts
+  of `CLAUDE.md`, `docs/design.md` and the README the change touches. "Read only what you need" is gone.
+- It also checks the change fits the design and the other callers, that docs and `hx help` follow a
+  behaviour change, and runs each new or changed error path by hand.
+- A PASS lists every acceptance criterion with its evidence (file and line, command run, what it printed);
+  `none` is no longer allowed. The verdict parser is unchanged and the PASS comment shows those lines.
+- Unchanged: FAIL only for a real defect against the issue, and only the affected tests are run.
+- The implementer reads the parent PRD and the parts of `docs/design.md` and `CLAUDE.md` the issue
+  touches before coding.
+
 ## Test time (PRD #182)
 
 How long workers spend in tests, and how long the gate takes, so a slow suite shows up before it costs turns.

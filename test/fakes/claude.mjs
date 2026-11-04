@@ -214,6 +214,7 @@ function finish(st, checkpoint, prompt) {
     return reply(`triaged in ${where}. ${done()}`);
   }
   // auditor: body AUDITFAIL fails the first round, AUDITNEVER fails every round, anything else passes
+  // with one evidence line per acceptance criterion (#233)
   if (st.role === 'audit') {
     const body = loadBoard().issues.find((i) => i.number === st.n).body;
     const failing = /AUDITNEVER/.test(body) || (/AUDITFAIL/.test(body) && st.round === 1);
@@ -225,7 +226,8 @@ function finish(st, checkpoint, prompt) {
       g('add', '-A'); g('commit', '-q', '-m', 'conflicting work'); g('push', '-q', 'origin', 'HEAD:main');
     }
     return reply(failing ? `VERDICT: FAIL\nFINDINGS:\n- issue #${st.n} requires X — code does Y — ran it\n\n${done()}`
-      : `VERDICT: PASS\nFINDINGS:\n- none\n\n${done()}`);
+      : `VERDICT: PASS\nFINDINGS:\n- issue #${st.n} criterion 1: writes impl-${st.n}.txt — impl-${st.n}.txt:1 — \`git show --stat HEAD\` → impl-${st.n}.txt | 1 +\n`
+        + `- issue #${st.n} criterion 2: tests pass — test/x.test.ts:3 — \`npm test\` → pass 3, fail 0\n\n${done()}`);
   }
   const text = locked(boardFile, () => {
     const b = loadBoard();

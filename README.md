@@ -471,8 +471,11 @@ Write `None` under the heading (or leave it out) for an issue with no dependenci
 The implementer never merges its own work. It ships with `ship.mjs --no-merge` and stops at an open PR.
 Then a **separate auditor session**, in its own fresh checkout of the pushed branch, checks the PR
 against the issue — every rule and example, by reading the code and running the cases itself, and
-whether the new tests would fail if the feature were wrong. It answers `VERDICT: PASS` or `FAIL`
-with findings, posted on the issue.
+whether the new tests would fail if the feature were wrong. It reads the whole change in context: the issue
+and its parent PRD, every changed file in full, the callers of the changed code, and the parts of
+`CLAUDE.md`, `docs/design.md` and the README the change touches. It answers `VERDICT: PASS` or `FAIL`
+with findings, posted on the issue: a FAIL lists the defects, a PASS lists every acceptance criterion with
+its evidence (the file and line, the command run and what it printed).
 
 ```
 implement ──▶ PR open ──▶ audit ──PASS──▶ hx rebases, re-tests, merges, closes the issue

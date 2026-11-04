@@ -60,6 +60,12 @@ test('auditVerdict reads PASS / FAIL and the findings', E2E, () => {
   assert.equal(auditVerdict('looks fine to me'), null);
 });
 
+test('auditVerdict reads a PASS whose FINDINGS are per-criterion evidence lines (#233)', E2E, () => {
+  const ev = '- criterion 1: hx help lists it — src/cli.ts:42 — `node bin/hx.mjs help` → "hx foo  do foo"\n'
+    + '- criterion 2: a FAIL on a bad id — src/x.ts:7 — `node -e "…"` → exit 2, "no such id"';
+  assert.deepEqual(auditVerdict(`done.\nVERDICT: PASS\nFINDINGS:\n${ev}\n\n<promise>AUDIT 9 DONE</promise>`), { pass: true, findings: ev });
+});
+
 test('audit PASS: hx merges the PR the implementer left open', E2E, async () => {
   board([issue(1)]);
   const { rc, lines } = await run([1]);
@@ -70,6 +76,11 @@ test('audit PASS: hx merges the PR the implementer left open', E2E, async () => 
   assert.equal(s.prs[0].state, 'MERGED', 'merged by hx, not by the implementer');
   assert.equal(audits(1).length, 1);
   assert.match(audits(1)[0].body, /PASS/);
+  // the PASS comment carries the auditor's evidence for every criterion (#233)
+  const body = audits(1)[0].body;
+  assert.ok(body.includes('\n- issue #1 criterion 1: writes impl-1.txt — impl-1.txt:1 — `git show --stat HEAD` → impl-1.txt | 1 +\n'), body);
+  assert.ok(body.includes('\n- issue #1 criterion 2: tests pass — test/x.test.ts:3 — `npm test` → pass 3, fail 0'), body);
+  assert.doesNotMatch(audits(1)[0].body, /- none/);
   assert.deepEqual([...new Set(readUsage(stateDir).filter((r) => r.issue === 1).map((r) => r.role))].sort(), ['audit', 'impl']);
   assert.equal(git(root, 'ls-remote', '--heads', 'origin', 'issue/1'), '', 'branch deleted after the merge');
   assert.ok(!existsSync(path.join(tmp, 'wt', 'a1')), 'audit worktree removed');
