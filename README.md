@@ -189,7 +189,10 @@ fails), and `hx run` runs them at startup too: a required `✗` stops it before 
 cd <your repo>
 hx start "idea"         # doctor, init, grill, the dry-run plan, then hx run --watch (see First run; --yes, --workers N)
 hx doctor               # check the prerequisites, each with a fix for this OS; exit 1 when a required one fails
-hx health [--fix]       # one health pass: stale PRs from issue/<N> branches, leftover worktrees (i/a/t/p<N>, N not
+hx health [--fix]       # one health pass: stale PRs from issue/<N> branches, agent-blocked after a passed audit
+                        # (merged with ship --resume or sent back to ready-for-agent; blocked again → one health:
+                        # bug issue), agent-blocked by a transient error (unblocked at most once per 24 h),
+                        # leftover worktrees (i/a/t/p<N>, N not
                         # open, untouched 24 h), agent-working with no live session (released after stallMinutes),
                         # the environment (doctor checks, < 5 GB free); --fix repairs; exit 1 while a ✗ remains;
                         # hx status and the dashboard show the last pass, the dashboard Stats count passes,

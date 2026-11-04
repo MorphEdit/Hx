@@ -86,7 +86,8 @@ const HELP = `usage: hx <command> [options]
   doctor                   check the prerequisites (node, git, gh and its login, the agent CLI, the repo's
                            GitHub origin, .hx/config.json, labels, gate, rtdd), each with a fix for this OS;
                            exit 1 when a required one fails
-  health [--fix]           one health pass: stale PRs from issue/<N> branches, leftover worktrees, stuck
+  health [--fix]           one health pass: stale PRs from issue/<N> branches, agent-blocked issues (after a
+                           passed audit: merged or sent back; by a transient error: unblocked), leftover worktrees, stuck
                            agent-working labels, the environment (doctor checks, free disk); reports what it
                            would do (--fix: repairs, even with selfHeal off); exit 1 while a ✗ remains
   update [--force]         install the latest hx release (npm install -g github:MorphEdit/Hx#<tag>), check it runs,

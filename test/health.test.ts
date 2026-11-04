@@ -282,3 +282,237 @@ test('hx health is in the help', E2E, () => {
   const r = spawnSync(process.execPath, [path.join(here, '..', 'bin', 'hx.mjs'), 'help'], { encoding: 'utf8' });
   assert.match(r.stdout, /health \[--fix\]/);
 });
+
+// ---- blocked issues: resume after a passed audit, unblock transient errors, file health: issues (#237) ----
+
+const AUDIT_PASS = (pr: number) => `<!-- hx-audit -->\n**hx audit 1/2: PASS ✓** (PR #${pr})\n\nall criteria met`;
+const AUDIT_FAIL = (pr: number) => `<!-- hx-audit -->\n**hx audit 2/2: FAIL ✗** (PR #${pr})\n\nmissing test`;
+const STOP = (reason: string) => `**hx:** impl stopped — ${reason} (12k tokens).\n\nLast reply:\n\n> working on it, API 529 earlier\n\nWork is on branch \`issue/7\` if it was pushed. Remove the \`agent-blocked\` label to let hx try again.`;
+const blockedIssue = (n: number) => issue(n, 'OPEN', [L.blocked]);
+
+test('blocked after PASS: MERGEABLE → resume, CONFLICTING → send back, UNKNOWN → wait; no PR or a failed last audit → not this check', E2E, () => {
+  const s = snap({
+    issues: [blockedIssue(1), blockedIssue(2), blockedIssue(3), blockedIssue(4), blockedIssue(5)],
+    openPrs: [{ number: 11, headRefName: 'issue/1', mergeable: 'MERGEABLE' }, { number: 12, headRefName: 'issue/2', mergeable: 'CONFLICTING' },
+      { number: 13, headRefName: 'issue/3', mergeable: 'UNKNOWN' }, { number: 15, headRefName: 'issue/5', mergeable: 'MERGEABLE' }],
+    comments: new Map([[1, [AUDIT_PASS(11), STOP('merging the audited PR failed: boom')]], [2, [AUDIT_PASS(12)]], [3, [AUDIT_PASS(13)]],
+      [4, [AUDIT_PASS(14)]], [5, [AUDIT_PASS(15), AUDIT_FAIL(15)]]]),
+  });
+  const seen = new Set<number>();
+  const r = H.blockedAfterPassCheck(s, seen);
+  assert.deepEqual(r.actions.map((a: any) => [a.kind, a.issue, a.pr]), [['resume', 1, 11], ['send-back', 2, undefined]]);
+  assert.equal(r.results.length, 3);
+  assert.ok(r.results.every((x) => x.mark === '✗'));
+  assert.match(r.results[2].text, /#3 .*PR #13 mergeable is UNKNOWN, waiting/);
+  assert.deepEqual([...seen], [1, 2, 3]);
+  assert.deepEqual(H.blockedAfterPassCheck(snap(), new Set()).results, [{ mark: '✓', text: 'blocked after a passed audit — none' }]);
+});
+
+test('blocked after PASS with a resume comment already: files one health: issue, never when its marker exists (open or closed)', E2E, () => {
+  const base = { openPrs: [{ number: 11, headRefName: 'issue/1', mergeable: 'MERGEABLE' }],
+    comments: new Map([[1, [AUDIT_PASS(11), `${H.RESUME_MARKER}\n**hx:** the audit passed, but …`, STOP('merging the audited PR failed: x')]]]) };
+  const r = H.blockedAfterPassCheck(snap({ issues: [blockedIssue(1)], ...base }), new Set());
+  assert.equal(r.actions.length, 1);
+  const a: any = r.actions[0];
+  assert.equal(a.kind, 'file');
+  assert.equal(a.key, 'resume:1');
+  assert.match(a.title, /^health: /);
+  assert.ok(a.body.includes('<!-- hx:health resume:1 -->'));
+  for (const state of ['OPEN', 'CLOSED'] as const) {
+    const filed = { ...issue(40, state, [L.bug]), body: 'x\n<!-- hx:health resume:1 -->' };
+    const again = H.blockedAfterPassCheck(snap({ issues: [blockedIssue(1), filed], ...base }), new Set());
+    assert.deepEqual(again.actions, [], state);
+    assert.equal(again.results[0].mark, '✗');
+  }
+});
+
+test('transient: each pattern unblocks once with an unblock <time> comment; a failed merge, NEEDS-INFO and other reasons are no finding', E2E, () => {
+  const reasons = ['stalled: no output for 15 min', 'agent error: turn timed out after 60 min', 'agent error: claude exited 1 with no result: x',
+    'agent error: API 429: slow down', 'agent error: API 503: overloaded', 'agent error: Rate limit reached'];
+  const issues = reasons.map((_, i) => blockedIssue(i + 1));
+  const comments = new Map(reasons.map((r, i) => [i + 1, [STOP(r)]]));
+  const r = H.transientBlockCheck(snap({ issues, comments }), new Set());
+  assert.deepEqual(r.actions.map((a: any) => a.issue), [1, 2, 3, 4, 5, 6]);
+  const a: any = r.actions[2];
+  assert.equal(a.kind, 'unblock');
+  assert.ok(a.comment.startsWith(`<!-- hx:health unblock ${new Date(NOW).toISOString()} -->\n`), a.comment);
+  assert.match(a.comment, /claude exited 1 with no result/);
+  assert.doesNotMatch(a.comment, /Last reply/);
+
+  const quiet = H.transientBlockCheck(snap({
+    issues: [blockedIssue(1), blockedIssue(2), blockedIssue(3), blockedIssue(4), blockedIssue(5)],
+    comments: new Map([
+      [1, [STOP('merging the audited PR failed: ship: tests failed — API rate limit exceeded')]],
+      [2, ['NEEDS-INFO: which version?', '**hx:** triage: NEEDS-INFO']],
+      [3, [STOP('still not passing after 2 audit round(s); last findings: x')]],
+      [4, [STOP('the implementer reported ready but no open PR for its branch exists')]],
+      [5, [STOP('stalled: no output for 15 min'), 'a human comment after it']],
+    ]) }), new Set());
+  assert.deepEqual(quiet, { results: [{ mark: '✓', text: 'blocked by a transient error — none' }], actions: [] });
+});
+
+test('transient: an unblock comment < 24 h old → ✗, nothing done or filed; > 24 h old → unblocked again', E2E, () => {
+  const unblock = (h: number) => `<!-- hx:health unblock ${new Date(NOW - h * HOUR).toISOString()} -->\n**hx:** unblocked — x`;
+  const young = H.transientBlockCheck(snap({ issues: [blockedIssue(3)], comments: new Map([[3, [STOP('stalled: no output'), unblock(23), STOP('claude exited 1 with no result')]]]) }), new Set());
+  assert.deepEqual(young.actions, []);
+  assert.equal(young.results[0].mark, '✗');
+  const old = H.transientBlockCheck(snap({ issues: [blockedIssue(3)], comments: new Map([[3, [unblock(25), STOP('claude exited 1 with no result')]]]) }), new Set());
+  assert.deepEqual(old.actions.map((a: any) => [a.kind, a.issue]), [['unblock', 3]]);
+});
+
+test('overlap: open PR + last audit PASS + a stalled stop → only blocked-after-PASS acts; no unblock', E2E, () => {
+  const s = snap({ issues: [blockedIssue(7)], openPrs: [{ number: 17, headRefName: 'issue/7', mergeable: 'MERGEABLE' }],
+    comments: new Map([[7, [AUDIT_PASS(17), STOP('stalled: no output for 15 min')]]]) });
+  assert.deepEqual(H.runChecks(s).actions.map((a: any) => a.kind), ['resume']);
+  // and the transient check on its own (no seen set) still leaves it alone
+  assert.deepEqual(H.transientBlockCheck(s, new Set()).actions, []);
+});
+
+// the runner: real git for the branch and ship.mjs, the fake gh for the board
+Object.assign(process.env, { GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' });
+const OK_TEST = 'node -e "process.exit(0)"';
+
+/** issue/<n> pushed with one commit (a.txt), an open PR for it, the issue blocked after a passed audit. */
+function blockedRepo(n: number, o: { mergeable?: string; test?: string; extra?: string[] } = {}) {
+  const r = repo();
+  (r.config as any).gateCommand = o.test ?? OK_TEST;
+  git(r.root, 'checkout', '-q', '-b', `issue/${n}`);
+  writeFileSync(path.join(r.root, 'a.txt'), 'mine\n');
+  git(r.root, 'add', 'a.txt'); git(r.root, 'commit', '-q', '-m', 'feat: thing');
+  git(r.root, 'push', '-q', 'origin', `HEAD:issue/${n}`);
+  git(r.root, 'checkout', '-q', 'main');
+  git(r.root, 'branch', '-q', '-D', `issue/${n}`);
+  board({ issues: [{ ...blockedIssue(n), title: 'thing' }], prs: [{ number: 100 + n, head: `issue/${n}`, title: 'feat: thing', state: 'OPEN', mergeable: o.mergeable ?? 'MERGEABLE' }],
+    comments: [AUDIT_PASS(100 + n), STOP('merging the audited PR failed: ship: git push failed'), ...(o.extra ?? [])].map((body) => ({ issue: n, body })) });
+  rmSync(ghLog, { force: true });
+  return r;
+}
+const fix = (r: ReturnType<typeof repo>, now = NOW, merged?: (t?: string) => void) =>
+  H.healthPass(r.project as any, { repairs: true, now, env: okEnv, live: new Set(), merged });
+const theIssue = (n: number) => read().issues.find((i: any) => i.number === n);
+const commentsOn = (n: number) => read().comments.filter((c: any) => c.issue === n).map((c: any) => c.body as string);
+
+test('healthPass blocked after PASS, MERGEABLE, no ship state: rebuilt from the PR, merged, agent-blocked and the worktree removed', E2E, async () => {
+  const r = blockedRepo(21);
+  const tests: (string | undefined)[] = [];
+  const p = await fix(r, NOW, (t) => tests.push(t));
+  assert.ok(readFileSync(ghLog, 'utf8').includes('pr list -R me/app --head issue/21 --state open --json number,title,isCrossRepository'), 'ship rebuilt its state from the PR');
+  const s = read();
+  assert.equal(s.prs[0].state, 'MERGED');
+  assert.equal(theIssue(21).state, 'CLOSED');
+  assert.ok(!theIssue(21).labels.includes(L.blocked));
+  assert.ok(!existsSync(path.join(r.wt, 'i21')));
+  assert.deepEqual(tests, [OK_TEST]);
+  assert.match(p.line, /fixed 1 \(merged PR #121 \(#21\)\)/);
+});
+
+test('healthPass blocked after PASS: CONFLICTING, ship exit 3 and exit 4 → back to ready-for-agent with a resume comment', E2E, async () => {
+  const conflicting = blockedRepo(22, { mergeable: 'CONFLICTING' });
+  await fix(conflicting);
+  assert.deepEqual(theIssue(22).labels, [L.ready]);
+  assert.equal(read().prs[0].state, 'OPEN');
+  const c22 = commentsOn(22).at(-1)!;
+  assert.ok(c22.startsWith(H.RESUME_MARKER), c22);
+  assert.match(c22, /conflicts/);
+  assert.doesNotMatch(c22, /Ship output/);
+
+  const failing = blockedRepo(23, { test: 'node -e "console.log(23*1000+1); process.exit(1)"' });
+  const p = await fix(failing);
+  assert.deepEqual(theIssue(23).labels, [L.ready]);
+  assert.equal(theIssue(23).state, 'OPEN');
+  const c23 = commentsOn(23).at(-1)!;
+  assert.ok(c23.startsWith(H.RESUME_MARKER));
+  assert.match(c23, /tests fail/);
+  assert.match(c23, /Ship output \(tail\)[\s\S]*23001/);
+  assert.ok(existsSync(path.join(failing.wt, 'i23')), 'the worktree stays for the next impl session');
+  assert.match(p.line, /sent #23 back to ready-for-agent \(ship exit 4\)/);
+
+  const conflict = blockedRepo(24);
+  writeFileSync(path.join(conflict.root, 'a.txt'), 'theirs\n');
+  git(conflict.root, 'add', 'a.txt'); git(conflict.root, 'commit', '-q', '-m', 'other'); git(conflict.root, 'push', '-q', 'origin', 'HEAD:main');
+  await fix(conflict);
+  assert.deepEqual(theIssue(24).labels, [L.ready]);
+  const c24 = commentsOn(24).at(-1)!;
+  assert.ok(c24.startsWith(H.RESUME_MARKER));
+  assert.match(c24, /conflicts with the base after a rebase[\s\S]*Ship output \(tail\)[\s\S]*rebase on origin\/main conflicts in: a\.txt/);
+});
+
+test('healthPass: blocked again after a resume comment files exactly one health: issue; never again, also once it is closed', E2E, async () => {
+  const r = blockedRepo(25, { extra: [`${H.RESUME_MARKER}\n**hx:** the audit passed, but the tests fail after rebasing it.`, STOP('merging the audited PR failed: again')] });
+  const p = await fix(r);
+  const filed = read().issues.filter((i: any) => /^health: /.test(i.title));
+  assert.equal(filed.length, 1);
+  assert.deepEqual(filed[0].labels, [L.bug]);
+  assert.ok(filed[0].body.includes('<!-- hx:health resume:25 -->'));
+  assert.match(p.line, new RegExp(`filed 1 \\(#${filed[0].number}\\)`));
+  assert.deepEqual(theIssue(25).labels, [L.blocked], 'not repaired again');
+  assert.equal(read().prs[0].state, 'OPEN');
+
+  rmSync(ghLog, { force: true });
+  await fix(r, NOW + HOUR);
+  assert.deepEqual(writes(), []);
+  const s = read();
+  s.issues.find((i: any) => i.number === filed[0].number).state = 'CLOSED';
+  writeFileSync(stateFile, JSON.stringify(s));
+  await fix(r, NOW + 2 * HOUR);
+  assert.deepEqual(writes(), []);
+});
+
+test('healthPass: UNKNOWN mergeable and a NEEDS-INFO block change nothing; NEEDS-INFO is not reported', E2E, async () => {
+  const r = blockedRepo(26, { mergeable: 'UNKNOWN' });
+  const s = read();
+  s.issues.push(blockedIssue(27));
+  s.comments.push({ issue: 27, body: 'NEEDS-INFO: which version do you run?' });
+  writeFileSync(stateFile, JSON.stringify(s));
+  const p = await fix(r);
+  assert.deepEqual(writes(), []);
+  assert.ok(p.results.some((x) => x.mark === '✗' && /#26 .*UNKNOWN, waiting/.test(x.text)));
+  assert.ok(!p.results.some((x) => /#27/.test(x.text)));
+});
+
+test('healthPass transient: unblocked once; blocked again < 24 h → left, nothing filed; > 24 h → unblocked again; other reasons untouched', E2E, async () => {
+  const r = repo();
+  board({ issues: [blockedIssue(30), blockedIssue(31)],
+    comments: [{ issue: 30, body: STOP('agent error: claude exited 1 with no result: x') }, { issue: 31, body: STOP('no completion after 30 turns') }] });
+  await fix(r);
+  assert.deepEqual(theIssue(30).labels, []);
+  assert.deepEqual(theIssue(31).labels, [L.blocked]);
+  assert.equal(commentsOn(31).length, 1);
+  const unblock = commentsOn(30).at(-1)!;
+  assert.ok(unblock.startsWith(`<!-- hx:health unblock ${new Date(NOW).toISOString()} -->`), unblock);
+  // the next session fails the same way
+  const s = read();
+  s.issues.find((i: any) => i.number === 30).labels = [L.blocked];
+  s.comments.push({ issue: 30, body: STOP('agent error: claude exited 1 with no result: y') });
+  writeFileSync(stateFile, JSON.stringify(s));
+  rmSync(ghLog, { force: true });
+  const p = await fix(r, NOW + 23 * HOUR);
+  assert.deepEqual(writes(), []);
+  assert.ok(p.results.some((x) => x.mark === '✗' && /#30 /.test(x.text)));
+  await fix(r, NOW + 25 * HOUR);
+  assert.deepEqual(theIssue(30).labels, []);
+  assert.equal(commentsOn(30).filter((b) => b.startsWith('<!-- hx:health unblock')).length, 2);
+  assert.ok(!read().issues.some((i: any) => /^health: /.test(i.title)));
+});
+
+test('healthPass without repairs: the blocked checks only report what they would do', E2E, async () => {
+  const r = blockedRepo(32);
+  const s = read();
+  s.issues.push(blockedIssue(33), blockedIssue(34), blockedIssue(35));
+  s.prs.push({ number: 134, head: 'issue/34', title: 'x', state: 'OPEN', mergeable: 'MERGEABLE' },
+    { number: 135, head: 'issue/35', title: 'x', state: 'OPEN', mergeable: 'CONFLICTING' });
+  s.comments.push({ issue: 33, body: STOP('stalled: no output for 15 min') }, { issue: 34, body: AUDIT_PASS(134) },
+    { issue: 34, body: `${H.RESUME_MARKER}\nx` }, { issue: 35, body: AUDIT_PASS(135) });
+  writeFileSync(stateFile, JSON.stringify(s));
+  const before = read();
+  const p = await H.healthPass(r.project as any, { repairs: false, now: NOW, env: okEnv, live: new Set() });
+  assert.deepEqual(read(), before);
+  assert.deepEqual(writes(), []);
+  assert.ok(!existsSync(path.join(r.wt, 'i32')));
+  const text = p.results.map((x) => x.text).join('\n');
+  assert.match(text, /#32 .*would merge PR #132/);
+  assert.match(text, /#33 .*would remove agent-blocked/);
+  assert.match(text, /#34 .*would file a health: issue/);
+  assert.match(text, /#35 .*would send it back to ready-for-agent/);
+  assert.ok(!p.results.some((x) => x.mark === 'fixed' || x.mark === 'filed'));
+});
