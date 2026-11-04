@@ -12,7 +12,7 @@ import type { GhBudget } from './ghlimit.ts';
 export interface LiveSession {
   key: string; // issue:<n> | prd:<n>
   number: number;
-  kind: string; // impl | gauntlet | decompose | review | security | triage
+  kind: string; // impl | gauntlet | decompose | review | security | triage | bar
   title: string;
   since: string; // ISO time the session started
   turn: number;

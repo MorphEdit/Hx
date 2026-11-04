@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process';
-import { appendFileSync, mkdirSync, readFileSync, renameSync, statSync, unwatchFile, watchFile, writeFileSync, type Stats } from 'node:fs';
+import { appendFileSync, cpSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, statSync, unwatchFile, watchFile, writeFileSync, type Stats } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DEFAULTS, effectiveRtddBin, formatRoleModels, ghReservePctError, healthConfigError, labelSpecs, modelMatches, roleModel, roleModelMap, roleModelsError, testPatternsError, workerArgs, worktreeCopyError, type Config, type LabelSpec, type Project } from './config.ts';
@@ -22,6 +23,8 @@ import { dueRelease, release, releaseGate } from './release.ts';
 import { acquireSlot, DEFAULT_FLEET_WORKERS, readGithubHold, readHold, releaseSlot, writeGithubHold, writeHold } from './fleet.ts';
 import { checkGit, checkRelease, handover, hxRoot, installKind, readSelfUpdate, restart, selfUpdateConfigError, short, writeSelfUpdate, type Check } from './selfupdate.ts';
 import { findingBody, parseFindings, readSelfReview, selfReviewDecision, SELFREVIEW_PROMISE, writeSelfReview } from './selfreview.ts';
+import { BAR_JUDGE_PROMISE, BAR_PROMISE, barCapComment, barMarker, barRound, gapIssueBody, parseJudgeReply, pickMapping, readMapping, refDir, roundDir, writeMapping, type Side } from './bar.ts';
+import { parseQualityBar } from './prd.ts';
 import { appendSkills, resolveSkills, rtddCheck, rtddEnv, SKILL_CHECKS, skillNames, skillsLogLine, type Skill } from './skills.ts';
 
 const PROMPTS = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'prompts');
@@ -57,7 +60,7 @@ export function reviewRoundsDone(bodies: string[]): number {
   return n;
 }
 
-type SessionAction = Extract<Action, { kind: 'impl' | 'gauntlet' | 'decompose' | 'review' | 'security' | 'triage' }>;
+type SessionAction = Extract<Action, { kind: 'impl' | 'gauntlet' | 'decompose' | 'review' | 'security' | 'triage' | 'bar' }>;
 
 export interface PoolOptions {
   workers: number;
@@ -595,7 +598,6 @@ async function pool(p: Project, o: PoolOptions): Promise<number> {
   let idleLogged = false;
   const skipped = new Set<number>(); // untrusted issues / PRDs already logged this run
   const budgetLogged = new Set<string>(); // budget skips already logged: once per action per window reset
-  const barLogged = new Set<number>(); // PRDs whose skipped bar action was logged (once per run)
   let failures = 0;
   let engineRetries = 0;
   let fatal: string | undefined; // a setup error: stop claiming, let running sessions finish
@@ -696,10 +698,6 @@ async function pool(p: Project, o: PoolOptions): Promise<number> {
       }
 
       for (const a of actions) {
-        if (a.kind === 'bar') { // the round flow is a later slice: until then the PRD waits at its bar
-          if (!barLogged.has(a.prd)) { barLogged.add(a.prd); log('bar: quality bar round not implemented yet', a.prd); }
-          continue;
-        }
         if (a.kind !== 'close-prd' && a.kind !== 'label-ready') sharedHold();
         sharedGithubHold();
         if (stop.signal.aborted || fatal || live.draining || Date.now() < (live.pausedUntil ?? 0) || githubLowNow()) break; // fatal may land during readPlan
@@ -898,6 +896,14 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
       return undefined;
     }
     round = done + 1;
+  } else if (a.kind === 'bar') {
+    // a round is a trusted `<!-- hx-bar round=` comment: one by any other account never counts
+    round = barRound(await gh.commentBodies(c.repo, n, ctx.trusted));
+    if (round > c.barRounds) { // every round has run (barRounds lowered, or the label removed by hand): sign off
+      await relabel(c.repo, n, [c.labels.barPassed]);
+      log(`bar: ${c.barRounds} round(s) already ran — labelled ${c.labels.barPassed}`, n);
+      return undefined;
+    }
   }
   // what verify() compares a security session against: the security issues and verdicts already there
   const before = a.kind === 'security' ? await securitySnapshot(p, n, ctx.trusted) : undefined;
@@ -930,7 +936,7 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
   const vars: Record<string, string | number> = {
     REPO: c.repo, BASE: c.defaultBranch, TITLE: title, SHIP, ISSUE_SCRIPT,
     LABEL_READY: L.ready, LABEL_REVIEWED: L.reviewed, LABEL_SECURED: L.secured, LABEL_SECURITY: L.security, ROUND: round,
-    ROUNDS: a.kind === 'gauntlet' ? c.gauntletRounds : a.kind === 'security' ? c.securityRounds : a.kind === 'triage' ? c.triageRounds : c.reviewRounds,
+    ROUNDS: a.kind === 'gauntlet' ? c.gauntletRounds : a.kind === 'security' ? c.securityRounds : a.kind === 'triage' ? c.triageRounds : a.kind === 'bar' ? c.barRounds : c.reviewRounds,
     ISSUE: n, PRD: n, BRANCH: `issue/${n}`,
     EXISTING: a.kind === 'decompose' ? childList(a.children) : '', CHILDREN: a.kind === 'review' || a.kind === 'security' ? childList(a.children) : '',
     RESUMED: resumeNote,
@@ -938,6 +944,7 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
       : a.kind === 'decompose' ? `PRD #${n}: list the issues you have filed for it so far`
       : a.kind === 'gauntlet' ? `gauntlet round ${round} of PRD #${n}`
       : a.kind === 'security' ? `security pass ${round} of PRD #${n}`
+      : a.kind === 'bar' ? `quality bar round ${round} of PRD #${n}`
       : a.kind === 'triage' ? `triage round ${round} of issue #${n}: did you post the verdict comment?` : `the review of PRD #${n}`,
     // with an auditor the implementer stops at an open PR; hx merges once the audit passes
     SHIP_FLAGS: audited ? ' --no-merge' : '',
@@ -1106,6 +1113,85 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
       await relabel(c.repo, n, [], [L.working]);
       await removeWorktree(p.root, wt.dir);
       throw e;
+    }
+  }
+
+  // quality bar: one run session records ours and the reference into A/ and B/ (hx picks which is which),
+  // then a fresh judge that sees only copies of A/ and B/ picks the better one; hx maps the winner and resolves
+  if (a.kind === 'bar') {
+    let judgeRoot = '';
+    try {
+      const N = c.barRounds;
+      const qb = parseQualityBar(await gh.issueBody(c.repo, n));
+      const product = qb?.product || 'the reference product';
+      const dims = (qb?.dimensions ?? []).map((d) => `- ${d}`).join('\n') || '- (none named: judge the product as a whole)';
+      const rDir = roundDir(p.stateDir, n, round);
+      const picked = pickMapping();
+      writeMapping(rDir, picked); // before the run session starts; it never sees which side is which
+      const out = (s: Side) => path.join(rDir, picked.A === s ? 'A' : 'B');
+      const ref = refDir(p.stateDir, n);
+      mkdirSync(ref, { recursive: true });
+      const rr = await goal('bar', wt.dir, 'bar.md', BAR_PROMISE, { PRODUCT: qb?.url ? `${product} (${qb.url})` : product,
+        REF_DIR: ref, DIMENSIONS: dims, OURS_DIR: out('ours'), REF_OUT_DIR: out('ref') });
+      await removeWorktree(p.root, wt.dir);
+      const summary = () => `${fmt(sessionTokens)} tokens`;
+      if (stopped(rr)) return handBack(rr, summary());
+      const provision = /^PROVISION FAILED:\s*(.+)$/m.exec(rr.last?.text ?? '');
+      if (provision) {
+        const why = provision[1].trim();
+        await gh.comment(c.repo, n, `**hx quality bar round ${round}/${N}: the reference could not be provisioned — signed off on the criteria**\n\n${product}: ${why}`);
+        await relabel(c.repo, n, [L.barPassed], [L.working]);
+        log(`bar round ${round}/${N}: provision failed — ${why.slice(0, 140)}; labelled ${L.barPassed} (${summary()})`, n);
+        return { ...rr, done: true };
+      }
+      if (!rr.done) return fail(rr, rr.stopReason === 'max-iterations' ? `no completion after ${rr.iterations} turns` : `agent error: ${rr.last?.error ?? 'unknown'}`, summary());
+
+      // the judge runs outside the repo on copies of A/ and B/: its prompt names no repo path and no .mapping
+      judgeRoot = mkdtempSync(path.join(os.tmpdir(), `hx-bar-${n}-`));
+      const jDir = path.join(judgeRoot, `r${round}`);
+      for (const s of ['A', 'B']) cpSync(path.join(rDir, s), path.join(jDir, s), { recursive: true });
+      let verdict: ReturnType<typeof parseJudgeReply> = null;
+      let jr = rr;
+      // a reply in another shape (or no promise) is a failed attempt: judged once more on the same recordings
+      for (let attempt = 1; attempt <= 2 && !verdict; attempt++) {
+        jr = await goal('bar', judgeRoot, 'bar-judge.md', BAR_JUDGE_PROMISE, { DIR_A: path.join(jDir, 'A'), DIR_B: path.join(jDir, 'B'), DIMENSIONS: dims });
+        if (stopped(jr)) return handBack(jr, summary());
+        verdict = parseJudgeReply(jr.done ? jr.last?.text ?? '' : '', BAR_JUDGE_PROMISE);
+        if (!verdict) log(`bar round ${round}/${N}: judge attempt ${attempt} gave no valid verdict${attempt < 2 ? ' — judging again' : ''}`, n);
+      }
+      if (!verdict) {
+        await gh.comment(c.repo, n, barMarker(round, 'no verdict', 'none named (the judge gave no valid reply in 2 attempts)', { rounds: N }));
+        await relabel(c.repo, n, [L.barPassed], [L.working]);
+        log(`bar round ${round}/${N}: no verdict — conceded, labelled ${L.barPassed} (${summary()})`, n);
+        return { ...jr, done: true };
+      }
+      const m = readMapping(rDir) ?? picked;
+      const { gap } = verdict;
+      if (m[verdict.winner] === 'ours') {
+        await gh.comment(c.repo, n, barMarker(round, 'won', gap, { rounds: N }));
+        await relabel(c.repo, n, [L.barPassed], [L.working]);
+        log(`bar round ${round}/${N}: won — labelled ${L.barPassed}; gap: ${gap.slice(0, 140)} (${summary()})`, n);
+      } else if (round < N) {
+        const url = await gh.createIssue(c.repo, `Quality bar gap (round ${round}): ${gap.slice(0, 80)}`, gapIssueBody(n, round, gap, product), [L.ready]);
+        const gapIssue = Number(/(\d+)\s*$/.exec(url)?.[1]) || undefined;
+        await gh.comment(c.repo, n, barMarker(round, 'lost', gap, { rounds: N, issue: gapIssue }));
+        // the fix is reviewed again, and checked again when security is on, before the next round
+        const drop = [L.reviewed, ...((await gh.issueLabels(c.repo, n)).includes(L.secured) ? [L.secured] : [])];
+        await relabel(c.repo, n, [], [L.working, ...drop]);
+        log(`bar round ${round}/${N}: lost — filed ${gapIssue ? `#${gapIssue}` : url}, removed ${drop.join(', ')}; gap: ${gap.slice(0, 140)} (${summary()})`, n);
+      } else {
+        await gh.comment(c.repo, n, barMarker(round, 'lost', gap, { rounds: N }));
+        await gh.comment(c.repo, n, barCapComment(N, gap));
+        await relabel(c.repo, n, [L.barPassed], [L.working]);
+        log(`bar round ${round}/${N}: lost at the cap — labelled ${L.barPassed}, standing gap: ${gap.slice(0, 140)} (${summary()})`, n);
+      }
+      return { ...jr, done: true };
+    } catch (e) {
+      await relabel(c.repo, n, [], [L.working]);
+      await removeWorktree(p.root, wt.dir);
+      throw e;
+    } finally {
+      if (judgeRoot) rmSync(judgeRoot, { recursive: true, force: true });
     }
   }
 
