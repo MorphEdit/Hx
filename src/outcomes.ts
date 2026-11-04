@@ -9,6 +9,8 @@ export interface Outcomes {
   triage: { reproduced: number; needsInfo: number; failed: number; gaveUp: number };
   modelMismatch: number;                                   // `model mismatch:` lines (one per mismatched session)
   releases: { count: number; latest: string | null };      // `released vX.Y.Z (PRD #n[, #m…])` / `(fixes)` lines; latest: the last one's version
+  health: { passes: number; fixed: number; filed: number }; // `health: …` lines; fixed / filed: the n of `fixed <n> (` / `filed <n> (`
+  selfReview: { sessions: number; findings: number };      // `self-review: filed <k> finding(s) since <sha>` / `self-review: no findings since <sha>`
 }
 
 // `<ISO> [#<n>] <msg>` or `<ISO> <msg>`; a line that does not start with an ISO timestamp is skipped
@@ -28,6 +30,7 @@ export function parseOutcomes(lines: string[]): Outcomes {
   let pass = 0, fail = 0, gPass = 0, gFail = 0, secPasses = 0, filed = 0, red = 0;
   let reproduced = 0, needsInfo = 0, tFailed = 0, gaveUp = 0, modelMismatch = 0, releases = 0;
   let latest: string | null = null;
+  let hPasses = 0, hFixed = 0, hFiled = 0, srSessions = 0, srFindings = 0;
   const rounds: number[] = [], redMs: number[] = [], issueMs: number[] = [];
   const started = new Map<number, number>(); // issue → time of its first impl line, until its DONE
   let reds: number[] = [];                    // REDs not yet paired with a `gate green ✓ again`
@@ -53,6 +56,13 @@ export function parseOutcomes(lines: string[]): Outcomes {
     else if (msg.startsWith('triage: GAVE UP')) gaveUp++;           // `triage: round cap reached` is not a give-up
     else if (msg.startsWith('model mismatch: ')) modelMismatch++;
     else if ((k = RELEASED.exec(msg))) { releases++; latest = k[1]; }
+    else if (msg.startsWith('health: ')) {
+      hPasses++;
+      hFixed += Number(/ fixed (\d+) \(/.exec(msg)?.[1] ?? 0);
+      hFiled += Number(/ filed (\d+) \(/.exec(msg)?.[1] ?? 0);
+    }
+    else if ((k = /^self-review: filed (\d+) finding\(s\) since \S+/.exec(msg))) { srSessions++; srFindings += Number(k[1]); }
+    else if (/^self-review: no findings since \S+/.test(msg)) srSessions++;
     else if (msg.startsWith('impl: ') || msg.startsWith('impl (round ')) { if (n !== null && !started.has(n)) started.set(n, t); }
     else if ((k = /^DONE ✓ audited and merged(?: \((\d+) round\(s\))?/.exec(msg)) || msg.startsWith('impl DONE ✓')) {
       if (k?.[1] !== undefined) rounds.push(Number(k[1]));
@@ -70,5 +80,7 @@ export function parseOutcomes(lines: string[]): Outcomes {
     triage: { reproduced, needsInfo, failed: tFailed, gaveUp },
     modelMismatch,
     releases: { count: releases, latest },
+    health: { passes: hPasses, fixed: hFixed, filed: hFiled },
+    selfReview: { sessions: srSessions, findings: srFindings },
   };
 }

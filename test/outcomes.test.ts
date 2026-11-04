@@ -56,6 +56,8 @@ test('parseOutcomes(fixture in the §1 format): every §5a count', () => {
     triage: { reproduced: 0, needsInfo: 0, failed: 0, gaveUp: 0 },
     modelMismatch: 0,
     releases: { count: 0, latest: null },
+    health: { passes: 0, fixed: 0, filed: 0 },
+    selfReview: { sessions: 0, findings: 0 },
   });
 });
 
@@ -75,6 +77,8 @@ test('empty input: zeros and nulls, no throw', () => {
     triage: { reproduced: 0, needsInfo: 0, failed: 0, gaveUp: 0 },
     modelMismatch: 0,
     releases: { count: 0, latest: null },
+    health: { passes: 0, fixed: 0, filed: 0 },
+    selfReview: { sessions: 0, findings: 0 },
   };
   assert.deepEqual(parseOutcomes([]), empty);
   assert.deepEqual(parseOutcomes(['garbage', 'more', '2026-10-31 not iso [#1] audit PASS ✓']), empty);
@@ -133,4 +137,24 @@ test('releases: PRD and fixes releases count, with or without [#n]; latest is th
   ]);
   assert.deepEqual(o.releases, { count: 3, latest: 'v0.3.1' });
   assert.deepEqual(parseOutcomes(['2026-01-01T00:00:00.000Z [#1] impl: x']).releases, { count: 0, latest: null });
+});
+
+test('health passes and self-review sessions: fixed / filed counts, both self-review forms, unrelated lines ignored', () => {
+  const at = '2026-11-01T10:00:00.000Z ';
+  const o = parseOutcomes([
+    at + 'health: 3 ✓ · 1 ✗ · fixed 2 (closed stale PR #91, resumed #170) · filed 1 (#200)', // all parts
+    at + 'health: 4 ✓',                                                                       // only ✓
+    at + 'health: 2 ✓ · 2 ✗',                                                                 // ✗ but no fixes
+    at + 'health: 1 ✓ · fixed 3 (removed worktree i71, removed worktree i72, resumed #9)',
+    at + '[#5] self-review: filed 2 finding(s) since abc1234',
+    at + 'self-review: no findings since def5678',
+    at + 'self-review: filed 1 finding(s) since 0123abc',
+    at + 'hx health ran: fixed 9 (x)',                                                        // unrelated
+    at + 'self-review: started',                                                              // unrelated
+    'health: 1 ✓ · fixed 5 (no timestamp)',                                                   // not a log line
+  ]);
+  assert.deepEqual(o.health, { passes: 4, fixed: 5, filed: 1 });
+  assert.deepEqual(o.selfReview, { sessions: 3, findings: 3 });
+  assert.deepEqual(parseOutcomes([]).health, { passes: 0, fixed: 0, filed: 0 });
+  assert.deepEqual(parseOutcomes([]).selfReview, { sessions: 0, findings: 0 });
 });
