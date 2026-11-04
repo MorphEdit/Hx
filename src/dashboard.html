@@ -145,6 +145,12 @@ setInterval(() => {
 }, 1000);
 
 // ---- Board ----
+// a quality-bar PRD's round and last result ({ round, rounds, result, gap }); '' for a PRD without the section
+function barText(q) {
+  if (!q || typeof q !== 'object') return '';
+  if (!q.result) return 'not run yet';
+  return 'round ' + num(q.round) + '/' + num(q.rounds) + ' · last: ' + String(q.result) + (q.gap ? ' — ' + String(q.gap) : '');
+}
 function renderBoard(b) {
   const body = $('board-body');
   body.className = '';
@@ -152,8 +158,9 @@ function renderBoard(b) {
   const prds = b.prds || [], rows = b.board || [];
   fill(body,
     el('h3', {}, 'PRDs'),
-    prds.length ? table(['PRD', 'title', 'status', 'progress'], prds.map((p) =>
-      [issueLink(p.number), String(p.title ?? ''), String(p.status ?? ''), num(p.closed) + '/' + num(Number(p.open) + Number(p.closed)) + ' done']), [3])
+    prds.length ? table(['PRD', 'title', 'status', 'progress', 'quality bar'], prds.map((p) =>
+      [issueLink(p.number), String(p.title ?? ''), p.status === 'bar' ? 'quality bar' : String(p.status ?? ''),
+        num(p.closed) + '/' + num(Number(p.open) + Number(p.closed)) + ' done', barText(p.bar)]), [3])
       : el('p', { class: 'mute' }, 'no open PRDs'),
     el('h3', {}, 'Issues'),
     rows.length ? table(['issue', 'title', 'status'], rows.map((r) => [issueLink(r.number), String(r.title ?? ''),

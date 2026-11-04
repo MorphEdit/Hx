@@ -2,6 +2,7 @@
 import type { Issue } from './github.ts';
 import type { Labels } from './config.ts';
 import { parseQualityBar } from './prd.ts';
+import type { BarStatus } from './bar.ts';
 
 export interface Ref {
   repo: string; // owner/name
@@ -145,6 +146,8 @@ export interface PrdRow {
   closed: number;
   waitingOn: Ref[];
   author?: string; // status 'untrusted': who opened it ('' = a deleted account)
+  qualityBar?: true; // a trusted PRD whose body has a `## Quality bar` section
+  bar?: BarStatus; // its round and last result, added by readBar (hx status, the dashboard)
 }
 
 export interface Plan {
@@ -227,7 +230,7 @@ export function plan(all: Issue[], repo: string, labels: Labels, states: Map<str
     else if (security && !p.labels.includes(labels.secured)) status = 'security';
     else status = !p.labels.includes(labels.barPassed) && parseQualityBar(p.body) ? 'bar' : 'done';
     prds.push({ number: p.number, title: p.title, status, open: open.length, closed: kids.length - open.length, waitingOn,
-      ...(trusted ? {} : { author: p.author ?? '' }) });
+      ...(trusted ? {} : { author: p.author ?? '' }), ...(trusted && parseQualityBar(p.body) ? { qualityBar: true as const } : {}) });
 
     if (status === 'gauntlet') actions.push({ kind: 'gauntlet', prd: p.number, title: p.title });
     else if (status === 'decompose') actions.push({ kind: 'decompose', prd: p.number, title: p.title, children: kids });

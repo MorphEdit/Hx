@@ -86,3 +86,18 @@ export function gapIssueBody(prd: number, round: number, gap: string, product: s
     + `## Acceptance criteria\n- The gap above is closed: on the same task, ours is at least as good as ${product}.\n\n`
     + `## Blocked by\nNone\n\n## Parent\n#${prd}`;
 }
+
+/** A PRD's bar on hx status and the dashboard: the latest round comment's round and result (round 0 and
+ *  result null before the first round). Callers pass `gh.commentBodies(…, ctx.trusted)`. */
+export interface BarStatus { round: number; rounds: number; result: BarResult | null; gap: string }
+export function barStatus(trustedBodies: string[], rounds: number): BarStatus {
+  const last = trustedBodies.map(parseBarMarker).filter((m) => m !== null).pop();
+  return last ? { round: last.round, rounds, result: last.result, gap: last.gap } : { round: 0, rounds, result: null, gap: '' };
+}
+
+/** `bar round 2/3 · last: lost — <gap>` (the gap cut to `max` characters), or `bar: not run yet`. */
+export function barLine(s: BarStatus, max = 60): string {
+  if (!s.result) return 'bar: not run yet';
+  const gap = s.gap.length > max ? s.gap.slice(0, max - 1) + '…' : s.gap;
+  return `bar round ${s.round}/${s.rounds} · last: ${s.result}${gap ? ` — ${gap}` : ''}`;
+}
