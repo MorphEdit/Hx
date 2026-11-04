@@ -211,7 +211,8 @@ hx pause [--now]        # from another terminal: stop a running hx run (see belo
 hx resume               # clear a pause
 hx release --dry-run    # the next version, its notes and the gate it would use (see Releases); without
                         # --dry-run it asks, then releases (--yes: no question; patch|minor|major by hand)
-hx usage --by role      # recorded token usage (by issue | role | model | day)
+hx usage --by role      # recorded token usage and test time (by issue | role | model | day)
+hx usage --tests        # per UTC day: median and p90 test-run and gate duration
 hx dashboard [--open]   # a read-only page on http://127.0.0.1:4777/ (localhost only; --port N)
 hx dashboard --fleet [--open]   # one page over every hx repo on this machine (alias: hx fleet dashboard)
 hx fleet run --watch    # one hx run per repo in the fleet, sharing one worker cap (see Several repos)

@@ -108,3 +108,50 @@ function nearestRank(values: number[], p: number): number | undefined {
 
 export const median = (values: number[]) => nearestRank(values, 0.5);
 export const p90 = (values: number[]) => nearestRank(values, 0.9);
+
+/** The test-time fields of a usage record and a gate-runs line (structural, so timing.ts stays import-free). */
+export interface TestRec { ts: string; durationMs: number; testMs?: number; testRuns?: number }
+export interface GateRec { ts: string; durationMs: number }
+
+const hasTest = (r: TestRec) => typeof r.testMs === 'number' && Number.isFinite(r.testMs);
+
+/** Test-run durations: testMs / testRuns of each record with testRuns > 0. */
+export const testRunDurations = (recs: TestRec[]) => recs.filter((r) => hasTest(r) && (r.testRuns ?? 0) > 0).map((r) => r.testMs! / r.testRuns!);
+
+/** Totals over the records that have testMs; undefined when none has it (unknown, never 0). */
+export function testTotals(recs: TestRec[]): { testMs: number; durationMs: number; testRuns: number } | undefined {
+  const w = recs.filter(hasTest);
+  if (!w.length) return undefined;
+  return { testMs: w.reduce((s, r) => s + r.testMs!, 0), durationMs: w.reduce((s, r) => s + (r.durationMs ?? 0), 0), testRuns: w.reduce((s, r) => s + (r.testRuns ?? 0), 0) };
+}
+
+/** Sum of testMs / sum of durationMs (0..1); undefined when unknown or no session time. */
+export function testShare(recs: TestRec[]): number | undefined {
+  const t = testTotals(recs);
+  return t && t.durationMs > 0 ? t.testMs / t.durationMs : undefined;
+}
+
+export interface TimeSummary { share?: number; testRunMedian?: number; gateMedian?: number; gateP90?: number; hasData: boolean }
+
+/** Test share, median test run and gate median/p90 over the records and gate lines with `from <= ts < to`. */
+export function timeWindow(recs: TestRec[], gates: GateRec[], from: number, to: number): TimeSummary {
+  const inW = (ts: string) => { const t = Date.parse(ts); return t >= from && t < to; };
+  const rs = recs.filter((r) => hasTest(r) && inW(r.ts));
+  const gs = gates.filter((g) => inW(g.ts)).map((g) => g.durationMs);
+  return { share: testShare(rs), testRunMedian: median(testRunDurations(rs)), gateMedian: median(gs), gateP90: p90(gs), hasData: rs.length > 0 || gs.length > 0 };
+}
+
+export interface TestDay { day: string; testRunMedian?: number; testRunP90?: number; gateMedian?: number; gateP90?: number }
+
+/** One entry per UTC day of `ts`, oldest first; days with neither test-run nor gate data are left out. */
+export function testSeries(recs: TestRec[], gates: GateRec[]): TestDay[] {
+  const day = (ts: string) => { const t = Date.parse(ts); return Number.isFinite(t) ? new Date(t).toISOString().slice(0, 10) : ''; };
+  const runs = new Map<string, number[]>(), gd = new Map<string, number[]>();
+  const push = (m: Map<string, number[]>, k: string, v: number) => { if (k) m.set(k, [...(m.get(k) ?? []), v]); };
+  for (const r of recs) for (const v of testRunDurations([r])) push(runs, day(r.ts), v);
+  for (const g of gates) push(gd, day(g.ts), g.durationMs);
+  return [...new Set([...runs.keys(), ...gd.keys()])].sort().map((d) => {
+    const t = runs.get(d) ?? [], g = gd.get(d) ?? [];
+    return { day: d, testRunMedian: median(t), testRunP90: p90(t), gateMedian: median(g), gateP90: p90(g) };
+  });
+}

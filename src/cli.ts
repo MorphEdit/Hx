@@ -9,7 +9,8 @@ import { resolveCmd, run, runOk } from './exec.ts';
 import { log, lookupTrusted, printPlan, readPlan, runPool, trustedEnv } from './pool.ts';
 import { killAllSessions } from './agent.ts';
 import { clearPause, nextLine, otherRunner, pidAlive, readLive, readPause, setPause, writeWake } from './runstate.ts';
-import { readGate } from './gate.ts';
+import { fmtDuration, readGate, readGateRuns } from './gate.ts';
+import { testSeries, timeWindow, type TimeSummary } from './timing.ts';
 import { release, releaseGate, type BumpKind } from './release.ts';
 import { budgetLine, readBudgetWindows } from './budget.ts';
 import { githubLine } from './ghlimit.ts';
@@ -56,7 +57,8 @@ const HELP = `usage: hx <command> [options]
   pause [--now]            stop claiming new work; running sessions finish (--now: they commit,
                            push and leave a handoff note, then stop). Works on a running hx run.
   resume                   clear a pause; then hx run continues where it stopped
-  usage [--by issue|role|model|day]   token usage recorded by hx
+  usage [--by issue|role|model|day]   token usage and test time recorded by hx
+  usage --tests            per UTC day: median and p90 test-run and gate duration
   dashboard [--port N] [--open]
                            a read-only page on http://127.0.0.1:${DEFAULT_PORT}/ (localhost only): the runner,
                            sessions, gate, usage by PRD/role/model/day, run log and the board (--open: browser)
@@ -519,6 +521,9 @@ async function status(p = loadProject(), o: { github?: boolean } = {}): Promise<
   console.log(`${c.repo} — ${pl.prds.length} open PRD(s), ${pl.board.length} open '${c.labels.ready}' issue(s)\n`);
   printPlan(pl, c.repo);
   const recs = readUsage(p.stateDir);
+  const tl = timeLine(timeWindow(recs, readGateRuns(p.stateDir), Date.now() - 86_400_000, Infinity));
+  if (tl) console.log(`
+${tl}`);
   if (recs.length) {
     const all = summarize(recs, () => '')[0];
     console.log(`\ntokens so far: ${fmt(totalTokens(all.usage))} over ${all.sessions} session(s) — hx usage for details`);
@@ -528,19 +533,40 @@ async function status(p = loadProject(), o: { github?: boolean } = {}): Promise<
   return 0;
 }
 
+const dur = (ms?: number) => (ms === undefined ? '-' : fmtDuration(ms));
+
+/** The hx status time line for a window; undefined when it holds no data. */
+export function timeLine(s: TimeSummary): string | undefined {
+  if (!s.hasData) return undefined;
+  const share = s.share === undefined ? '-' : `${Math.round(s.share * 100)}%`;
+  return `time     tests ${share} of session time · median test run ${dur(s.testRunMedian)} · gate ${dur(s.gateMedian)} (p90 ${dur(s.gateP90)})`;
+}
+
 function usage(args: string[]): number {
   const p = loadProject();
   const by = flag(args, '--by') ?? 'issue';
   const recs = readUsage(p.stateDir);
+  if (args.includes('--tests')) {
+    const days = testSeries(recs, readGateRuns(p.stateDir));
+    if (!days.length) { console.log('no test time recorded yet'); return 0; }
+    const TW = [10, 12, 12, 12, 12];
+    const tcols = (cells: string[]) => cells.map((c, i) => (i ? c.padStart(TW[i]) : c.padEnd(TW[i]))).join(' ');
+    console.log(tcols(['day (UTC)', 'test median', 'test p90', 'gate median', 'gate p90']));
+    for (const d of days) console.log(tcols([d.day, dur(d.testRunMedian), dur(d.testRunP90), dur(d.gateMedian), dur(d.gateP90)]));
+    return 0;
+  }
   if (!recs.length) { console.log('no usage recorded yet'); return 0; }
   const keyOf = by === 'model' ? (r: any) => r.actualModel ?? r.model : by === 'role' ? (r: any) => r.role ?? 'impl' : by === 'day' ? (r: any) => localDay(r.ts) : (r: any) => `#${r.issue}`;
   const rows = summarize(recs, keyOf);
   const all = summarize(recs, () => 'TOTAL')[0];
-  const W = [12, 8, 6, 9, 10, 10, 8, 10];
+  const W = [12, 8, 6, 9, 10, 10, 8, 10, 8, 6, 5];
   const cols = (cells: string[]) => cells.map((c, i) => (i ? c.padStart(W[i]) : c.padEnd(W[i]))).join(' ');
+  // test time: '-' for a group with no record that has it (unknown, not 0)
+  const test = (r: UsageRow) => !r.test ? ['-', '-', '-']
+    : [fmtDuration(r.test.testMs), r.test.durationMs > 0 ? `${Math.round((r.test.testMs / r.test.durationMs) * 100)}%` : '-', String(r.test.testRuns)];
   const line = (r: UsageRow) => cols([r.key, String(r.sessions), String(r.turns), fmt(totalTokens(r.usage)),
-    fmt(r.usage.cacheRead), fmt(r.usage.cacheWrite), fmt(r.usage.output), fmt(Math.round(totalTokens(r.usage) / r.turns))]);
-  console.log(cols([`by ${by}`, 'sessions', 'turns', 'total', 'cache rd', 'cache wr', 'output', 'per turn']));
+    fmt(r.usage.cacheRead), fmt(r.usage.cacheWrite), fmt(r.usage.output), fmt(Math.round(totalTokens(r.usage) / r.turns)), ...test(r)]);
+  console.log(cols([`by ${by}`, 'sessions', 'turns', 'total', 'cache rd', 'cache wr', 'output', 'per turn', 'test', 'test %', 'runs']));
   for (const r of rows) console.log(line(r));
   console.log(line(all));
   return 0;
