@@ -32,7 +32,11 @@ export function gh(a, { input = () => '', cwd = process.cwd(), inProcess = false
 
     const s = load();
     // a slow read blocks: in-process it would stop the caller's event loop, so the caller runs it as a program
-    if (inProcess && (s.slowList || s.slowClosedState)) return null;
+    if (inProcess && (s.slowList || s.slowClosedState || (s.slowNext && a.join(' ').includes(s.slowNext.match)))) return null;
+    // state.slowNext = { match, ms }: the next call whose arguments contain `match` takes ms (once)
+    const slowNext = s.slowNext && a.join(' ').includes(s.slowNext.match)
+      && mutate((cur) => { const x = cur.slowNext; if (!x || !a.join(' ').includes(x.match)) return null; delete cur.slowNext; return x; });
+    if (slowNext) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, slowNext.ms);
     // HX_FAKE_GH_LOG: every call appends its arguments as one line (tests count calls)
     if (process.env.HX_FAKE_GH_LOG) appendFileSync(process.env.HX_FAKE_GH_LOG, a.join(' ') + '\n');
     // HX_FAKE_GH_TIMES: the same, each line prefixed with Date.now() (tests time the calls, not the whole run)

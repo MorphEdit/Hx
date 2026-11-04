@@ -82,6 +82,14 @@ test('--watch, empty board: once healthEveryMinutes has passed, the next idle lo
   assert.ok(at[1] - at[0] >= 3000, `the second pass came ${at[1] - at[0]} ms after the first`);
 });
 
+test('--watch: healthEveryMinutes counts from the end of the last pass, so a slow first pass does not bring the second forward', E2E, async () => {
+  const r = repo({ healthEveryMinutes: 0.05 }); // 3 s
+  board({ slowNext: { match: '--state merged', ms: 2500 } }); // the first pass reads the merged PRs for 2.5 s
+  await watch(r, () => passes(r).length >= 2);
+  const at = passes(r).slice(0, 2).map((l) => Date.parse(l.split(' ')[0]));
+  assert.ok(at[1] - at[0] >= 3000, `the second pass came ${at[1] - at[0]} ms after the first`);
+});
+
 test('no pass while there is a claimable issue or a running session: the first pass comes after the session ends', E2E, async () => {
   const r = repo({ healthEveryMinutes: 0.001 });
   board({ issues: [issue(1, 'OPEN', [L.ready])] });
