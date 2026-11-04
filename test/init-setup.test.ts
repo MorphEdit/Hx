@@ -167,3 +167,13 @@ test('hx status shows the setup command and the copy list when set, neither when
   assert.match(out, /^setup {4}make deps \(timeout 10 min\)$/m);
   assert.doesNotMatch(out, /^copy /m);
 });
+
+test('hx init keeps .hx/ (and so .hx/bar/, the quality bar\'s reference and rounds) out of git, once', E2E, () => {
+  const { app, hx } = setup();
+  hx('init'); hx('init');
+  const ex = readFileSync(path.join(app, '.git', 'info', 'exclude'), 'utf8').split(/\r?\n/);
+  assert.equal(ex.filter((l) => l === '/.hx/').length, 1);
+  mkdirSync(path.join(app, '.hx', 'bar', '9', 'r1', 'A'), { recursive: true });
+  writeFileSync(path.join(app, '.hx', 'bar', '9', 'r1', '.mapping'), '{}');
+  assert.equal(git(app, 'status', '--porcelain', '--untracked-files=all'), '');
+});
