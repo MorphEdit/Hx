@@ -90,6 +90,20 @@ test('audit PASS: hx merges the PR the implementer left open', E2E, async () => 
   for (const e of envs) assert.equal(e.trusted, 'me', JSON.stringify(e));
 });
 
+test('audit PASS whose evidence carries the red result on the reverted code and the green one on the branch: merged, posted (#251)', E2E, async () => {
+  board([issue(12, 'AUDITREVERT')]);
+  const { rc, lines } = await run([12]);
+  assert.equal(rc, 0, lines.join('\n'));
+  const s = read();
+  assert.equal(s.issues.find((i: any) => i.number === 12).state, 'CLOSED');
+  assert.equal(s.prs.find((p: any) => p.head === 'issue/12').state, 'MERGED');
+  assert.equal(audits(12).length, 1);
+  const body = audits(12)[0].body;
+  assert.match(body, /PASS/);
+  assert.ok(body.includes('\n- issue #12 criterion 1: writes impl-12.txt — test/impl.test.ts "writes it" — reverted: `node --test test/impl.test.ts` → fail 1, pass 0 — branch: `node --test test/impl.test.ts` → pass 1, fail 0\n'), body);
+  assert.ok(body.includes('\n- issue #12 criterion 2: not testable per the issue — docs/x.md:3 — `git diff --stat` → docs/x.md | 2 +'), body);
+});
+
 test('audit PASS with no hx-ship.json (a PR opened outside ship): hx rebuilds the state from the PR and merges it', E2E, async () => {
   board([issue(11, 'SHIPNOSTATE')]);
   const lines: string[] = [];
