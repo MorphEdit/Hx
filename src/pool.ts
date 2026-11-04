@@ -7,7 +7,7 @@ import * as gh from './github.ts';
 import type { Issue } from './github.ts';
 import { hhmm, reserveState, type GhBudget } from './ghlimit.ts';
 import { claimable, externalRefs, fenceFindings, isTrusted, issueKey, parseParent, plan, prdKey, refKey, render, TRIAGE_MARKER, triageVerdict, trustedSet, type Action, type Plan } from './state.ts';
-import { addWorktree, auditWorktree, cleanStaleWorktrees, implWorktree, prdWorktree, removeWorktree, repairBrokenRefs, triageWorktree, type AddedWorktree } from './worktree.ts';
+import { addWorktree, auditWorktree, cleanStaleWorktrees, implWorktree, prdWorktree, removeWorktree, repairBrokenRefs, selfReviewWorktree, triageWorktree, type AddedWorktree } from './worktree.ts';
 import { emptyUsage, runGoal, runTurn, type GoalResult, type RateLimit } from './agent.ts';
 import { clearSetupRecord, readSetupRecord, setupLine, setupNote, setupWorktree, writeSetupRecord, type SetupResult } from './setup.ts';
 import { agentFor, type AgentCli } from './agents/index.ts';
@@ -20,6 +20,7 @@ import { appendGateRun, gateIssueBody, gateIssueTitle, readGate, readGateRuns, r
 import { run as runCmd } from './exec.ts';
 import { dueRelease, release, releaseGate } from './release.ts';
 import { acquireSlot, DEFAULT_FLEET_WORKERS, readGithubHold, readHold, releaseSlot, writeGithubHold, writeHold } from './fleet.ts';
+import { findingBody, parseFindings, readSelfReview, selfReviewDecision, SELFREVIEW_PROMISE, writeSelfReview } from './selfreview.ts';
 import { appendSkills, resolveSkills, rtddCheck, rtddEnv, SKILL_CHECKS, skillNames, skillsLogLine, type Skill } from './skills.ts';
 
 const PROMPTS = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'prompts');
@@ -479,9 +480,56 @@ async function pool(p: Project, o: PoolOptions): Promise<number> {
       });
       for (const x of r.results) if (x.mark !== '✓') log(`health: ${renderResult(x)}`);
       log(r.line);
+      // the self-review (§C): repairs on, and only after a pass that left the board as it was
+      if (c.selfHeal && !r.changed && !stop.signal.aborted) return await selfReviewCheck();
       return r.changed;
     } catch (e: any) {
       log(`health: the pass failed — ${String(e?.message ?? e).split(/\r?\n/)[0].slice(0, 200)}`);
+      return false;
+    }
+  };
+  // the self-review (PRD #194 §C): .hx/selfreview.json holds the head last reviewed. Run from healthCheck and awaited,
+  // so no claim, pass or second review starts while it runs. True when it filed issues (the board changed).
+  const selfReviewCheck = async (): Promise<boolean> => {
+    const git = (...a: string[]) => runCmd(process.env.HX_GIT_BIN || 'git', ['-C', p.root, ...a]);
+    try {
+      if ((await git('fetch', '-q', 'origin', c.defaultBranch)).code !== 0) return false;
+      const head = (await git('rev-parse', `origin/${c.defaultBranch}`)).stdout.trim();
+      if (!head) return false;
+      const s = readSelfReview(p.stateDir);
+      const ancestor = !!s && (await git('merge-base', '--is-ancestor', s.sha, head)).code === 0;
+      const subjects = ancestor ? (await git('log', '--format=%s', `${s!.sha}..${head}`)).stdout.split(/\r?\n/).filter(Boolean) : [];
+      const d = selfReviewDecision(s, { ancestor, commits: subjects.length, now: Date.now(), everyHours: c.selfReviewEveryHours });
+      if (d.kind === 'record') {
+        writeSelfReview(p.stateDir, { sha: head, at: new Date().toISOString() });
+        log(`self-review: recorded ${head.slice(0, 7)} — the first review covers what merges after it`);
+        return false;
+      }
+      if (d.kind !== 'review') return false;
+      // the board is still empty: nothing claimable after the pass
+      const pl = await readPlan(p, trusted, new Set(inFlight.keys()));
+      if (inFlight.size || claimable(pl.actions, { only: o.only, gateRed: gateRed(), fixIssue: gs.fixIssue }).length) return false;
+      const slot = fleetDir ? acquireSlot(fleetDir, fleetCap, { pid: process.pid, repo: c.repo, issue: 0 }) : null;
+      if (fleetDir && slot === null) return false;
+      const range = `${d.since}..${head}`;
+      let r: GoalResult | null;
+      try { r = await selfReview(p, ctx, { range, head, subjects }); }
+      finally { if (fleetDir && slot !== null) releaseSlot(fleetDir, slot); live.sessions = live.sessions.filter((x) => x.key !== SELFREVIEW_KEY); save(); }
+      if (r?.stopReason === 'limited') holdUntil(r.last?.limited?.resetsAt ? r.last.limited.resetsAt * 1000 : Date.now() + 30 * 60_000, 'usage limit reached');
+      // a session that did not finish records nothing: the range is reviewed next time
+      if (!r?.done) { log(`self-review: did not finish (${r?.stopReason ?? 'aborted'}) — the range is reviewed next time`); return false; }
+      const filed: number[] = [];
+      for (const f of parseFindings(r.last?.text ?? '', c.selfReviewMaxFindings)) {
+        const url = await gh.createIssue(c.repo, f.title.slice(0, 200), findingBody(f, head), [c.labels.bug]);
+        const n = Number(/\/issues\/(\d+)/.exec(url)?.[1]);
+        if (n) filed.push(n);
+      }
+      writeSelfReview(p.stateDir, { sha: head, at: new Date().toISOString() });
+      log(filed.length ? `self-review: filed ${filed.length} finding(s) since ${d.since.slice(0, 7)} (${filed.map((n) => `#${n}`).join(', ')})`
+        : `self-review: no findings since ${d.since.slice(0, 7)}`);
+      return filed.length > 0;
+    } catch (e: any) {
+      log(`self-review: failed — ${String(e?.message ?? e).split(/\r?\n/)[0].slice(0, 200)}`);
       return false;
     }
   };
@@ -657,6 +705,63 @@ async function pool(p: Project, o: PoolOptions): Promise<number> {
     return 2;
   }
   return failures ? 1 : 0;
+}
+
+const SELFREVIEW_KEY = 'selfreview';
+
+/**
+ * One self-review session in a fresh read-only worktree on origin/<default> (`sr`, never touched by the leftover-worktree
+ * check), removed when it ends. Shown in live.sessions as #0 `selfreview`; its turns go to usage.jsonl with role selfreview.
+ * Null when it was stopped during the worktree setup. The caller takes it out of live.sessions.
+ */
+async function selfReview(p: Project, ctx: WorkContext, o: { range: string; head: string; subjects: string[] }): Promise<GoalResult | null> {
+  const c = p.config;
+  const role = 'selfreview';
+  const short = o.range.replace(/[0-9a-f]{40}/g, (x) => x.slice(0, 7));
+  log(`self-review: ${o.subjects.length} merge(s) in ${short}`);
+  const wt = await addWorktree(p.root, c.worktreeRoot, selfReviewWorktree(c.defaultBranch));
+  ctx.started({ key: SELFREVIEW_KEY, number: 0, kind: role, title: `self-review of ${short}`, since: new Date().toISOString(), turn: 0, tokens: 0 });
+  try {
+    let setupMsg = '';
+    if (c.worktreeSetup || c.worktreeCopy?.length) {
+      const s = await setupWorktree({ checkout: p.root, dir: wt.dir, name: 'sr', stateDir: p.stateDir, config: c, signal: ctx.signal, log: (m) => log(`self-review: ${m}`) });
+      if (s?.aborted) return null;
+      if (s?.command) log(`self-review: ${setupLine(s, s.command, { minutes: c.worktreeSetupMinutes })}`);
+      const note = s ? setupNote(s.command, s) : '';
+      setupMsg = note && `${note}\n`;
+    }
+    const v: Record<string, string | number> = { REPO: c.repo, BASE: c.defaultBranch, RANGE: o.range, MAX: c.selfReviewMaxFindings,
+      TITLES: o.subjects.map((t) => `- ${t}`).join('\n'), SETUP_NOTE: setupMsg, PROMISE: SELFREVIEW_PROMISE,
+      SUBJECT: `the self-review of ${o.range}: did you output every finding block?` };
+    const agent = ctx.agent ?? agentFor(c.agentCli);
+    const skills = ctx.skills?.[role] ?? [];
+    const m = roleModel(c, role);
+    const logDir = path.join(p.stateDir, 'logs');
+    mkdirSync(logDir, { recursive: true });
+    const eventLog = path.join(logDir, 'selfreview.jsonl');
+    let tokens = 0;
+    const turnEvents: unknown[] = []; // this turn's events, for its test time
+    return await runGoal({
+      agent, bin: agent.bin(c), cwd: wt.dir, model: m.model, effort: m.effort, extraArgs: workerArgs(c), timeoutMs: c.turnTimeoutMinutes * 60_000,
+      stallMs: c.stallMinutes * 60_000,
+      prompt: appendSkills(render(readFileSync(path.join(PROMPTS, 'selfreview.md'), 'utf8'), v), skills, PROMPTS),
+      continuePrompt: render(readFileSync(path.join(PROMPTS, 'continue.md'), 'utf8'), v),
+      promise: SELFREVIEW_PROMISE, maxIterations: c.maxIterations, signal: ctx.signal,
+      env: rtddEnv(trustedEnv(ctx.trusted), skills.some((s) => s.name === 'rtdd'), effectiveRtddBin(c)),
+      onEvent: (ev) => { appendFileSync(eventLog, JSON.stringify(ev) + '\n'); turnEvents.push(ev); },
+      onRateLimit: (rl) => ctx.rateLimit(rl),
+      onTurn: (i, sessionId, t) => {
+        tokens += totalTokens(t.usage);
+        ctx.progress(SELFREVIEW_KEY, i, tokens);
+        recordUsage(p.stateDir, { ts: new Date().toISOString(), issue: 0, role, sessionId, iteration: i, model: m.model,
+          ...(t.actualModel ? { actualModel: t.actualModel } : {}), ok: t.ok, usage: t.usage, costUsd: t.costUsd, durationMs: t.durationMs, numTurns: t.numTurns,
+          ...testTiming(p, turnEvents.splice(0), t.durationMs) });
+        log(`${role} turn ${i}: ${t.ok ? 'ok' : 'error'} · ${fmt(totalTokens(t.usage))} tokens (${fmt(t.usage.output)} out) · ${Math.round(t.durationMs / 1000)}s${t.error ? ` · ${t.error.slice(0, 160)}` : ''}`);
+      },
+    });
+  } finally {
+    await removeWorktree(p.root, wt.dir).catch(() => {});
+  }
 }
 
 /**

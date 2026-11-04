@@ -66,6 +66,8 @@ export interface Config {
   pollSeconds: number;
   selfHeal: boolean; // hx run runs a health pass every healthEveryMinutes and applies its repairs (hx health --fix always repairs)
   healthEveryMinutes: number; // minutes between hx run's health passes
+  selfReviewEveryHours: number; // hours between self-review sessions (a health pass in hx run on an idle board, selfHeal on)
+  selfReviewMaxFindings: number; // findings of a self-review filed as bug issues; the rest are dropped
   worktreeRoot: string; // keep it short: Windows MAX_PATH
   agentCli: string; // the agent CLI workers and hx grill / hx issue run (src/agents): claude
   claudeBin: string; // the claude adapter's binary
@@ -75,7 +77,7 @@ export interface Config {
   leanWorkers: boolean;
   workerTools: string[];
   trustedAuthors: string[]; // accounts besides the gh login whose issues and PRDs hx works on
-  // role (impl, audit, decompose, review, critic, revise, security, triage) → skills appended to its prompt; {} = none
+  // role (impl, audit, decompose, review, critic, revise, security, triage, selfreview) → skills appended to its prompt; {} = none
   roleSkills: Record<string, string[]>;
   // role → its own model and/or effort (unset = the top-level model / effort); {} = every role on the defaults
   roleModels: Record<string, { model?: string; effort?: string }>;
@@ -117,6 +119,8 @@ export const DEFAULTS: Omit<Config, 'repo' | 'defaultBranch' | 'worktreeRoot'> =
   pollSeconds: 60,
   selfHeal: true,
   healthEveryMinutes: 60,
+  selfReviewEveryHours: 12,
+  selfReviewMaxFindings: 5,
   agentCli: 'claude',
   claudeBin: 'claude',
   claudeArgs: [],
@@ -134,7 +138,7 @@ export const DEFAULTS: Omit<Config, 'repo' | 'defaultBranch' | 'worktreeRoot'> =
 };
 
 /** The roles a session runs as: the keys roleModels accepts. */
-export const ROLES = ['impl', 'audit', 'triage', 'decompose', 'critic', 'revise', 'review', 'security'] as const;
+export const ROLES = ['impl', 'audit', 'triage', 'decompose', 'critic', 'revise', 'review', 'security', 'selfreview'] as const;
 /** claude --effort values a role may set (the top-level effort is not checked). */
 export const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'] as const;
 
@@ -185,11 +189,15 @@ export function ghReservePctError(pct: unknown): string | null {
   return `ghReservePct: ${JSON.stringify(pct)} must be a number from 0 to 1 (0 turns the GitHub budget reserve off)`;
 }
 
-/** What is wrong with config.selfHeal or config.healthEveryMinutes, or null when both are valid. */
-export function healthConfigError(c: { selfHeal?: unknown; healthEveryMinutes?: unknown }): string | null {
+/** What is wrong with config.selfHeal, healthEveryMinutes, selfReviewEveryHours or selfReviewMaxFindings, or null when all are valid. */
+export function healthConfigError(c: { selfHeal?: unknown; healthEveryMinutes?: unknown; selfReviewEveryHours?: unknown; selfReviewMaxFindings?: unknown }): string | null {
   if (c.selfHeal !== undefined && typeof c.selfHeal !== 'boolean') return `selfHeal: ${JSON.stringify(c.selfHeal)} must be true or false`;
   const m = c.healthEveryMinutes;
   if (m !== undefined && !(typeof m === 'number' && Number.isFinite(m) && m > 0)) return `healthEveryMinutes: ${JSON.stringify(m)} must be a number of minutes above 0`;
+  const h = c.selfReviewEveryHours;
+  if (h !== undefined && !(typeof h === 'number' && Number.isFinite(h) && h >= 0)) return `selfReviewEveryHours: ${JSON.stringify(h)} must be a number of hours, 0 or more`;
+  const f = c.selfReviewMaxFindings;
+  if (f !== undefined && !(typeof f === 'number' && Number.isInteger(f) && f >= 1)) return `selfReviewMaxFindings: ${JSON.stringify(f)} must be a whole number, 1 or more`;
   return null;
 }
 
