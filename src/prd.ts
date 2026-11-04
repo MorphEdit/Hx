@@ -29,3 +29,20 @@ export async function fileBug(config: Config, arg: string, title?: string): Prom
   const body = existsSync(arg) && statSync(arg).isFile() ? readFileSync(arg, 'utf8') : arg;
   return gh.createIssue(config.repo, bugTitle(body, title), body, [config.labels.bug]);
 }
+
+export interface QualityBar { product: string; url: string; dimensions: string[] }
+
+/** A PRD's `## Quality bar` section (`Beat: <product> — <URL>`, then `Judged on:` and `- ` bullets up to the
+ *  next `## ` heading), or null when the body has none. `-` works in place of `—`. */
+export function parseQualityBar(body: string): QualityBar | null {
+  const h = /^##[ \t]+Quality bar[ \t]*$/im.exec(body ?? '');
+  if (!h) return null;
+  let section = body.slice(h.index + h[0].length);
+  const next = /^##[ \t]+/m.exec(section);
+  if (next) section = section.slice(0, next.index);
+  const lines = section.split(/\r?\n/).map((l) => l.trim());
+  const beat = lines.map((l) => /^Beat:\s*(.+?)\s+[—-]\s+(\S+)$/i.exec(l)).find((m) => m);
+  const judged = lines.findIndex((l) => /^Judged on:?$/i.test(l));
+  const dimensions = judged < 0 ? [] : lines.slice(judged + 1).filter((l) => l.startsWith('- ')).map((l) => l.slice(2).trim()).filter(Boolean);
+  return { product: beat?.[1] ?? '', url: beat?.[2] ?? '', dimensions };
+}

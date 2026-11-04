@@ -1,6 +1,7 @@
 // Pure board logic: which open issues can a worker take right now? No I/O here, so it is unit-tested.
 import type { Issue } from './github.ts';
 import type { Labels } from './config.ts';
+import { parseQualityBar } from './prd.ts';
 
 export interface Ref {
   repo: string; // owner/name
@@ -130,6 +131,7 @@ export type Action =
   | { kind: 'decompose'; prd: number; title: string; children: Issue[] }
   | { kind: 'review'; prd: number; title: string; children: Issue[] }
   | { kind: 'security'; prd: number; title: string; children: Issue[] }
+  | { kind: 'bar'; prd: number; title: string; children: Issue[] }
   | { kind: 'close-prd'; prd: number; secured?: boolean } // secured: the security pass signed it off
   | { kind: 'label-ready'; issue: number; prd: number }
   | { kind: 'impl'; issue: number; title: string }
@@ -138,7 +140,7 @@ export type Action =
 export interface PrdRow {
   number: number;
   title: string;
-  status: 'gauntlet' | 'decompose' | 'building' | 'review' | 'security' | 'done' | 'working' | 'waiting' | 'blocked-label' | 'untrusted';
+  status: 'gauntlet' | 'decompose' | 'building' | 'review' | 'security' | 'bar' | 'done' | 'working' | 'waiting' | 'blocked-label' | 'untrusted';
   open: number; // open children
   closed: number;
   waitingOn: Ref[];
@@ -166,7 +168,10 @@ export const issueKey = (n: number) => `issue:${n}`;
  *  - reviewed, every child closed, not yet `security-reviewed` → security pass (may file security issues:
  *    hx then removes `prd-reviewed`, so after the fixes the PRD is reviewed and checked again),
  *    unless `opts.security` is false
- *  - reviewed (and security-reviewed) and every child closed → the engine closes it
+ *  - reviewed (and security-reviewed), every child closed, a `## Quality bar` section in the body and not
+ *    yet `quality-bar-passed` → bar round (a lost round files a gap issue: back to building)
+ *  - reviewed (and security-reviewed), every child closed, and no quality bar or `quality-bar-passed`
+ *    → the engine closes it
  * A PRD's own `## Blocked by` sequences PRDs: until it clears, nothing of that PRD runs.
  * `opts.trusted` (lowercased logins): a PRD opened by anyone else is `untrusted` and nothing of it runs —
  * its children are not claimed either; an issue opened by anyone else is never claimed and never counts
@@ -219,7 +224,8 @@ export function plan(all: Issue[], repo: string, labels: Labels, states: Map<str
     else if (!kids.length) status = gauntlet && !p.labels.includes(labels.hardened) ? 'gauntlet' : 'decompose';
     else if (open.length) status = 'building';
     else if (!p.labels.includes(labels.reviewed)) status = 'review';
-    else status = security && !p.labels.includes(labels.secured) ? 'security' : 'done';
+    else if (security && !p.labels.includes(labels.secured)) status = 'security';
+    else status = !p.labels.includes(labels.barPassed) && parseQualityBar(p.body) ? 'bar' : 'done';
     prds.push({ number: p.number, title: p.title, status, open: open.length, closed: kids.length - open.length, waitingOn,
       ...(trusted ? {} : { author: p.author ?? '' }) });
 
@@ -227,6 +233,7 @@ export function plan(all: Issue[], repo: string, labels: Labels, states: Map<str
     else if (status === 'decompose') actions.push({ kind: 'decompose', prd: p.number, title: p.title, children: kids });
     else if (status === 'review') actions.push({ kind: 'review', prd: p.number, title: p.title, children: kids });
     else if (status === 'security') actions.push({ kind: 'security', prd: p.number, title: p.title, children: kids });
+    else if (status === 'bar') actions.push({ kind: 'bar', prd: p.number, title: p.title, children: kids });
     else if (status === 'done') engine.push({ kind: 'close-prd', prd: p.number, secured: p.labels.includes(labels.secured) });
     // an open child filed without any lane label would hold its PRD forever: make it claimable
     if (status === 'building')

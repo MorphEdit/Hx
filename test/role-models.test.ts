@@ -76,7 +76,7 @@ test('roleModel: a role entry wins field by field, else the top-level model and 
   assert.deepEqual(roleModel({ model: 'm0', effort: '', roleModels: {} }, 'impl'), { model: 'm0', effort: '' });
   assert.deepEqual(Object.keys(roleModelMap(c)), [...ROLES]);
   assert.deepEqual(DEFAULTS.roleModels, {});
-  assert.deepEqual([...ROLES], ['impl', 'audit', 'triage', 'decompose', 'critic', 'revise', 'review', 'security', 'selfreview']);
+  assert.deepEqual([...ROLES], ['impl', 'audit', 'triage', 'decompose', 'critic', 'revise', 'review', 'security', 'selfreview', 'bar']);
   assert.deepEqual([...EFFORTS], ['low', 'medium', 'high', 'xhigh', 'max']);
 });
 
@@ -93,7 +93,7 @@ test('roleModelsError: unknown role, non-object value, empty model, effort outsi
   assert.equal(roleModelsError(undefined), null);
   assert.equal(roleModelsError(SET), null);
   assert.equal(roleModelsError({ triage: { effort: 'max' }, review: {} }), null);
-  assert.equal(roleModelsError({ x: {} }), 'roleModels: unknown role "x" — known: impl, audit, triage, decompose, critic, revise, review, security, selfreview');
+  assert.equal(roleModelsError({ x: {} }), 'roleModels: unknown role "x" — known: impl, audit, triage, decompose, critic, revise, review, security, selfreview, bar');
   assert.match(roleModelsError({ impl: 'sonnet' })!, /^roleModels\.impl: must be an object/);
   assert.match(roleModelsError({ impl: null })!, /^roleModels\.impl: must be an object/);
   assert.match(roleModelsError({ impl: ['x'] })!, /^roleModels\.impl: must be an object/);

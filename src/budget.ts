@@ -127,6 +127,7 @@ export function roleForecast(usage: UsageRecord[], role: string): number | undef
 function actionRoles(a: Action, c: { audit: boolean }): string[] {
   if (a.kind === 'impl') return c.audit ? ['impl', 'audit'] : ['impl'];
   if (a.kind === 'gauntlet') return ['critic', 'revise'];
+  if (a.kind === 'bar') return ['bar', 'bar']; // the run and the judge
   if (a.kind === 'close-prd' || a.kind === 'label-ready') return [];
   return [a.kind];
 }
