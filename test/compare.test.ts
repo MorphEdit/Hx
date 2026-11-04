@@ -30,14 +30,14 @@ const issue = (number: number, o: Partial<CompareIssue> = {}): CompareIssue =>
   ({ number, state: 'OPEN', createdAt: B(100), labels: [], author: 'me', comments: [], ...o });
 const OPTS = { at: Date.parse(AT), trusted: new Set(['me']), labels: { prd: 'prd', gateFix: 'hx-gate-fix' } };
 
-test('parseTime: ISO and local "YYYY-MM-DD HH:MM"; anything else is undefined', () => {
+test('parseTime: ISO and local "YYYY-MM-DD HH:MM"; anything else is undefined', E2E, () => {
   assert.equal(parseTime('2026-11-04T09:00:00Z'), Date.parse('2026-11-04T09:00:00Z'));
   assert.equal(parseTime('2026-11-04T09:00+07:00'), Date.parse('2026-11-04T02:00:00Z'));
   assert.equal(parseTime('2026-11-04 09:30'), new Date(2026, 10, 4, 9, 30).getTime());
   for (const bad of ['yesterday', '2026-13-04 09:00', '2026-11-04 25:00', '04/11/2026', '', '1730707200']) assert.equal(parseTime(bad), undefined, bad);
 });
 
-test('stopCause: timed out, not mergeable or conflict, out of audit rounds, other', () => {
+test('stopCause: timed out, not mergeable or conflict, out of audit rounds, other', E2E, () => {
   assert.equal(stopCause(stop('agent error: turn timed out after 60 min')), 'timedOut');
   assert.equal(stopCause(stop('agent error: stalled: no output for 20 min')), 'timedOut');
   assert.equal(stopCause(stop('merging the audited PR failed: Pull request is not mergeable')), 'conflict');
@@ -45,7 +45,7 @@ test('stopCause: timed out, not mergeable or conflict, out of audit rounds, othe
   assert.equal(stopCause(stop('no completion after 20 turns')), 'other');
 });
 
-test('change: counts as a difference, shares in points, the rest in percent; unknown is -', () => {
+test('change: counts as a difference, shares in points, the rest in percent; unknown is -', E2E, () => {
   assert.equal(change(10, 7, 'count'), '-3');
   assert.equal(change(3, 5, 'count'), '+2');
   assert.equal(change(100, 112, 'pct'), '+12%');
@@ -55,7 +55,7 @@ test('change: counts as a difference, shares in points, the rest in percent; unk
   assert.equal(change(0, 5, 'pct'), '-');
 });
 
-test('compare: per-role sessions and medians in the period each session started; no testMs is left out, not 0', () => {
+test('compare: per-role sessions and medians in the period each session started; no testMs is left out, not 0', E2E, () => {
   const recs = [
     // before: two impl sessions (one over two turns), one failed review
     rec(B(5), 'impl', 's1', { durationMs: 10 * M, testMs: 4 * M, tokens: 1000, output: 100, cost: 2 }),
@@ -91,7 +91,7 @@ test('compare: per-role sessions and medians in the period each session started;
   assert.equal(only.roles[0].medianOutsideTestsMs, undefined);
 });
 
-test('compare: audits, first-round FAILs, closed issues, gate-fix, stops, retries and per-closed cost land in the right period; a person\'s comment is ignored', () => {
+test('compare: audits, first-round FAILs, closed issues, gate-fix, stops, retries and per-closed cost land in the right period; a person\'s comment is ignored', E2E, () => {
   const recs = [rec(B(2), 'impl', 'b1', { tokens: 1000, output: 0, cost: 4, durationMs: 60 * M }), rec(A(2), 'impl', 'a1', { tokens: 3000, output: 0, cost: 6, durationMs: 30 * M }),
     rec(A(2.25), 'impl', 'a2', { tokens: 0, output: 0, cost: 0, durationMs: 30 * M })]; // overlaps a1 by 15m
   const c = (body: string, at: string, author = 'me') => ({ author, body, createdAt: at });
@@ -128,7 +128,7 @@ test('compare: audits, first-round FAILs, closed issues, gate-fix, stops, retrie
   assert.equal(compare([], many, OPTS).after.smallSample, false);
 });
 
-test('compare --from: older runs, comments and issues are dropped', () => {
+test('compare --from: older runs, comments and issues are dropped', E2E, () => {
   const from = Date.parse(B(10));
   const recs = [rec(B(20), 'impl', 'old'), rec(B(5), 'impl', 'new')];
   const issues = [issue(1, { state: 'CLOSED', closedAt: B(15), comments: [{ author: 'me', body: audit(1, 'FAIL'), createdAt: B(15) }] }),
@@ -195,7 +195,7 @@ test('hx usage --compare: a bad time exits 1 with a clear message, before any Gi
   assert.equal(calls().length, 0);
 });
 
-test('hx help and the README name --compare', () => {
+test('hx help and the README name --compare', E2E, () => {
   const r = spawnSync(process.execPath, ['--disable-warning=ExperimentalWarning', path.join(here, '..', 'bin', 'hx.mjs'), 'help'], { encoding: 'utf8' });
   assert.match(r.stdout, /usage --compare <time>/);
   const readme = readFileSync(path.join(here, '..', 'README.md'), 'utf8');
