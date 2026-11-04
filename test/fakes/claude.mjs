@@ -10,6 +10,10 @@
 //              (SECURITYSTRANGER: an untrusted account, mallory, posts one instead)
 //   revise:    appends its marker to the body with `gh issue edit --body-file` (REVISENOOP in the body: changes nothing)
 //   triage:    posts a verdict comment per the issue body (see finish())
+//   bar:       the quality bar run (Role: bar) writes fake.json (its side, the result wanted) into the two output dirs
+//              its prompt names; the judge (Role: bar judge) reads them and answers. In the PRD body: BARNOPROV = the run
+//              prints PROVISION FAILED, BARLOSE<n> = round n is lost, BARLOSEALL = every round is lost (else won),
+//              BARBAD1 = the judge's first reply of a round is in a bad shape, BARBAD2 = every reply is
 //   selfreview: prints FAKE_CLAUDE_FINDINGS (default 0) `## Finding` blocks and its promise
 //   grill:     interactive (prompt as the last argument, not stdin): writes a PRD to the output path the prompt
 //              names (FAKE_GRILL_NOWRITE=1: writes nothing, =blank: whitespace only) and exits
@@ -101,7 +105,8 @@ process.stdin.on('data', (d) => (prompt += d)).on('end', () => {
   const counter = path.join(process.env.HX_FAKE_DIR, `${sid}.json`);
   const st = existsSync(counter) ? JSON.parse(readFileSync(counter, 'utf8'))
     : { turns: 0, role: /Role: (\w+)/.exec(prompt)?.[1] ?? 'implement', n: Number(/(?:Issue|PRD): #(\d+)/.exec(prompt)?.[1]),
-        round: Number(/(?:review|audit|security) round (\d+)/.exec(prompt)?.[1] ?? 0) };
+        round: Number(/(?:review|audit|security) round (\d+)|· round (\d+) of \d+/.exec(prompt)?.slice(1).find(Boolean) ?? 0),
+        judge: /^Role: bar judge/m.test(prompt), promise: /<promise>([^<]+)<\/promise>/.exec(prompt)?.[1] };
   st.turns++;
   writeFileSync(counter, JSON.stringify(st));
   writeFileSync(path.join(process.env.HX_FAKE_DIR, `${sid}.prompt-${st.turns}.txt`), prompt);
@@ -233,6 +238,31 @@ function finish(st, checkpoint, prompt) {
     return reply(failing ? `VERDICT: FAIL\nFINDINGS:\n- issue #${st.n} requires X — code does Y — ran it\n\n${done()}`
       : `VERDICT: PASS\nFINDINGS:\n- issue #${st.n} criterion 1: writes impl-${st.n}.txt — impl-${st.n}.txt:1 — \`git show --stat HEAD\` → impl-${st.n}.txt | 1 +\n`
         + `- issue #${st.n} criterion 2: tests pass — test/x.test.ts:3 — \`npm test\` → pass 3, fail 0\n\n${done()}`);
+  }
+  if (st.role === 'bar' && st.judge && !checkpoint) {
+    const dir = (side) => new RegExp('^- ' + side + ': `([^`]+)`', 'm').exec(prompt)[1];
+    const [A, B] = ['A', 'B'].map((s) => JSON.parse(readFileSync(path.join(dir(s), 'fake.json'), 'utf8')));
+    const tries = path.join(process.env.HX_FAKE_DIR, `judge-${A.prd}-r${A.round}.n`);
+    const k = (existsSync(tries) ? Number(readFileSync(tries, 'utf8')) : 0) + 1;
+    writeFileSync(tries, String(k));
+    const tag = `<promise>${st.promise}</promise>`;
+    if (A.bad === 'all' || (A.bad === 'first' && k === 1)) return reply(`A looks better to me, mostly.\n\n${tag}`);
+    const winner = A.side === (A.want === 'lose' ? 'ref' : 'ours') ? 'A' : 'B';
+    return reply(`winner: ${winner}\ngap: the loser takes ${A.round + 2} clicks to send an invoice\n\n${tag}`);
+  }
+  if (st.role === 'bar' && !checkpoint) {
+    const body = loadBoard().issues.find((i) => i.number === st.n).body;
+    const tag = `<promise>${st.promise}</promise>`;
+    if (/BARNOPROV/.test(body)) return reply(`could not get it.\nPROVISION FAILED: the reference needs a paid account\n${tag}`);
+    const lose = /BARLOSEALL/.test(body) || new RegExp(`BARLOSE${st.round}\\b`).test(body);
+    const bad = /BARBAD2/.test(body) ? 'all' : /BARBAD1/.test(body) ? 'first' : '';
+    const ours = /- ours → `([^`]+)`/.exec(prompt)[1];
+    const ref = /- the reference → `([^`]+)`/.exec(prompt)[1];
+    for (const [d, side] of [[ours, 'ours'], [ref, 'ref']]) {
+      writeFileSync(path.join(d, 'fake.json'), JSON.stringify({ side, want: lose ? 'lose' : 'win', bad, prd: st.n, round: st.round }));
+      writeFileSync(path.join(d, 'tasks.md'), '1. send an invoice\n');
+    }
+    return reply(`ran the tasks in ${path.basename(process.cwd())}.\n${tag}`);
   }
   // self-review: FAKE_CLAUDE_FINDINGS=<k> finding blocks (default none), then its promise
   if (st.role === 'selfreview' && !checkpoint) {
