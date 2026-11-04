@@ -83,7 +83,7 @@ test('bugTriage false: a bug runs impl without triage, both prompts carry their 
   assert.ok(!audit1.includes(IMPL_BUG_NOTE));
   // the note sits on its own line between the steps
   assert.match(impl1, /existing test\.\nThis is a bug\.[^\n]*symptom\.\n3\. While working, run only the affected tests/);
-  assert.match(audit1, /if it were wrong\?\nCheck that a test reproduces[^\n]*if there is one\)\.\n\nFAIL only/);
+  assert.match(audit1, /criterion is not testable\.\nCheck that a test reproduces[^\n]*if there is one\)\.\n\nFAIL only/);
 
   const impl2 = of(prompts, 'implement', 2), audit2 = of(prompts, 'audit', 2);
   for (const t of [impl2, audit2]) {
@@ -93,7 +93,7 @@ test('bugTriage false: a bug runs impl without triage, both prompts carry their 
   }
   // no stray line: the steps follow each other as in the template without the note
   assert.match(impl2, /existing test\.\n3\. While working, run only the affected tests/);
-  assert.match(audit2, /if it were wrong\?\n\nFAIL only/);
+  assert.match(audit2, /criterion is not testable\.\n\nFAIL only/);
 });
 
 test('a bug labelled bug-triaged + ready-for-agent by hand (bugTriage true) gets the note in its impl prompt', E2E, async () => {

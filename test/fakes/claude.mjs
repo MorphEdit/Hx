@@ -226,6 +226,10 @@ function finish(st, checkpoint, prompt) {
       writeFileSync(path.join(process.cwd(), `impl-${st.n}.txt`), 'someone else\n');
       g('add', '-A'); g('commit', '-q', '-m', 'conflicting work'); g('push', '-q', 'origin', 'HEAD:main');
     }
+    // AUDITREVERT: a PASS whose evidence lines carry the red result on the reverted code and the green one on the branch (#251)
+    if (/AUDITREVERT/.test(body)) return reply(`VERDICT: PASS\nFINDINGS:\n`
+      + `- issue #${st.n} criterion 1: writes impl-${st.n}.txt — test/impl.test.ts "writes it" — reverted: \`node --test test/impl.test.ts\` → fail 1, pass 0 — branch: \`node --test test/impl.test.ts\` → pass 1, fail 0\n`
+      + `- issue #${st.n} criterion 2: not testable per the issue — docs/x.md:3 — \`git diff --stat\` → docs/x.md | 2 +\n\n${done()}`);
     return reply(failing ? `VERDICT: FAIL\nFINDINGS:\n- issue #${st.n} requires X — code does Y — ran it\n\n${done()}`
       : `VERDICT: PASS\nFINDINGS:\n- issue #${st.n} criterion 1: writes impl-${st.n}.txt — impl-${st.n}.txt:1 — \`git show --stat HEAD\` → impl-${st.n}.txt | 1 +\n`
         + `- issue #${st.n} criterion 2: tests pass — test/x.test.ts:3 — \`npm test\` → pass 3, fail 0\n\n${done()}`);
