@@ -12,6 +12,7 @@ import { loadProject, type Project, STATE_DIR } from './config.ts';
 import { DEFAULT_FLEET_WORKERS, type Fleet, fleetDir, fleetWorkers, type ListedRepo, listRepos, readFleet, readHold, readRepos, slotsInUse } from './fleet.ts';
 import { githubLine } from './ghlimit.ts';
 import { readHealth } from './health.ts';
+import { readSupervise } from './supervise.ts';
 import { type GateRun, readGate, readGateRuns } from './gate.ts';
 import { parseOutcomes } from './outcomes.ts';
 import { lookupTrusted, readBar, readPlan, runLogFile } from './pool.ts';
@@ -124,6 +125,9 @@ export function dashboardState(p: Project, board: () => BoardSeen): object {
   const last = readHealth(dir).last;
   const health = last ? { at: last.at, line: last.line } : null; // the last health pass (hx health or hx run's), null before one
 
+  const sv = readSupervise(dir); // hx supervise: running or not, and its last line
+  const supervised = sv.pid || sv.last ? { running: !!sv.pid && pidAlive(sv.pid), pid: sv.pid ?? null, last: sv.last ?? null } : null;
+
   const recs = readUsage(dir);
   const b = board();
   const parents = b.plan?.parents;
@@ -140,7 +144,7 @@ export function dashboardState(p: Project, board: () => BoardSeen): object {
   const read = (f: string) => (existsSync(f) ? readFileSync(f, 'utf8') : '');
   // run.log.1 (the one rotated file, when there is one) then run.log, as one line sequence
   const outcomes = parseOutcomes([...read(`${logFile}.1`).split(/\r?\n/), ...read(logFile).split(/\r?\n/)]);
-  return { repo: p.config.repo, runner, sessions, gate, health, usage, time: testTime(recs, readGateRuns(dir), now), log: tailLines(logFile, LOG_LINES), outcomes };
+  return { repo: p.config.repo, runner, sessions, gate, health, supervised, usage, time: testTime(recs, readGateRuns(dir), now), log: tailLines(logFile, LOG_LINES), outcomes };
 }
 
 function send(res: ServerResponse, status: number, type: string, body: string, headers: Record<string, string> = {}): void {

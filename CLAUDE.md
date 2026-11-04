@@ -15,6 +15,7 @@ roadmap and the agreed order of the next features) before changing anything.
   `bar.ts` the quality bar's pure round helpers: `.hx/bar/<prd>/` paths, the A/B `.mapping`, the judge reply, the `<!-- hx-bar round=N -->` markers, the gap issue body ·
   `selfupdate.ts` the self-update of `hx run --watch`: `.hx/selfupdate.json`, the code-path filter, the git / release check, the restart with its ready marker and rollback ·
   `outcomes.ts` run.log → outcome numbers · `timing.ts` test time: the test-command matcher, per-turn test time from stream-json events, the stats over usage.jsonl and gate-runs.jsonl · `doctor.ts` `hx doctor`: the prerequisite checks and their ✓ ✗ – ? marks (hx start's first step, hx run's startup gate) ·
+  `supervise.ts` `hx supervise`: restarts a crashed `hx run --watch`, `.hx/supervise.json` · `service.ts` `hx service`: the logon task (schtasks XML) or the launchd / systemd unit ·
   `fleet.ts` `hx fleet`: ~/.hx/fleet.json, file slots (shared worker cap), hold.json (shared usage hold), the child runners
 - `prompts/` — one per role (`impl`, `decompose`, `review`, `continue`, `checkpoint`, `grill`, `issue`, `audit`, `critic`, `revise`, `security`, `triage`, `selfreview`, `bar`, `bar-judge`), `{{VAR}}` placeholders; `skills` holds the note appended after a skill (`prompts/skills/<name>.md`, inserted verbatim, never rendered)
 - `bin/` — `hx.mjs` the entry (Node check first, then `install` / `update` or the type-strip hook and `src/cli.ts`) ·

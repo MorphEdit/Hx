@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { DEFAULTS, defaultWorktreeRoot, healthConfigError, effectiveRtddBin, findProjectRoot, formatRoleModels, labelSpecs, loadProject, saveConfig, STATE_DIR, type Config } from './config.ts';
 import * as gh from './github.ts';
 import { resolveCmd, run, runOk } from './exec.ts';
-import { log, lookupTrusted, printPlan, readBar, readPlan, runPool, trustedEnv } from './pool.ts';
+import { log, lookupTrusted, printPlan, readBar, readPlan, runLogFile, runPool, setRunLog, trustedEnv } from './pool.ts';
 import { killAllSessions } from './agent.ts';
 import { clearPause, nextLine, otherRunner, pidAlive, readLive, readPause, setPause, writeWake } from './runstate.ts';
 import { fmtDuration, readGate, readGateRuns } from './gate.ts';
@@ -23,6 +23,8 @@ import { doctor, GITATTRIBUTES_LF, render } from './doctor.ts';
 import { healthPass, readHealth, renderResult } from './health.ts';
 import { hxRoot, installKind, readSelfUpdate } from './selfupdate.ts';
 import { addRepo, type Fleet, fleetDir, fleetFile, fleetWorkers, readFleet, readGithubHold, readHold, readRepos, registerRepo, removeRepo, sameRoot, slotsInUse, startFleetRun, writeFleet, writeRepos } from './fleet.ts';
+import { readSupervise, supervise } from './supervise.ts';
+import { service } from './service.ts';
 import { change, compare, parseTime, SMALL_SAMPLE, type Period } from './compare.ts';
 import { fmt, localDay, mismatchedSessions, readUsage, summarize, totalTokens, type UsageRow } from './usage.ts';
 
@@ -53,6 +55,14 @@ const HELP = `usage: hx <command> [options]
       --workers N          parallel sessions (default: config.workers)
       --issue N[,N...]     only these issues / PRDs
       --dry-run            show the board and what would run next, change nothing
+  supervise [--workers N]  run hx run --watch as a child and restart it after a crash (backoff 10 s, 30 s, 60 s,
+                           then 5 min; reset after 30 min up); exits when the runner exits 0 (hx pause, Ctrl+C),
+                           waits while .hx/pause is present or another runner holds the run lock, gives up after
+                           5 crashes in 10 min. Logs supervise: lines to .hx/run.log
+  service install [--workers N] | uninstall | status
+                           Windows: a Task Scheduler task (hx\\<repo>-<hash>) that runs hx supervise in this repo
+                           at your logon, as you, without elevation; status: the task, its last result, the
+                           supervisor and the runner. macOS / Linux: prints the launchd / systemd --user unit
   release [patch|minor|major] [--dry-run] [--yes]
                            tag the next version on a green default branch: bump package.json, push the
                            tag, write notes from the merged PRs and closed PRDs, create the GitHub release
@@ -136,6 +146,8 @@ export async function main(argv: string[]): Promise<number> {
     case 'grill': return grill(args);
     case 'issue': return issue(args);
     case 'run': return runCmd(args);
+    case 'supervise': return superviseCmd(args);
+    case 'service': return serviceCmd(args);
     case 'release': return releaseCmd(args);
     case 'status': return status();
     case 'pause': return pause(args);
@@ -383,6 +395,26 @@ async function runCmd(args: string[]): Promise<number> {
   return runPool(p, { workers, only, watch: args.includes('--watch'), dryRun: args.includes('--dry-run'), signal: ac.signal });
 }
 
+function workersArgs(args: string[]): string[] {
+  const w = flag(args, '--workers');
+  if (w === undefined) return [];
+  if (!Number.isInteger(Number(w)) || Number(w) < 1) throw new Error('--workers must be a positive integer');
+  return ['--workers', w];
+}
+
+async function superviseCmd(args: string[]): Promise<number> {
+  const p = loadProject();
+  setRunLog(runLogFile(p.stateDir));
+  // Ctrl+C reaches the runner too (one console): it checkpoints and exits 0, and so does the supervisor. Without a runner, stop now.
+  process.on('SIGINT', () => { if (!readSupervise(p.stateDir).childPid) process.exit(130); });
+  return supervise({ stateDir: p.stateDir, root: p.root, entry: process.argv[1], args: workersArgs(args), log: (l) => log(l) });
+}
+
+async function serviceCmd(args: string[]): Promise<number> {
+  const p = loadProject();
+  return service({ sub: args[0] ?? '', repo: p.config.repo, root: p.root, stateDir: p.stateDir, args: workersArgs(args), entry: process.argv[1] });
+}
+
 async function prd(args: string[]): Promise<number> {
   const p = loadProject();
   const file = args.find((a, i) => !a.startsWith('--') && args[i - 1] !== '--title');
@@ -556,6 +588,9 @@ async function status(p = loadProject(), o: { github?: boolean } = {}): Promise<
   if (health) console.log(`health   ${ago(health.at)} ago — ${health.line}`);
   const selfUpdate = readSelfUpdate(p.stateDir).last; // a watching runner's last self-update line, runner or not
   if (selfUpdate) console.log(`update   ${ago(selfUpdate.at)} ago — ${selfUpdate.line}`);
+  const sv = readSupervise(p.stateDir);
+  if (sv.pid && pidAlive(sv.pid)) console.log(`supervised · pid ${sv.pid}${sv.last ? ` — ${sv.last.line}` : ''}`);
+  else if (sv.last) console.log(`supervise not running — ${ago(sv.last.at)} ago: ${sv.last.line}`);
   if (paused) console.log(`paused   ${paused} — hx resume to clear`);
   if (c.worktreeSetup) console.log(`setup    ${c.worktreeSetup} (timeout ${c.worktreeSetupMinutes} min)`);
   if (c.worktreeCopy?.length) console.log(`copy     ${c.worktreeCopy.join(', ')}`);

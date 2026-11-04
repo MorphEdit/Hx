@@ -519,6 +519,25 @@ history (an uncalibrated window, fewer than three past sessions) Hx claims as it
 `budget seven_day: 40% used, uncalibrated (n=2 pairs, needs 5)`; a running `hx run` keeps the same
 windows in `live.json` (`budget.windows`) and the dashboard's Now section shows the lines.
 
+### Starting at logon
+
+`hx run --watch` lives only as long as its terminal. Two commands keep it up without one:
+
+- **`hx supervise [--workers N]`** runs `hx run --watch` (same arguments, this repo) as a child and restarts it
+  when it crashes or is killed, after 10 s, 30 s, 60 s, then 5 min; a run that stayed up 30 min resets the
+  backoff. When the runner exits 0 (`hx pause`, Ctrl+C) the supervisor exits too: it never restarts a runner a
+  person stopped. While `.hx/pause` exists it starts nothing and waits for `hx resume`; while another live
+  runner holds the run lock (`.hx/live.json`) it logs that once and waits, never starting a second one. After
+  5 crashes in 10 min it logs `supervise: gave up after 5 crashes in 10 min` and exits non-zero. Its lines go to
+  `.hx/run.log` (`supervise: started …`, `supervise: runner exited <code>, restart in <s>`,
+  `supervise: stopped: paused …`); `hx status` and the dashboard show `supervised` and the last one.
+- **`hx service install [--workers N] | uninstall | status`** (Windows) registers one Task Scheduler task,
+  `hx\<repo name>-<hash of the repo path>` (two clones get two tasks), that runs `hx supervise` in this repo **at
+  your logon**: never at boot, as you, with no stored password and no elevation. `install` replaces a task of the
+  same name, `uninstall` removes only it, `status` shows the task, its last result, and whether a supervisor and a
+  runner are alive. On macOS and Linux it prints the launchd agent or systemd `--user` unit and the commands to
+  install it, and changes nothing.
+
 ## PRD flow
 
 Write what you want as a PRD (a markdown file: goal, requirements, acceptance criteria) and file it

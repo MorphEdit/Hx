@@ -128,6 +128,9 @@ function renderNow(s) {
   const h = s.health;
   parts.push(el('div', { class: 'kv' }, el('span', {}, 'health ', h ? el('b', {}, String(h.line ?? '')) : badge('mute', 'no pass yet')),
     h ? el('span', {}, 'at ', when(h.at)) : null));
+  const sv = s.supervised;
+  if (sv) parts.push(el('div', { class: 'kv' }, el('span', {}, sv.running ? badge('ok', 'supervised') : badge('mute', 'not supervised')),
+    sv.last ? el('span', {}, el('b', {}, String(sv.last.line ?? '')), ' at ', when(sv.last.at)) : null));
   sessions = s.sessions || [];
   if (r.running) {
     parts.push(sessions.length ? table(['issue', 'title', 'kind', 'turn', 'tokens', 'elapsed'], sessions.map((x) =>
