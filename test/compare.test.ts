@@ -161,6 +161,27 @@ test('compare: quality-bar rounds won and lost per period; an untrusted marker a
   assert.deepEqual(before.roles.map((r) => [r.role, r.sessions]), [['bar', 2]], 'the run and the judge both under bar');
 });
 
+test('compare: needs-human questions asked and answered per period; untrusted questions and answers and hx comments do not count', E2E, () => {
+  const c = (body: string, at: string, author = 'me') => ({ author, body, createdAt: at });
+  const Q = '<!-- hx-question -->\n**Hx needs your answer:** local or cloud?';
+  const issues: CompareIssue[] = [
+    // a [needs you] issue (decompose): asked when filed, answered by the owner after the split
+    issue(1, { createdAt: B(5), body: Q, comments: [c('A', A(1))] }),
+    // impl questions: one answered before the next is asked; the second answered after the split
+    issue(2, { comments: [c(Q, B(4)), c('<!-- hx-audit -->\n**hx audit 1/3: PASS ✓**', B(3.5)), c('B', B(3)), c(Q, B(2)), c('the second', A(2))] }),
+    // a stranger's answer does not count; hx's own <!-- hx- comment is not an answer
+    issue(3, { comments: [c(Q, A(1)), c('A', A(2), 'stranger'), c('<!-- hx-retry -->\nback', A(3))] }),
+    // a stranger's question comment and a stranger's [needs you] issue are not questions
+    issue(4, { comments: [c(Q, A(1), 'stranger'), c('A', A(2))] }),
+    issue(5, { author: 'stranger', createdAt: A(1), body: Q, comments: [c('A', A(2))] }),
+    // a body that only mentions the marker later is not a question
+    issue(6, { body: 'see <!-- hx-question --> below', comments: [c('ok', A(1))] }),
+  ];
+  const { before, after } = compare([], issues, OPTS);
+  assert.deepEqual([before.questionsAsked, before.questionsAnswered], [3, 1]);
+  assert.deepEqual([after.questionsAsked, after.questionsAnswered], [1, 2]);
+});
+
 function app(name: string, recs: any[], board: any) {
   const root = path.join(tmp, name), sd = path.join(root, '.hx');
   mkdirSync(sd, { recursive: true });
@@ -210,6 +231,17 @@ test('hx usage --compare prints bar rounds won and lost; hx usage --by role list
   const u = hx('usage', '--by', 'role');
   assert.equal(u.status, 0, u.stdout + u.stderr);
   assert.match(u.stdout, /^\s*bar\b/m, u.stdout);
+});
+
+test('hx usage --compare prints questions asked and answered from the issue bodies and comments', E2E, () => {
+  const Q = '<!-- hx-question -->\n**Hx needs your answer:** which?';
+  const comments = [{ issue: 2, body: Q, createdAt: B(2) }, { issue: 2, body: 'A', createdAt: A(1) }, { issue: 1, body: 'B', createdAt: A(2) }];
+  const { hx } = app('questions', [], { issues: [{ number: 1, title: '[needs you] which?', body: Q, state: 'OPEN', labels: ['needs-human'], createdAt: A(0.5) },
+    { number: 2, title: 't', body: '', state: 'OPEN', labels: [], createdAt: B(50) }], comments });
+  const r = hx('usage', '--compare', AT);
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.deepEqual(cells(r.stdout, 'questions asked'), ['1', '1', '0'], r.stdout);
+  assert.deepEqual(cells(r.stdout, 'questions answered'), ['0', '2', '+2'], r.stdout);
 });
 
 test('hx usage --compare: no small-sample note with 10 or more closed issues in each period', E2E, () => {

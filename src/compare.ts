@@ -1,5 +1,6 @@
 import { BAR_MARKER_PREFIX, parseBarMarker } from './bar.ts';
 import { AUDIT_MARKER, RETRY_MARKER } from './pool.ts';
+import { findAnswer, QUESTION_MARKER } from './question.ts';
 import { median } from './timing.ts';
 import { totalTokens, type UsageRecord } from './usage.ts';
 
@@ -11,6 +12,7 @@ export interface CompareIssue {
   state: 'OPEN' | 'CLOSED';
   stateReason?: string | null;
   createdAt: string;
+  body?: string; // a `[needs you]` issue's question starts it
   closedAt?: string | null;
   labels: string[];
   author: string; // '' = a deleted account
@@ -41,6 +43,8 @@ export interface Period {
   firstRoundFails: number;
   barWon: number; // quality-bar rounds, from hx's `<!-- hx-bar round=N -->` comments; `no verdict` is neither
   barLost: number;
+  questionsAsked: number; // needs-human questions (a trusted `<!-- hx-question -->` comment or issue body), by when asked
+  questionsAnswered: number; // those with the owner's answer (question.ts findAnswer), by when answered
   closed: number; // issues closed as completed, PRDs left out
   gateFixOpened: number;
   tokens: number;
@@ -96,7 +100,7 @@ export function compare(recs: UsageRecord[], issues: CompareIssue[], o: CompareO
   const period = (t: number) => (o.from !== undefined && t < o.from) || !Number.isFinite(t) ? undefined : t < o.at ? 0 : 1;
   const ps: Period[] = [0, 1].map((k) => ({
     ...(k === 0 ? (o.from !== undefined ? { from: o.from } : {}) : { from: o.at }), ...(k === 0 ? { to: o.at } : {}),
-    hours: 0, roles: [], auditPass: 0, auditFail: 0, firstRoundFails: 0, barWon: 0, barLost: 0, closed: 0, gateFixOpened: 0, tokens: 0, costUsd: 0,
+    hours: 0, roles: [], auditPass: 0, auditFail: 0, firstRoundFails: 0, barWon: 0, barLost: 0, questionsAsked: 0, questionsAnswered: 0, closed: 0, gateFixOpened: 0, tokens: 0, costUsd: 0,
     stops: { timedOut: 0, conflict: 0, auditRounds: 0, other: 0 }, rebaseTestRetries: 0, smallSample: true,
   }));
 
@@ -167,6 +171,17 @@ export function compare(recs: UsageRecord[], issues: CompareIssue[], o: CompareO
         else if (r === 'lost') p.barLost++;
       } else if (isHx(c.body, STOP_PREFIX)) p.stops[stopCause(c.body)]++;
       else if (isHx(c.body, RETRY_MARKER) && /tests fail after the rebase/.test(c.body)) p.rebaseTestRetries++;
+    }
+    // needs-human: every question, each with its own answer (one asked before a later question counts too)
+    const own = i.comments.filter((c) => trusted(c.author));
+    const questions = [...(isHx(i.body ?? '', QUESTION_MARKER) ? [{ text: '', createdAt: i.createdAt }] : []),
+      ...own.filter((c) => isHx(c.body, QUESTION_MARKER)).map((c) => ({ text: '', createdAt: c.createdAt }))];
+    for (const q of questions) {
+      const k = period(Date.parse(q.createdAt));
+      if (k !== undefined) ps[k].questionsAsked++;
+      const a = findAnswer(q, own, o.trusted);
+      const ka = a ? period(Date.parse(a.createdAt)) : undefined;
+      if (ka !== undefined) ps[ka].questionsAnswered++;
     }
   }
   for (const p of ps) {

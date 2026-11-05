@@ -454,3 +454,18 @@ test('needs-human: README maxOpenQuestions row and needs-human label', () => {
   const labels = r.split('\n').find((l) => l.startsWith('| `labels`'))!;
   assert.ok(labels.includes(`\`${DEFAULTS.labels.needsHuman}\``) && labels.includes('`needsHuman`'), 'needsHuman label');
 });
+
+test('needs-human: README has a "When hx needs you" section for the owner; hx help names needs-human', () => {
+  const readme = readFileSync(path.join(root, 'README.md'), 'utf8');
+  const at = readme.indexOf('## When hx needs you');
+  assert.ok(at >= 0, 'README: When hx needs you');
+  const s = readme.slice(at, readme.indexOf('\n## ', at + 1));
+  for (const w of ['`needs-human`', '`maxOpenQuestions`', '`## Decisions made for you`', '`## Owner decisions`', 'Hx needs your answer:',
+    'secret', '`done`', 'hx status', 'Waiting on you']) assert.ok(s.includes(w), `When hx needs you: ${w}`);
+  const g = readFileSync(path.join(root, 'docs/guide.md'), 'utf8');
+  const outcomes = g.slice(g.indexOf('## What happens to an issue'), g.indexOf('\n## ', g.indexOf('## What happens to an issue') + 1));
+  assert.ok(outcomes.includes('`needs-human`'), 'What happens to an issue: needs-human');
+  const help = spawnSync(process.execPath, ['--disable-warning=ExperimentalWarning', path.join(root, 'bin', 'hx.mjs'), 'help'], { encoding: 'utf8' }).stdout;
+  assert.match(help, /needs-human/);
+  assert.match(help, /comment on its issue/);
+});

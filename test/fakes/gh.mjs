@@ -173,7 +173,7 @@ export function gh(a, { input = () => '', cwd = process.cwd(), inProcess = false
       const size = s.graphqlPage ?? 50, at = Number(field('after') ?? 0);
       const ghAuthor = (login) => (login ? { login } : null);
       const nodes = s.issues.slice(at, at + size).map((i) => ({ number: i.number, state: i.state, stateReason: i.stateReason ?? null,
-        createdAt: i.createdAt ?? '', closedAt: i.closedAt ?? null, author: ghAuthor(i.author ?? LOGIN), labels: { nodes: ghLabels(i) },
+        createdAt: i.createdAt ?? '', closedAt: i.closedAt ?? null, body: i.body ?? '', author: ghAuthor(i.author ?? LOGIN), labels: { nodes: ghLabels(i) },
         comments: { nodes: s.comments.filter((c) => c.issue === i.number).map((c) => ({ author: ghAuthor(c.author ?? LOGIN), body: c.body, createdAt: c.createdAt ?? '' })) } }));
       const more = at + size < s.issues.length;
       print(JSON.stringify({ data: { repository: { issues: { pageInfo: { hasNextPage: more, endCursor: more ? String(at + size) : null }, nodes } } } }));

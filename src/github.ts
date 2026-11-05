@@ -239,7 +239,7 @@ export async function createRelease(repo: string, tag: string, notesFile: string
 }
 
 export interface IssueWithComments {
-  number: number; state: 'OPEN' | 'CLOSED'; stateReason: string | null; createdAt: string; closedAt: string | null;
+  number: number; state: 'OPEN' | 'CLOSED'; stateReason: string | null; createdAt: string; closedAt: string | null; body: string;
   labels: string[]; author: string; comments: { author: string; body: string; createdAt: string }[];
 }
 
@@ -247,7 +247,7 @@ const ISSUES_QUERY = `query($owner: String!, $name: String!, $after: String) {
   repository(owner: $owner, name: $name) {
     issues(first: 50, after: $after, orderBy: { field: CREATED_AT, direction: ASC }) {
       pageInfo { hasNextPage endCursor }
-      nodes { number state stateReason createdAt closedAt author { login } labels(first: 30) { nodes { name } }
+      nodes { number state stateReason createdAt closedAt body author { login } labels(first: 30) { nodes { name } }
         comments(first: 100) { nodes { author { login } body createdAt } } }
     }
   }
@@ -264,7 +264,7 @@ export async function issuesWithComments(repo: string): Promise<IssueWithComment
     if (!issues) throw new Error(`gh api graphql: no issues in the answer for ${repo}`);
     for (const n of issues.nodes ?? []) out.push({
       number: n.number, state: String(n.state).toUpperCase() === 'CLOSED' ? 'CLOSED' : 'OPEN', stateReason: n.stateReason ?? null,
-      createdAt: n.createdAt ?? '', closedAt: n.closedAt ?? null, labels: (n.labels?.nodes ?? []).map((l: any) => l.name),
+      createdAt: n.createdAt ?? '', closedAt: n.closedAt ?? null, body: n.body ?? '', labels: (n.labels?.nodes ?? []).map((l: any) => l.name),
       author: n.author?.login ?? '',
       comments: (n.comments?.nodes ?? []).map((c: any) => ({ author: c.author?.login ?? '', body: c.body ?? '', createdAt: c.createdAt ?? '' })),
     });
