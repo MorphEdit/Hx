@@ -91,9 +91,9 @@ export function gh(a, { input = () => '', cwd = process.cwd(), inProcess = false
       // state.prListLag = k: a new PR is missing from the next k lists (GitHub's delay, see #65)
       const hidden = mutate((cur) => (cur.prs ?? []).filter((p) => p.head === opt('--head') && p.state === 'OPEN' && p.hide > 0)
         .map((p) => { p.hide--; return p.number; }));
-      // without --head: every PR in --state (open | merged), e.g. the health pass's stale-PR check
+      // without --head: every PR in --state (open | merged | all), e.g. the health pass's stale-PR check
       const want = (opt('--state') ?? 'open').toUpperCase();
-      const prs = (s.prs ?? []).filter((p) => (opt('--head') === undefined || p.head === opt('--head')) && p.state === want && !hidden.includes(p.number));
+      const prs = (s.prs ?? []).filter((p) => (opt('--head') === undefined || p.head === opt('--head')) && (want === 'ALL' || p.state === want) && !hidden.includes(p.number));
       if (opt('-q')) print(prs[0] ? `${prs[0].number}\n` : '\n');
       else print(JSON.stringify(prs.map((p) => ({ number: p.number, title: p.title, headRefName: p.head,
         mergeable: p.mergeable ?? 'MERGEABLE', isCrossRepository: !!p.fork }))));

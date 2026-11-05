@@ -472,6 +472,9 @@ Write `None` under the heading (or leave it out) for an issue with no dependenci
 ## Every PR is audited before it merges
 
 The implementer never merges its own work. It ships with `ship.mjs --no-merge` and stops at an open PR.
+The one exception is an owner's answer that leaves nothing to build: the implementer closes the issue with a
+comment and opens no PR, and that counts as done. A closed issue whose branch has a PR in any state (a PR the
+implementer merged itself, never audited) is not that case: it fails and is labelled `agent-blocked`.
 Then a **separate auditor session**, in its own fresh checkout of the pushed branch, checks the PR
 against the issue — every rule and example, by reading the code and running the cases itself, and
 whether the new tests would fail if the feature were wrong. It reads the whole change in context: the issue

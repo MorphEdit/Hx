@@ -174,6 +174,16 @@ test('audited: an implementer that closes its issue and prints its promise with 
   assert.equal(read().prs.length, 0);
 });
 
+test('audited: a closed issue whose branch already has a merged PR (merged by the implementer, never audited) fails, not done', E2E, async () => {
+  board([{ number: 7, title: 'set the key', body: 'NOTHINGTOBUILD', state: 'OPEN', labels: [L.ready] }]);
+  writeFileSync(stateFile, JSON.stringify({ ...read(), prs: [{ number: 100, head: 'issue/7', state: 'MERGED' }] }));
+  const { rc, lines } = await run({ audit: true });
+  assert.notEqual(rc, 0, lines.join('\n'));
+  assert.ok(!lines.some((l) => /closed without a PR/.test(l)), lines.join('\n'));
+  assert.ok(lines.some((l) => /\[#7\] impl FAILED ✗ — the implementer reported ready but no open PR/.test(l)), lines.join('\n'));
+  assert.ok(issue(7).labels.includes(L.blocked), issue(7).labels.join());
+});
+
 test('ship --body-file: the file is appended to the new PR body after Closes #N', E2E, () => {
   const wt = path.join(tmp, 'shipwt');
   git(tmp, 'clone', '-q', origin, wt);

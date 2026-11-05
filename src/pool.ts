@@ -1256,8 +1256,9 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
     if (r.stopReason === 'aborted' && r.iterations > 0) await checkpoint(p, agent, n, 'impl', r.sessionId, wt.dir, vars, eventLog, env);
     if (stopped(r)) return handBack(r, summary);
     // the owner's answer left nothing to build: the implementer closed the issue with a comment, no PR
-    // (asked first: findOpenPr waits ~30 s for a PR that is not there)
-    if (r.done && (await gh.issueState(c.repo, n)) === 'CLOSED' && (await gh.openPrFor(c.repo, `issue/${n}`)) === null) {
+    // (asked first: findOpenPr waits ~30 s for a PR that is not there). A PR in any state rules it out: one the
+    // implementer merged itself was never audited, and falls through to the no-open-PR failure below
+    if (r.done && (await gh.issueState(c.repo, n)) === 'CLOSED' && !(await gh.hasAnyPrFor(c.repo, `issue/${n}`))) {
       await relabel(c.repo, n, [], [L.working]);
       await removeWorktree(p.root, wt.dir);
       log(`DONE ✓ closed without a PR (${summary})`, n);

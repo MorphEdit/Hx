@@ -149,6 +149,18 @@ export async function openPrFor(repo: string, branch: string): Promise<number | 
   } catch { return null; }
 }
 
+/**
+ * Whether `branch` has a PR of its own in `repo` in any state (open, closed or merged). A failed list counts as
+ * a PR: the caller treats "no PR" as the case that skips the audit, so an unknown answer must not.
+ */
+export async function hasAnyPrFor(repo: string, branch: string): Promise<boolean> {
+  const r = await ghRun(['pr', 'list', '-R', repo, '--head', branch, '--state', 'all', '--json', 'number,isCrossRepository']);
+  if (r.code !== 0) return true;
+  try {
+    return (JSON.parse(r.stdout) as { isCrossRepository: boolean }[]).some((p) => p.isCrossRepository === false);
+  } catch { return true; }
+}
+
 /** The open PR `gh pr view <branch>` finds, or null: the fallback when `gh pr list --head` does not list a fresh PR yet. */
 export async function viewOpenPr(repo: string, branch: string): Promise<number | null> {
   const r = await ghRun(['pr', 'view', branch, '-R', repo, '--json', 'number,state']);
