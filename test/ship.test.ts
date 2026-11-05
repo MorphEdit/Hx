@@ -85,8 +85,8 @@ test('ship: a rebase conflict is aborted and reported with the files', E2E, () =
 // The timeouts below leave seconds for the shell and node to start under a loaded `npm test`: a shorter one
 // kills the run before the pid is written (#15).
 const hang = (pidFile: string) => `node -e "require('fs').writeFileSync('${pidFile.replace(/\\/g, '/')}', String(process.pid)); setInterval(() => {}, 1e3)"`;
-const shipWith = (env: ReturnType<typeof setup>, extra: string[], extraEnv: Record<string, string> = {}) =>
-  spawnSync(process.execPath, [SHIP, ...extra], { cwd: env.wt, encoding: 'utf8', timeout: 60_000,
+const shipWith = (env: ReturnType<typeof setup>, extra: string[], extraEnv: Record<string, string> = {}, timeout = 60_000) =>
+  spawnSync(process.execPath, [SHIP, ...extra], { cwd: env.wt, encoding: 'utf8', timeout,
     env: { ...process.env, HX_FAKE_STATE: env.board, HX_GH_BIN: FAKE_GH, ...extraEnv } });
 
 test('ship: a test run past --test-timeout is killed with its whole tree and fails like a failing test', E2E, () => {
@@ -124,10 +124,12 @@ test('ship: --test-timeout is remembered by --no-merge and reused by --resume; H
 
   const pidFile2 = path.join(env.tmp, 'env.pid');
   writeFileSync(stateFile, JSON.stringify({ ...saved, test: hang(pidFile2) }));
-  const t0 = Date.now();
-  const viaEnv = shipWith(env, ['--resume', '--test-timeout', '30'], { HX_SHIP_TEST_TIMEOUT_MS: '7200' });
+  const viaEnv = shipWith(env, ['--resume', '--test-timeout', '30'], { HX_SHIP_TEST_TIMEOUT_MS: '7200' }, 300_000);
   assert.equal(viaEnv.status, 4, viaEnv.stderr);
-  assert.ok(Date.now() - t0 < 30_000);
+  // timed from the hung test's start (its pid file), not ship's: git and the rebase before it are slow on a loaded
+  // machine. 7.2 s plus the kill, far below the 30 min --test-timeout would give.
+  const ran = Date.now() - statSync(pidFile2).mtimeMs;
+  assert.ok(ran < 120_000, `the hung test ran ${ran} ms`);
   assert.match(viaEnv.stderr, /tests timed out after 0\.12 min/);
   assert.ok(!alive(Number(readFileSync(pidFile2, 'utf8'))));
 });
