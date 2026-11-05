@@ -500,3 +500,19 @@ test('guide: a Config table row for each autoWorkers key with its default (#319)
   assert.ok(hasRow(g, 'autoWorkers', `\`${DEFAULTS.autoWorkers}\``), 'autoWorkers');
   for (const k of ['minWorkers', 'loadHighPct', 'loadLowPct', 'minFreeMemGB', 'scaleUpMinutes'] as const) assert.ok(hasRow(g, k, String(DEFAULTS[k])), k);
 });
+
+test('split after a timeout: the guide documents it in Single issues and the two rows; hx help names it (#312)', () => {
+  const r = read('README.md');
+  const start = r.indexOf('## Single issues');
+  const sec = r.slice(start, r.indexOf('\n## When a task needs you', start));
+  for (const w of ['split after a timeout', '`after-timeout`', 'SIZE: narrow', '=== SCOPE', '`## Scope (narrowed after a timeout)`',
+    '<!-- hx-size narrowed -->', '(narrowed after a timeout)`', 'the turn timed out again; this issue was already split once after a timeout',
+    '`git diff origin/<base>...HEAD`']) assert.ok(sec.includes(w), w);
+  const rows = r.split('\n');
+  assert.ok(rows.some((l) => l.startsWith('| the impl turn timed out') && /checkpoint and push/.test(l) && /narrowed/.test(l)
+    && /rest filed/.test(l) && /`ready-for-agent` again/.test(l)), 'What happens to an issue: the impl turn timed out');
+  assert.ok(rows.some((l) => l.startsWith('| a second timeout') && l.includes('`agent-blocked`')), 'What happens to an issue: a second timeout');
+  const h = spawnSync(process.execPath, [path.join(root, 'bin', 'hx.mjs'), 'help'], { encoding: 'utf8' });
+  const run = h.stdout.slice(h.stdout.indexOf('  run [options]'), h.stdout.indexOf('  supervise'));
+  assert.match(run, /timed-out impl turn is pushed, its issue narrowed and the rest filed/);
+});

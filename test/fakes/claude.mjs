@@ -16,7 +16,12 @@
 //              prints PROVISION FAILED, BARLOSE<n> = round n is lost, BARLOSEALL = every round is lost (else won),
 //              BARBAD1 = the judge's first reply of a round is in a bad shape, BARBAD2 = every reply is
 //   size:      the size session (Role: size) replies by tokens in the issue body: SIZESPLIT = `SIZE: split` with two
-//              children (the second `Blocked by: child 1`), SIZEBAD = a reply in no valid shape, otherwise `SIZE: fits`
+//              children (the second `Blocked by: child 1`), SIZEBAD = a reply in no valid shape, otherwise `SIZE: fits`.
+//              In mode after-timeout: SIZENARROW = `SIZE: narrow`, a SCOPE then two children (`rest k of #n`, both
+//              `Blocked by: none`; SIZENARROWNONE: no child), its SCOPE text carrying IMPLTIMEOUT again when the body
+//              has SIZENARROWAGAIN (the narrowed issue times out again), NOTHINGTOBUILD with SIZENARROWQUICK (its resumed
+//              session closes it at once, no ship); SIZENARROWBAD = a `SIZE: split` reply (invalid
+//              in that mode); otherwise `SIZE: fits` (invalid in that mode too)
 //   selfreview: prints FAKE_CLAUDE_FINDINGS (default 0) `## Finding` blocks and its promise
 //   grill:     interactive (prompt as the last argument, not stdin): writes a PRD to the output path the prompt
 //              names (FAKE_GRILL_NOWRITE=1: writes nothing, =blank: whitespace only) and exits
@@ -125,7 +130,7 @@ process.stdin.on('data', (d) => (prompt += d)).on('end', () => {
   const st = existsSync(counter) ? JSON.parse(readFileSync(counter, 'utf8'))
     : { turns: 0, role: /Role: (\w+)/.exec(prompt)?.[1] ?? 'implement', n: Number(/(?:Issue|PRD): #(\d+)/.exec(prompt)?.[1]),
         round: Number(/(?:review|audit|security) round (\d+)|· round (\d+) of \d+/.exec(prompt)?.slice(1).find(Boolean) ?? 0),
-        judge: /^Role: bar judge/m.test(prompt), promise: /<promise>([^<]+)<\/promise>/.exec(prompt)?.[1] };
+        judge: /^Role: bar judge/m.test(prompt), sizeMode: /· mode: (up-front|after-timeout)/.exec(prompt)?.[1], promise: /<promise>([^<]+)<\/promise>/.exec(prompt)?.[1] };
   st.turns++;
   writeFileSync(counter, JSON.stringify(st));
   writeFileSync(path.join(process.env.HX_FAKE_DIR, `${sid}.prompt-${st.turns}.txt`), prompt);
@@ -269,6 +274,24 @@ function finish(st, checkpoint, prompt) {
   // the size session: SIZESPLIT / SIZEBAD in the issue body, otherwise it fits
   if (st.role === 'size' && !checkpoint) {
     const body = loadBoard().issues.find((i) => i.number === st.n)?.body ?? '';
+    if (st.sizeMode === 'after-timeout' && /SIZENARROWBAD/.test(body)) return reply(`SIZE: split
+=== CHILD 1: half
+Blocked by: none
+half
+
+${done()}`);
+    if (st.sizeMode === 'after-timeout' && /SIZENARROW/.test(body)) return reply(`Read the WIP and the handoff note.
+SIZE: narrow
+=== SCOPE
+finish the part the WIP of #${st.n} has nearly done${/SIZENARROWAGAIN/.test(body) ? ' IMPLTIMEOUT' : ''}${/SIZENARROWQUICK/.test(body) ? ' NOTHINGTOBUILD' : ''}
+${/SIZENARROWNONE/.test(body) ? '' : `=== CHILD 1: rest 1 of #${st.n}
+Blocked by: none
+do rest part 1
+=== CHILD 2: rest 2 of #${st.n}
+Blocked by: none
+do rest part 2
+`}
+${done()}`);
     if (/SIZEBAD/.test(body)) return reply(`It is big, I think.
 === CHILD 1: half
 

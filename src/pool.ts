@@ -28,7 +28,7 @@ import { BAR_JUDGE_PROMISE, BAR_PROMISE, barCapComment, barLine, barMarker, barR
 import { parseQualityBar } from './prd.ts';
 import { cappedQuestion, cappedQuestionNote, IMPL_TOO_MANY_QUESTIONS, ownerAnswer, ownerAnswerNote, questionFromReply, TOO_MANY_QUESTIONS } from './question.ts';
 import { HELD_STATUS, heldComment, mergeFailure, readHeld, setHeld } from './held.ts';
-import { addBlockers, parseSizeReply, SIZE_FITS, SIZE_NARROWED, SIZE_SPLIT, withTrailers, type SizeChild } from './size.ts';
+import { addBlockers, narrowedBody, narrowedComment, parseSizeReply, SIZE_FITS, SIZE_NARROWED, SIZE_SPLIT, withTrailers, type SizeChild } from './size.ts';
 import { appendSkills, resolveSkills, rtddCheck, rtddEnv, SKILL_CHECKS, skillNames, skillsLogLine, type Skill } from './skills.ts';
 
 const PROMPTS = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'prompts');
@@ -1205,7 +1205,7 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
   const timedOutOpen = async (r: GoalResult) => (r.stopReason === 'error' || r.stopReason === 'max-iterations') && !!r.last?.timedOut
     && (await gh.issueState(c.repo, n)) === 'OPEN';
   /** A timed-out impl turn never leaves its WIP only on the local disk: the checkpoint turn, then hx's own commit and
-   *  push of what it left, and a handoff note when the checkpoint wrote none. The goal still ends in fail(). */
+   *  push of what it left, and a handoff note when the checkpoint wrote none; then the issue is narrowed (narrowTimedOut). */
   const saveTimedOut = async (r: GoalResult, summary: string) => {
     const notes = async () => (await gh.commentBodies(c.repo, n, ctx.trusted).catch(() => [] as string[])).filter((b) => b.trimStart().startsWith(HANDOFF_MARKER)).length;
     const before = await notes();
@@ -1216,7 +1216,49 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
       `The ${saved.step} failed, so the WIP is only in the kept worktree \`${wt.dir}\`. `);
     if (saved.pushed) log(`timed out: hx pushed issue/${n}`, n);
     if ((await notes()) <= before) await gh.comment(c.repo, n, `${HANDOFF_MARKER}\n**hx:** the impl turn timed out and its checkpoint left no note; the work is on branch issue/${n}.`).catch(() => {});
-    return fail(r, `the impl turn timed out (${goalFailure(r)})`, summary, `The WIP is on branch \`issue/${n}\`. `);
+    return narrowTimedOut(r, summary);
+  };
+  /**
+   * The split after a timeout (PRD #300 §2 steps 2–6), once the WIP is pushed: a `size` session in mode after-timeout
+   * narrows #n to what its WIP has nearly done and hx files the rest; #n is ready again and the next impl claim resumes
+   * the kept worktree. Once only (a narrowed marker by hx's login); a failed session or a failed write ends in fail().
+   */
+  const narrowTimedOut = async (r: GoalResult, summary: string): Promise<GoalResult> => {
+    const why = `the impl turn timed out (${goalFailure(r)})`;
+    const where = `The WIP is on branch \`issue/${n}\`. `;
+    const err = (e: unknown) => String((e as Error)?.message ?? e).slice(0, 300);
+    // nothing was narrowed: the issue fails as before the split after a timeout, the reason in run.log
+    const asToday = (cause: string) => { log(`not narrowed after the timeout: ${cause}`, n); return fail(r, why, summary, where); };
+    if (!ctx.login) return asToday('no gh login to read the size markers by');
+    let body: string, own: string[];
+    try {
+      [body, own] = await Promise.all([gh.issueBody(c.repo, n), gh.commentBodies(c.repo, n, new Set([ctx.login.toLowerCase()]))]);
+    } catch (e) { return asToday(`could not read the issue: ${err(e)}`); }
+    if (own.some(firstLineIs(SIZE_NARROWED))) return fail(r, 'the turn timed out again; this issue was already split once after a timeout', summary, where);
+    const sizePromise = `SIZE ${n} DONE`;
+    const s = await goal('decompose', wt.dir, 'size.md', sizePromise, { MODE: 'after-timeout' });
+    const total = `${summary}; size: ${s.iterations} turn(s), ${fmt(totalTokens(s.usage))} tokens`;
+    if (stopped(s)) return handBack(s, total);
+    const reply = s.done ? parseSizeReply(s.last?.text ?? '', 'after-timeout', sizePromise) : null;
+    if (reply?.shape !== 'narrow') return asToday(`the size session failed (${s.done ? 'the reply has no valid SIZE: narrow shape' : goalFailure(s)}; ${total})`);
+    // the dependents are read before anything is filed: failing here writes nothing, so it counts as a failed session
+    let dependents: { number: number; body: string }[];
+    try { dependents = await readDependents(c.repo, n, ctx.trusted); } catch (e) {
+      return asToday(`the size session failed (reading the dependents failed: ${err(e)})`);
+    }
+    // the rest of a PRD child stays that PRD's child
+    const par = parseParent(body, c.repo);
+    const parent = par && par.repo.toLowerCase() === c.repo.toLowerCase() ? par.number : n;
+    const split = await fileSplit(c.repo, L.ready, reply.children, { parent, first: [n], dependents });
+    const list = split.filed.map((k) => `#${k}`).join(', ');
+    // a write failed partway: nothing more is written; the marker sends a later timeout to agent-blocked (no second split)
+    const halt = (step: string, e: unknown) => fail(s, `the narrowing stopped at ${step}: ${err(e)}; filed ${list || 'none'}`, total, where, SIZE_NARROWED);
+    if (split.failed) return halt(split.failed.step, split.failed.error);
+    try { await gh.editBody(c.repo, n, narrowedBody(body, reply.scope, split.filed, c.turnTimeoutMinutes, c.repo)); } catch (e) { return halt(`the body edit of #${n}`, e); }
+    try { await gh.comment(c.repo, n, narrowedComment(split.filed, body)); } catch (e) { return halt('the narrowed comment', e); }
+    await relabel(c.repo, n, [], [L.working, L.blocked]);
+    log(`split #${n} → ${list || 'none'} (narrowed after a timeout)`, n);
+    return { ...s, done: true };
   };
   const promise = `${a.kind === 'impl' ? 'ISSUE' : a.kind.toUpperCase()} ${n} DONE`;
   // an impl session may stop with a question for the owner instead (not a completion: no verify, no PR, no audit)

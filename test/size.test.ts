@@ -1,7 +1,7 @@
 // The size session's reply parser and the hx-size markers (PRD #300, #306).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { SIZE_FITS, SIZE_NARROWED, SIZE_SPLIT, addBlockers, parseSizeReply, splitLines, withTrailers } from '../src/size.ts';
+import { SIZE_FITS, SIZE_NARROWED, SIZE_SPLIT, addBlockers, narrowedBody, narrowedComment, parseSizeReply, splitLines, withTrailers } from '../src/size.ts';
 import { parseBlockedBy, parseParent } from '../src/state.ts';
 
 const P = 'SIZE 7 DONE';
@@ -174,4 +174,31 @@ test('addBlockers: a following ## Parent and the text before the section are unc
   assert.equal(none, '## Blocked by\n#20\n\n## Parent\n#3');
   assert.deepEqual(nums(none), [20]);
   assert.equal(parseParent(none, R)?.number, 3);
+});
+
+test('narrowedBody: the heading and its line first, the SCOPE text, the old Blocked by refs and the old Parent (#312)', () => {
+  const old = 'A big job.\n\n## Blocked by\n#5\nother/repo#6\n\n## Parent\n#3\n';
+  const b = narrowedBody(old, '\nOnly the parser.\n\n- [ ] tests pass\n', [20, 21], 75, R);
+  assert.equal(b, '## Scope (narrowed after a timeout)\nNarrowed by hx after a 75-min timeout; the rest is #20, #21.\n\n'
+    + 'Only the parser.\n\n- [ ] tests pass\n\n## Blocked by\n#5\nother/repo#6\n\n## Parent\n#3');
+  assert.deepEqual(parseBlockedBy(b, R).map((r) => `${r.repo}#${r.number}`), ['me/app#5', 'other/repo#6']);
+  assert.equal(parseParent(b, R)?.number, 3);
+  // another parent form is kept as a ## Parent heading
+  assert.equal(parseParent(narrowedBody('Part of #9.\n\nWork.', 'Scope.', [], 75, R), R)?.number, 9);
+});
+
+test('narrowedBody: nothing filed, no blockers, no parent: `the rest is none.`, `None`, no ## Parent (#312)', () => {
+  const b = narrowedBody('A big job.\n', 'Scope.', [], 0.5, R);
+  assert.equal(b, '## Scope (narrowed after a timeout)\nNarrowed by hx after a 0.5-min timeout; the rest is none.\n\nScope.\n\n## Blocked by\nNone');
+  assert.equal(parseParent(b, R), null);
+  assert.deepEqual(parseBlockedBy(b, R), []);
+  assert.equal(narrowedBody('Work.\n\n## Blocked by\nNone\n', 'Scope.', [4], 75, R).endsWith('## Blocked by\nNone'), true);
+});
+
+test('narrowedComment: the narrowed marker first, the rest issues, the previous body in <details> (#312)', () => {
+  const c = narrowedComment([20, 21], 'Old body.\n');
+  assert.equal(c.split('\n')[0], SIZE_NARROWED);
+  assert.match(c, /^- #20\n- #21$/m);
+  assert.match(c, /<details><summary>[^<]+<\/summary>\n\nOld body\.\n\n<\/details>$/);
+  assert.match(narrowedComment([], 'x'), /nothing else was filed/);
 });
