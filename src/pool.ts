@@ -7,7 +7,7 @@ import { DEFAULTS, effectiveRtddBin, formatRoleModels, ghReservePctError, health
 import * as gh from './github.ts';
 import type { Issue } from './github.ts';
 import { hhmm, reserveState, type GhBudget } from './ghlimit.ts';
-import { claimable, externalRefs, fenceFindings, isTrusted, issueKey, parseParent, plan, prdKey, refKey, render, TRIAGE_MARKER, triageVerdict, trustedSet, type Action, type Plan } from './state.ts';
+import { claimable, externalRefs, fenceFindings, isTrusted, issueKey, openQuestions, parseParent, plan, prdKey, refKey, render, TRIAGE_MARKER, triageVerdict, trustedSet, type Action, type Plan } from './state.ts';
 import { addWorktree, auditWorktree, cleanStaleWorktrees, implWorktree, prdWorktree, removeWorktree, repairBrokenRefs, selfReviewWorktree, triageWorktree, type AddedWorktree } from './worktree.ts';
 import { emptyUsage, runGoal, runTurn, type GoalResult, type RateLimit } from './agent.ts';
 import { clearSetupRecord, readSetupRecord, setupLine, setupNote, setupWorktree, writeSetupRecord, type SetupResult } from './setup.ts';
@@ -962,6 +962,10 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
     SHIP_NOTE: audited ? 'Do not merge the PR or close the issue yourself.\n' : '',
     BUG_NOTE: bug ? `${IMPL_BUG_NOTE}\n` : '',
     SETUP_NOTE: '',
+    LABEL_NEEDS_HUMAN: L.needsHuman,
+    // counted as the prompt is rendered; hx enforces the cap again after the session (capQuestions)
+    QUESTIONS_LEFT: a.kind === 'decompose'
+      ? questionsLeftLine(openQuestions(await gh.listIssues(c.repo), L, c.repo, ctx.trusted).length, c.maxOpenQuestions) : '',
   };
   const logDir = path.join(p.stateDir, 'logs');
   mkdirSync(logDir, { recursive: true });
@@ -1216,6 +1220,7 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
       const filed = filedNums.length > 0;
       const drop = filed ? [L.reviewed, ...((await gh.issueLabels(c.repo, n)).includes(L.secured) ? [L.secured] : [])] : [];
       await relabel(c.repo, n, [], [L.working, ...drop]);
+      if (a.kind === 'decompose') await capQuestions(p, n, ctx.trusted);
       if (filed) log(`security pass filed ${filedNums.map((k) => `#${k}`).join(', ')} — removed ${L.reviewed}`, n);
       await removeWorktree(p.root, wt.dir);
       log(`${a.kind} DONE ✓ (${summary})`, n);
@@ -1281,6 +1286,40 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
     await gh.comment(c.repo, n, `${RETRY_MARKER}\n**hx:** ${back} (PR #${pr})`).catch(() => {});
     extra = { RESUMED: `NOTE: this branch already has your earlier work (PR #${pr} is open).\n${feedback}\n` };
   }
+}
+
+/** {{QUESTIONS_LEFT}} in the decompose prompt: how many `needs-human` issues it may still file. */
+export function questionsLeftLine(open: number, cap: number): string {
+  const left = Math.max(0, cap - open);
+  return left > 0
+    ? `You may still file ${left} such question issue(s) (${open} of at most ${cap} are open now); file fewer when you can.`
+    : `The owner already has ${open} open question(s), the most allowed (${cap}): file none. Take the recommended choice instead and tell the implementer to note it under \`## Decisions made for you\`.`;
+}
+
+export const TOO_MANY_QUESTIONS = '**hx:** too many open questions; the agent takes the recommended choice';
+
+/**
+ * After a decompose session: past maxOpenQuestions open `needs-human` issues in the repo, PRD `n`'s newest
+ * `needs-human` children (highest number first) become `ready-for-agent` until the count is at the cap.
+ */
+export async function capQuestions(p: Project, n: number, trusted: Set<string>): Promise<number[]> {
+  const c = p.config, L = c.labels;
+  const all = await gh.listIssues(c.repo);
+  let open = openQuestions(all, L, c.repo, trusted).length;
+  const mine = all.filter((i) => {
+    const par = i.state === 'OPEN' && i.labels.includes(L.needsHuman) && isTrusted(i, trusted) ? parseParent(i.body, c.repo) : null;
+    return !!par && par.repo.toLowerCase() === c.repo.toLowerCase() && par.number === n;
+  }).map((i) => i.number).sort((x, y) => y - x);
+  const swapped: number[] = [];
+  for (const k of mine) {
+    if (open <= c.maxOpenQuestions) break;
+    await relabel(c.repo, k, [L.ready], [L.needsHuman]);
+    await gh.comment(c.repo, k, TOO_MANY_QUESTIONS).catch(() => {});
+    swapped.push(k);
+    open--;
+  }
+  if (swapped.length) log(`too many open questions (cap ${c.maxOpenQuestions}): ${swapped.map((k) => `#${k}`).join(', ')} relabelled ${L.ready}`, n);
+  return swapped;
 }
 
 export const AUDIT_MARKER = '<!-- hx-audit -->';

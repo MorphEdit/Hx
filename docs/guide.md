@@ -788,7 +788,7 @@ and the dashboard's per-model numbers use it). To spot one:
 | `effort` | `medium` | `claude --effort`: `low`, `medium`, `high`, `xhigh`, `max`, or `""` for the CLI default |
 | `agentCli` | `"claude"` | the agent CLI that workers, `hx grill` and `hx issue` run (an adapter in `src/agents/`); `claude` is the only one |
 | `maxIterations` | 8 | turns per session before giving up |
-| `maxOpenQuestions` | 3 | open `needs-human` issues (questions waiting on the owner) at once |
+| `maxOpenQuestions` | 3 | open `needs-human` issues (questions waiting on the owner) at once. The decompose prompt says how many `[needs you]` question issues it may still file; after a decompose session past the cap, hx gives that PRD's newest ones `ready-for-agent` instead, with a comment (the agent takes the recommended choice) |
 | `gauntlet` | `true` | critique and revise a PRD in rounds before it is decomposed |
 | `gauntletRounds` | 2 | critic → reviser rounds before the PRD is decomposed anyway |
 | `reviewRounds` | 3 | PRD reviews before a human has to look |
