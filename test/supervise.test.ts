@@ -123,25 +123,29 @@ test('a self-update\'s runner stopped by hx pause (no exit record): not a crash,
   handover(r, { code: 1, record: false, upMs: 600 });
   const calls: { reason: string; runs: number }[] = [];
   const done = supervise(r.opts({ rollback: hook(r, calls) }));
-  assert.ok(await until(() => newPids(r).length === 1, 20_000));
-  setPause(r.stateDir, 'now');
+  // the pause is cleared whatever happens, so a supervisor that took it for a crash (and waits for hx resume) still ends
   try {
-    assert.equal(await done, 0);
-    assert.equal(r.lines.at(-1), 'supervise: runner stopped (exit 0) — not restarting');
-    assert.deepEqual(calls, []);
+    assert.ok(await until(() => newPids(r).length === 1, 20_000));
+    setPause(r.stateDir, 'now');
+    await until(() => r.lines.some((l) => /not restarting|stopped: paused/.test(l)), 20_000);
   } finally { clearPause(r.stateDir); }
+  assert.equal(await done, 0);
+  assert.equal(r.lines.at(-1), 'supervise: runner stopped (exit 0) — not restarting', r.lines.join('\n'));
+  assert.deepEqual(calls, []);
+  assert.equal(r.runs().length, 1, 'not restarted');
 });
 
 test('a crash after a pause: no rollback (a person stopped it), the supervisor waits for hx resume (#316)', E2E, async () => {
   const r = repo([1, 0], 300);
   const calls: { reason: string; runs: number }[] = [];
   const done = supervise(r.opts({ rollback: hook(r, calls) }));
-  assert.ok(await until(() => r.runs().length === 1, 20_000));
-  setPause(r.stateDir, 'now');
-  assert.ok(await until(() => r.lines.some((l) => l.startsWith('supervise: stopped: paused')), 20_000), r.lines.join('\n'));
-  assert.deepEqual(calls, []);
-  clearPause(r.stateDir);
+  try {
+    assert.ok(await until(() => r.runs().length === 1, 20_000));
+    setPause(r.stateDir, 'now');
+    assert.ok(await until(() => r.lines.some((l) => l.startsWith('supervise: stopped: paused')), 20_000), r.lines.join('\n'));
+  } finally { clearPause(r.stateDir); }
   assert.equal(await done, 0);
+  assert.deepEqual(calls, []);
   assert.equal(r.runs().length, 2);
 });
 
