@@ -66,23 +66,26 @@ export interface ShellResult {
   output: string; // stdout then stderr, the last 1 MB of each
   timedOut: boolean;
   aborted?: boolean; // opts.signal fired: the process tree was killed
+  killed?: Promise<void>; // after an abort: settles once the tree is gone (awaited already unless opts.killLater)
   pid?: number;
 }
 
 /** Run a shell command line; after `timeoutMs`, or when `signal` aborts, the whole process tree is killed
- *  and `timedOut` / `aborted` is set. */
-export function runShell(command: string, opts: { cwd?: string; timeoutMs: number; signal?: AbortSignal }): Promise<ShellResult> {
+ *  and `timedOut` / `aborted` is set. An abort settles once the tree is gone; with `killLater` it settles at
+ *  once and `killed` is that wait (taskkill alone takes seconds on a loaded Windows machine). */
+export function runShell(command: string, opts: { cwd?: string; timeoutMs: number; signal?: AbortSignal; killLater?: boolean }): Promise<ShellResult> {
   return new Promise((resolve) => {
     const child = spawn(command, [], { cwd: opts.cwd, shell: true, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'],
       detached: process.platform !== 'win32' }); // its own process group, so the tree can be killed elsewhere
     const keep = (s: string, d: Buffer) => (s + d.toString()).slice(-1024 * 1024);
     let out = '', err = '', timedOut = false, aborted = false, settled = false;
+    let killed: Promise<void> | undefined;
     child.stdout.on('data', (d: Buffer) => { out = keep(out, d); });
     child.stderr.on('data', (d: Buffer) => { err = keep(err, d); });
     const done = (code: number) => {
       if (settled) return;
       settled = true; clearTimeout(timer); opts.signal?.removeEventListener('abort', onAbort);
-      resolve({ code: aborted ? 130 : timedOut ? 124 : code, output: `${out}\n${err}`, timedOut, ...(aborted ? { aborted } : {}), pid: child.pid });
+      resolve({ code: aborted ? 130 : timedOut ? 124 : code, output: `${out}\n${err}`, timedOut, ...(aborted ? { aborted } : {}), ...(killed ? { killed } : {}), pid: child.pid });
     };
     const timer = setTimeout(() => {
       timedOut = true;
@@ -94,8 +97,11 @@ export function runShell(command: string, opts: { cwd?: string; timeoutMs: numbe
       aborted = true; clearTimeout(timer);
       // async: a sync taskkill under load blocks the event loop for seconds; settle once the tree is gone,
       // not on 'close' — a grandchild holding the pipes open would keep it from firing
-      killTree(child.pid, false, () => done(130));
-      setTimeout(() => done(130), 10_000).unref(); // in case taskkill itself hangs
+      killed = new Promise<void>((gone) => {
+        killTree(child.pid, false, gone);
+        setTimeout(gone, 10_000).unref(); // in case taskkill itself hangs
+      });
+      if (opts.killLater) done(130); else killed.then(() => done(130));
     };
     if (opts.signal?.aborted) onAbort();
     else opts.signal?.addEventListener('abort', onAbort, { once: true });

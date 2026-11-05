@@ -16,6 +16,7 @@ export interface GateResult {
   output: string; // tail of the test output
   timedOut?: boolean; // the command ran past the timeout: its process tree was killed
   aborted?: boolean; // the signal fired (Ctrl+C): the tree was killed and the result means nothing
+  killed?: Promise<void>; // with aborted: settles once the killed tree is gone (never written to gate.json)
   setupFailed?: boolean; // the worktree setup failed (`command` is then config.worktreeSetup): the test command never ran
   durationMs?: number; // wall-clock time of the test command only (not the worktree add, setup or cleanup); absent when it never finished
   at: string;
@@ -98,7 +99,8 @@ const tailOf = (s: string, n: number) => s.trim().split('\n').slice(-n).join('\n
 /**
  * Run `command` on a fresh checkout of origin/<base>; `signal` aborts it (the result then has `aborted`).
  * With `setup`, the worktree setup runs first; when it fails the command does not run and the result has
- * `setupFailed`. The gate never writes a setup record.
+ * `setupFailed`. The gate never writes a setup record. An aborted result can return before the killed tree is
+ * gone: await its `killed` before exiting.
  */
 export async function runGate(checkout: string, root: string, base: string, command: string, timeoutMs = 45 * 60_000,
   signal?: AbortSignal, setup?: GateSetup): Promise<GateResult> {
@@ -117,10 +119,10 @@ export async function runGate(checkout: string, root: string, base: string, comm
         ...(s.timedOut ? { timedOut: true } : {}), at: new Date().toISOString() };
     }
     const started = Date.now();
-    const res = await runShell(command, { cwd: wt.dir, timeoutMs, signal });
+    const res = await runShell(command, { cwd: wt.dir, timeoutMs, signal, killLater: true });
     const durationMs = Date.now() - started;
     aborted = !!res.aborted;
-    if (res.aborted) return { sha, ok: false, command, output: res.output.trim().split('\n').slice(-60).join('\n'), aborted: true, at: new Date().toISOString() };
+    if (res.aborted) return { sha, ok: false, command, output: res.output.trim().split('\n').slice(-60).join('\n'), aborted: true, killed: res.killed, at: new Date().toISOString() };
     const note = res.timedOut ? `\ngate: timed out after ${+(timeoutMs / 60_000).toFixed(2)} min — process tree killed` : '';
     return { sha, ok: res.code === 0 && !res.timedOut, command, output: (res.output.trim() + note).trim().split('\n').slice(-60).join('\n'),
       ...(res.timedOut ? { timedOut: true } : {}), durationMs, at: new Date().toISOString() };

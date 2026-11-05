@@ -27,6 +27,25 @@ setTimeout(() => {}, 60e3);
   assert.ok(pid > 0 && !alive(pid), `the grandchild ${pid} is not left running`);
 });
 
+test('runShell killLater: an abort settles before the tree is killed; killed settles once it is gone (#283)', E2E, async () => {
+  const tmp = mkdtempSync(path.join(os.tmpdir(), 'hx-x-'));
+  const pidFile = path.join(tmp, 'child.pid');
+  writeFileSync(path.join(tmp, 'tree.js'), `const c = require('child_process').spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60e3)'], { stdio: 'ignore' });
+require('fs').writeFileSync(${JSON.stringify(pidFile)}, String(c.pid));
+setTimeout(() => {}, 60e3);
+`);
+  const ac = new AbortController();
+  const poll = setInterval(() => { try { readFileSync(pidFile, 'utf8'); } catch { return; } clearInterval(poll); ac.abort(); }, 50);
+  const r = await runShell('node tree.js', { cwd: tmp, timeoutMs: 60_000, signal: ac.signal, killLater: true }).finally(() => clearInterval(poll));
+  const pid = Number(readFileSync(pidFile, 'utf8'));
+  assert.equal(r.aborted, true);
+  assert.ok(r.killed instanceof Promise, 'the kill is handed back to wait on');
+  // taskkill is a process of its own: it has not run yet when the abort settles
+  if (process.platform === 'win32') assert.ok(alive(pid), `the grandchild ${pid} is still being killed`);
+  await r.killed;
+  assert.ok(!alive(pid), `the grandchild ${pid} is not left running`);
+});
+
 test('runShell: a signal already aborted kills the command at once', E2E, async () => {
   const t0 = Date.now();
   const r = await runShell(`node -e "setTimeout(() => {}, 60e3)"`, { timeoutMs: 60_000, signal: AbortSignal.abort() });
