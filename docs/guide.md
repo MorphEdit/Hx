@@ -403,6 +403,17 @@ windows in `live.json` (`budget.windows`) and the dashboard's Now section shows 
   same name, `uninstall` removes only it, `status` shows the task, its last result, and whether a supervisor and a
   runner are alive. On macOS and Linux it prints the launchd agent or systemd `--user` unit and the commands to
   install it, and changes nothing.
+- **`autoStart`** (`.hx/config.json`, default `false`; `hx init` asks on Windows) keeps that task in step with the
+  setting, so there is no command to remember. At its start `hx run` looks up this repo's task: with `autoStart: true`
+  and the task missing or pointing at another path, it registers it as `hx service install` does (logon trigger, you,
+  least privilege, no stored password); with `autoStart: false` and the task there, it removes it as
+  `hx service uninstall` does. Only this repo's task is ever touched, never another's. Each change logs one line,
+  `autoStart: registered hx\<id>` or `autoStart: removed hx\<id>`. `hx doctor` shows `autoStart — on (task registered)`,
+  `on (task missing — hx run will register it)` or `off`; the dashboard shows the setting and the task as `hx run`
+  last found it (read-only: change it in `.hx/config.json`). A task you registered with `hx service install` while
+  `autoStart` is `false` is removed by the next `hx run`: set `autoStart: true` to keep it. On macOS and Linux,
+  `autoStart: true` makes `hx run` print the launchd or systemd unit once, as `hx service install` does there, and
+  changes nothing.
 
 ## PRD flow
 
@@ -870,6 +881,7 @@ and the dashboard's per-model numbers use it). To spot one:
 | `selfReviewMaxFindings` | 5 | findings of one self-review filed as `bug` issues; the rest are dropped |
 | `selfUpdate` | `false` | `hx run --watch` updates its own hx install when idle (a git checkout: fast-forward; a release: `hx update`) and restarts itself; rolled back when the new runner does not start (see [Stopping and resuming](#stopping-and-resuming)). `hx init` asks when hx runs from a git checkout |
 | `selfUpdateMinutes` | 15 | minutes between the self-update checks of `hx run --watch` |
+| `autoStart` | `false` | `hx run` keeps this repo's logon task (`hx service install`) in step: registers it when `true`, removes it when `false` (see [Starting at logon](#starting-at-logon)). `hx init` asks on Windows |
 | `worktreeRoot` | `<drive>:\hx-wt\<repo>` | keep it short: Windows path-length limits |
 | `worktreeSetup` | `""` | a shell command run in every new worktree (sessions and the gate) before it is used, e.g. `npm ci`; `hx init` proposes one from the lockfile (see [Worktree setup](#worktree-setup)) |
 | `worktreeSetupMinutes` | `10` | the setup command is killed, with its process tree, after this long and counts as failed |

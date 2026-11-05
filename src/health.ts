@@ -371,7 +371,7 @@ async function snapshot(p: Project, o: HealthOptions, now: number): Promise<Heal
     const l = readLive(p.stateDir);
     live = new Set(l && typeof l.pid === 'number' && pidAlive(l.pid) ? (l.sessions ?? []).map((x) => x.number) : []);
   }
-  const env = o.env ? await o.env() : { checks: (await doctor({ cwd: p.root, skipRtdd: true })).checks, freeBytes: freeBytes(c.worktreeRoot) };
+  const env = o.env ? await o.env() : { checks: (await doctor({ cwd: p.root, skipRtdd: true, skipAutoStart: true })).checks, freeBytes: freeBytes(c.worktreeRoot) };
   return { issues, openPrs, mergedPrs, comments, live, worktrees: listWorktrees(c.worktreeRoot), gateRuns: readGateRuns(p.stateDir),
     health: readHealth(p.stateDir), headSha, now, config: { stallMinutes: c.stallMinutes, labels: c.labels }, env };
 }

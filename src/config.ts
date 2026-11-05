@@ -76,6 +76,7 @@ export interface Config {
   selfReviewMaxFindings: number; // findings of a self-review filed as bug issues; the rest are dropped
   selfUpdate: boolean; // hx run --watch updates its own hx install when idle and restarts itself (rolled back if the new code does not start)
   selfUpdateMinutes: number; // minutes between self-update checks
+  autoStart: boolean; // hx run keeps this repo's logon task (hx service install) in step: registered when true, removed when false
   worktreeRoot: string; // keep it short: Windows MAX_PATH
   agentCli: string; // the agent CLI workers and hx grill / hx issue run (src/agents): claude
   claudeBin: string; // the claude adapter's binary
@@ -133,6 +134,7 @@ export const DEFAULTS: Omit<Config, 'repo' | 'defaultBranch' | 'worktreeRoot'> =
   selfReviewMaxFindings: 5,
   selfUpdate: false,
   selfUpdateMinutes: 15,
+  autoStart: false,
   agentCli: 'claude',
   claudeBin: 'claude',
   claudeArgs: [],

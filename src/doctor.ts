@@ -7,6 +7,7 @@ import path from 'node:path';
 import { DEFAULTS, effectiveRtddBin, labelSpecs, STATE_DIR, type Config, type Labels } from './config.ts';
 import { agentFor } from './agents/index.ts';
 import { hideWindow, resolveCmd } from './exec.ts';
+import { autoStartText, serviceId, taskName, taskState, type TaskState } from './service.ts';
 import { nodeOk } from '../bin/node-check.mjs';
 
 export type Mark = '✓' | '✗' | '–' | '?';
@@ -142,6 +143,13 @@ export function checkEol(attributes: string | null, autocrlf: string): Check {
     : { mark: '✓', label, detail: 'LF', required: false };
 }
 
+/** autoStart: a note, never a failure. `task` = this repo's logon task (Windows), undefined off Windows. */
+export function checkAutoStart(enabled: boolean, task: TaskState | undefined): Check {
+  const detail = autoStartText(enabled, task ?? 'unit');
+  return { mark: enabled && task === 'registered' ? '✓' : '–', label: 'autoStart', detail,
+    fix: enabled ? 'hx run registers the task at its start' : 'set autoStart true in .hx/config.json to start hx at logon', required: false };
+}
+
 export function checkNoRepo(): Check {
   return { mark: '–', label: 'repo checks', detail: 'skipped: not inside a git repo', fix: 'run hx doctor in your repo', required: false };
 }
@@ -161,6 +169,7 @@ export interface DoctorOptions {
   configOptional?: boolean; // hx start: a missing .hx/config.json is a note (hx start runs hx init next)
   skipLabels?: boolean; // hx run: it creates the labels itself
   skipRtdd?: boolean; // the health pass: rtdd is optional (never ✗), and hx run checks it once per run itself
+  skipAutoStart?: boolean; // hx run and the health pass: hx run checks the logon task itself at its start
   timeoutMs?: number;
 }
 
@@ -211,6 +220,11 @@ export async function doctor(opts: DoctorOptions = {}): Promise<{ checks: Check[
     checks.push(originCheck, checkConfig(raw !== null, opts.configOptional));
     if (!opts.skipLabels && originCheck.mark === '✓') checks.push(checkLabels(await missingLabels(GH, originCheck.detail!, config.labels, root, t)));
     if (raw !== null) checks.push(checkGate(config.gateCommand ?? ''));
+    if (raw !== null && !opts.skipAutoStart) {
+      const enabled = config.autoStart === true;
+      const task = platform !== 'win32' ? undefined : enabled ? await taskState(taskName(serviceId(config.repo ?? '', root)), root) : 'missing';
+      checks.push(checkAutoStart(enabled, task));
+    }
     const attrs = path.join(root, '.gitattributes');
     const autocrlf = await probe(GIT, ['config', '--get', 'core.autocrlf'], root, t);
     checks.push(checkEol(existsSync(attrs) ? readFileSync(attrs, 'utf8') : null, autocrlf.code === 0 ? autocrlf.stdout : ''));

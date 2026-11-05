@@ -2,8 +2,10 @@
 // trigger, no stored password, no elevation), registered from XML with schtasks.exe. macOS / Linux: prints the launchd
 // or systemd --user unit and the commands to install it, and changes nothing. The task and units are built by pure
 // functions; the tests run a fake schtasks (HX_SCHTASKS_BIN).
+// autoStart (config): hx run keeps that task in step with the setting (syncAutoStart); .hx/autostart.json keeps the
+// last check for the dashboard.
 import { createHash } from 'node:crypto';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { run } from './exec.ts';
@@ -69,6 +71,20 @@ export function taskXml(s: ServiceSpec): string {
 export const schtasksCreate = (name: string, xmlFile: string) => ['/Create', '/TN', name, '/XML', xmlFile, '/F'];
 export const schtasksDelete = (name: string) => ['/Delete', '/TN', name, '/F'];
 export const schtasksQuery = (name: string) => ['/Query', '/TN', name, '/V', '/FO', 'LIST'];
+/** The registered task's XML: the same in every Windows language, unlike the /V LIST keys. */
+export const schtasksQueryXml = (name: string) => ['/Query', '/TN', name, '/XML'];
+
+/** The <WorkingDirectory> of a task's XML (the repo the task runs hx supervise in), undefined when it has none. */
+export function taskWorkingDir(text: string): string | undefined {
+  const m = /<WorkingDirectory>([^<]*)<\/WorkingDirectory>/.exec(text.replace(/\0/g, ''));
+  return m ? m[1].replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&').trim() : undefined;
+}
+
+/** Two Windows paths name one directory: case and a trailing separator aside. */
+export const samePath = (a: string, b: string) => {
+  const norm = (p: string) => path.win32.resolve(p).replace(/[\\/]+$/, '').toLowerCase();
+  return norm(a) === norm(b);
+};
 
 /** "Last Result" and "Last Run Time" from `schtasks /Query /V /FO LIST`. */
 export function parseQuery(out: string): { lastResult?: string; lastRun?: string; status?: string } {
@@ -135,29 +151,128 @@ export interface ServiceOptions {
 
 const schtasksBin = () => process.env.HX_SCHTASKS_BIN || 'schtasks.exe';
 
+/** The current user as the task's principal: DOMAIN\user on Windows. */
+const currentUser = () => (process.env.USERDOMAIN ? `${process.env.USERDOMAIN}\\${os.userInfo().username}` : os.userInfo().username);
+
+const specFor = (id: string, root: string, entry: string, args: string[]): ServiceSpec =>
+  ({ name: id, root: path.resolve(root), node: process.execPath, entry, args, user: currentUser() });
+
+/** Register (or replace) the task from taskXml; null, or what schtasks said when it refused. */
+async function createTask(name: string, spec: ServiceSpec): Promise<string | null> {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'hx-task-'));
+  const file = path.join(dir, 'task.xml');
+  try {
+    writeFileSync(file, '﻿' + taskXml(spec), 'utf16le');
+    const r = await run(schtasksBin(), schtasksCreate(name, file));
+    return r.code === 0 ? null : (r.stderr || r.stdout).trim();
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+}
+
+async function deleteTask(name: string): Promise<string | null> {
+  const r = await run(schtasksBin(), schtasksDelete(name));
+  return r.code === 0 ? null : (r.stderr || r.stdout).trim();
+}
+
+/** The task as hx finds it: registered for this repo, missing, or registered for another path. */
+export type TaskState = 'registered' | 'missing' | 'elsewhere';
+
+/** One /Query of the task's XML: a task whose WorkingDirectory is not `root` is `elsewhere`. */
+export async function taskState(name: string, root: string): Promise<TaskState> {
+  const r = await run(schtasksBin(), schtasksQueryXml(name));
+  if (r.code !== 0) return 'missing';
+  const wd = taskWorkingDir(r.stdout);
+  return wd !== undefined && samePath(wd, root) ? 'registered' : 'elsewhere';
+}
+
+/** `.hx/autostart.json`: hx run's last autoStart check, and the unit id it printed off Windows (printed once). */
+export interface AutoStartRecord { at: string; enabled: boolean; task: TaskState | 'unit'; name: string; line?: string; printed?: string }
+
+const autoStartFile = (stateDir: string) => path.join(stateDir, 'autostart.json');
+
+export function readAutoStart(stateDir: string): AutoStartRecord | null {
+  const f = autoStartFile(stateDir);
+  if (!existsSync(f)) return null;
+  try { return JSON.parse(readFileSync(f, 'utf8')); } catch { return null; }
+}
+
+function writeAutoStart(stateDir: string, rec: AutoStartRecord): void {
+  const f = autoStartFile(stateDir);
+  try { writeFileSync(f + '.tmp', JSON.stringify(rec, null, 2)); renameSync(f + '.tmp', f); } catch {}
+}
+
+/** What hx doctor and the dashboard say of the setting and its task. */
+export function autoStartText(enabled: boolean, task: TaskState | 'unit' | undefined): string {
+  if (!enabled) return 'off';
+  if (task === 'registered') return 'on (task registered)';
+  if (task === 'missing') return 'on (task missing — hx run will register it)';
+  if (task === 'elsewhere') return 'on (task points at another path — hx run will register it)';
+  if (task === 'unit') return 'on (no task here: hx service install prints the unit to install)';
+  return 'on (not checked yet)';
+}
+
+export interface AutoStartOptions {
+  enabled: boolean; // config.autoStart
+  repo: string;
+  root: string;
+  stateDir: string;
+  entry: string; // bin/hx.mjs
+  platform?: string; // default process.platform
+  log?: (line: string) => void; // `autoStart: registered hx\<id>` / `removed …`: only when it changed something
+  print?: (s: string) => void; // the launchd / systemd unit, off Windows
+}
+
+/** hx run's start. Windows: autoStart on and this repo's task missing or pointing at another path → register it as
+ *  hx service install does; off and the task exists → remove it. Only this repo's task name is ever queried or changed.
+ *  Off Windows: on prints the unit once per repo (as hx service install does there) and changes nothing. */
+export async function syncAutoStart(o: AutoStartOptions): Promise<AutoStartRecord> {
+  const platform = o.platform ?? process.platform;
+  const log = o.log ?? ((l: string) => console.log(l));
+  const id = serviceId(o.repo, o.root);
+  const prev = readAutoStart(o.stateDir);
+  const at = new Date().toISOString();
+  if (platform !== 'win32') {
+    const rec: AutoStartRecord = { at, enabled: o.enabled, task: 'unit', name: id, ...(prev?.printed ? { printed: prev.printed } : {}) };
+    if (o.enabled && prev?.printed !== id) {
+      (o.print ?? ((s: string) => console.log(s)))(unixService('install', platform, id, specFor(id, o.root, o.entry, [])));
+      rec.printed = id;
+    }
+    writeAutoStart(o.stateDir, rec);
+    return rec;
+  }
+  const name = taskName(id);
+  const rec: AutoStartRecord = { at, enabled: o.enabled, task: await taskState(name, o.root), name };
+  if (o.enabled && rec.task !== 'registered') {
+    const err = await createTask(name, specFor(id, o.root, o.entry, []));
+    rec.line = err === null ? `autoStart: registered ${name}` : `autoStart: could not register ${name}: ${err}`;
+    if (err === null) rec.task = 'registered';
+    log(rec.line);
+  } else if (!o.enabled && rec.task !== 'missing') {
+    const err = await deleteTask(name);
+    rec.line = err === null ? `autoStart: removed ${name}` : `autoStart: could not remove ${name}: ${err}`;
+    if (err === null) rec.task = 'missing';
+    log(rec.line);
+  }
+  writeAutoStart(o.stateDir, rec);
+  return rec;
+}
+
 export async function service(o: ServiceOptions): Promise<number> {
   const print = o.print ?? ((s: string) => console.log(s));
   const platform = o.platform ?? process.platform;
   const id = serviceId(o.repo, o.root);
-  const user = process.env.USERDOMAIN ? `${process.env.USERDOMAIN}\\${os.userInfo().username}` : os.userInfo().username;
-  const spec: ServiceSpec = { name: id, root: path.resolve(o.root), node: process.execPath, entry: o.entry, args: o.args, user };
+  const spec = specFor(id, o.root, o.entry, o.args);
   if (!['install', 'uninstall', 'status'].includes(o.sub)) { print('usage: hx service install [--workers N] | uninstall | status'); return 2; }
   if (platform !== 'win32') { print(unixService(o.sub, platform, id, spec)); return 0; }
   const name = taskName(id);
   if (o.sub === 'install') {
-    const dir = mkdtempSync(path.join(os.tmpdir(), 'hx-task-'));
-    const file = path.join(dir, 'task.xml');
-    try {
-      writeFileSync(file, '﻿' + taskXml(spec), 'utf16le');
-      const r = await run(schtasksBin(), schtasksCreate(name, file));
-      if (r.code !== 0) { print(`could not register ${name}: ${(r.stderr || r.stdout).trim()}`); return 1; }
-    } finally { rmSync(dir, { recursive: true, force: true }); }
+    const err = await createTask(name, spec);
+    if (err !== null) { print(`could not register ${name}: ${err}`); return 1; }
     print(`registered ${name}: at your logon, ${spec.node} ${superviseArgs(spec)} in ${spec.root}`);
     return 0;
   }
   if (o.sub === 'uninstall') {
-    const r = await run(schtasksBin(), schtasksDelete(name));
-    if (r.code !== 0) { print(`no task ${name} removed: ${(r.stderr || r.stdout).trim()}`); return 1; }
+    const err = await deleteTask(name);
+    if (err !== null) { print(`no task ${name} removed: ${err}`); return 1; }
     print(`removed ${name}`);
     return 0;
   }

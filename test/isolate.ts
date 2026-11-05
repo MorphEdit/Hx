@@ -26,6 +26,11 @@ writeFileSync(path.join(gitHome, 'config'), GIT_TEST_CONFIG);
 process.env.HX_SHARE_CONSOLE = '1';
 // the fake gh answers hx's and the scripts' calls in-process (test/fakes/gh.mjs): a full PRD run made ~110 gh calls,
 // each a node start, most of its time
+// schtasks: hx run's autoStart check and hx doctor query this repo's logon task; no test reaches the real Task Scheduler
+const schtasksDir = mkdtempSync(path.join(os.tmpdir(), 'hx-schtasks-'));
+export const FAKE_SCHTASKS = { HX_SCHTASKS_BIN: path.join(path.dirname(fileURLToPath(import.meta.url)), 'fakes', 'schtasks.mjs'),
+  FAKE_SCHTASKS_LOG: path.join(schtasksDir, 'schtasks.log') };
+Object.assign(process.env, FAKE_SCHTASKS);
 process.env.HX_GH_INPROC = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fakes', 'gh.mjs');
 process.env.NODE_COMPILE_CACHE ??= path.join(os.tmpdir(), 'hx-test-compile-cache');
 Object.assign(process.env, {

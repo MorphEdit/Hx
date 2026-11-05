@@ -1,5 +1,5 @@
 // hx supervise restarts a crashed runner; hx service registers it at logon (#274).
-import { E2E } from './isolate.ts';
+import { E2E, FAKE_SCHTASKS } from './isolate.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
@@ -207,7 +207,7 @@ test('hx service install / status / uninstall drive schtasks (a fake): one task,
     assert.deepEqual(JSON.parse(readFileSync(log + '.tasks', 'utf8')), []);
     const del = readFileSync(log, 'utf8').trim().split('\n').map((l) => JSON.parse(l)).find((c) => c.args[0] === '/Delete');
     assert.deepEqual(del.args, ['/Delete', '/TN', name, '/F'], 'removes only that task');
-  } finally { delete process.env.HX_SCHTASKS_BIN; delete process.env.FAKE_SCHTASKS_LOG; }
+  } finally { Object.assign(process.env, FAKE_SCHTASKS); }
 });
 
 test('hx service install on Linux and macOS prints the unit and the commands, and changes nothing', E2E, async () => {
@@ -227,7 +227,7 @@ test('hx service install on Linux and macOS prints the unit and the commands, an
       else { assert.match(t, /launchctl load -w ~\/Library\/LaunchAgents\/com\.hx\.app-[0-9a-f]{8}\.plist/); assert.match(t, /<key>RunAtLoad<\/key><true\/>/); }
     }
     assert.ok(!existsSync(log), 'schtasks never ran');
-  } finally { delete process.env.HX_SCHTASKS_BIN; delete process.env.FAKE_SCHTASKS_LOG; }
+  } finally { Object.assign(process.env, FAKE_SCHTASKS); }
   assert.match(systemdUnit(spec({ root: '/home/me/app', node: '/usr/bin/node', entry: '/opt/hx/bin/hx.mjs', args: [] })), /WorkingDirectory=\/home\/me\/app\nExecStart=\/usr\/bin\/node \/opt\/hx\/bin\/hx.mjs supervise\n/);
 });
 
