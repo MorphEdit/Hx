@@ -20,7 +20,7 @@ roadmap and the agreed order of the next features) before changing anything.
   `outcomes.ts` run.log → outcome numbers · `timing.ts` test time: the test-command matcher, per-turn test time from stream-json events, the stats over usage.jsonl and gate-runs.jsonl · `doctor.ts` `hx doctor`: the prerequisite checks and their ✓ ✗ – ? marks (hx start's first step, hx run's startup gate) ·
   `supervise.ts` `hx supervise`: restarts a crashed `hx run --watch`, `.hx/supervise.json` · `service.ts` `hx service`: the logon task (schtasks XML) or the launchd / systemd unit ·
   `fleet.ts` `hx fleet`: ~/.hx/fleet.json, file slots (shared worker cap), hold.json (shared usage hold), the child runners
-- `prompts/` — one per role (`impl`, `decompose`, `review`, `continue`, `checkpoint`, `grill`, `issue`, `audit`, `critic`, `revise`, `security`, `triage`, `selfreview`, `bar`, `bar-judge`), `{{VAR}}` placeholders; `skills` holds the note appended after a skill (`prompts/skills/<name>.md`, inserted verbatim, never rendered)
+- `prompts/` — one per role (`impl`, `decompose`, `review`, `continue`, `checkpoint`, `grill`, `issue`, `audit`, `critic`, `revise`, `security`, `triage`, `size`, `selfreview`, `bar`, `bar-judge`), `{{VAR}}` placeholders; `skills` holds the note appended after a skill (`prompts/skills/<name>.md`, inserted verbatim, never rendered)
 - `bin/` — `hx.mjs` the entry (Node check first, then `install` / `update` or the type-strip hook and `src/cli.ts`) ·
   `install.mjs` the `npx github:MorphEdit/Hx install` / `hx update` installer (ends with the checks of `src/doctor.ts`) · `node-check.mjs` · `strip-hook.mjs`
   the `module.registerHooks` load hook that strips hx's `.ts` under `node_modules`
