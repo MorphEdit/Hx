@@ -106,7 +106,7 @@ test('decompose files more questions than the cap allows: the newest excess beco
 
 const decompose = readFileSync(path.join(here, '..', 'prompts', 'decompose.md'), 'utf8');
 
-test('decompose prompt: the question format, the [needs you] title and the rules', () => {
+test('decompose prompt: the question format, the [needs you] title and the rules', E2E, () => {
   for (const w of ['<!-- hx-question -->', '**Hx needs your answer:**', '- **A)** <choice> (recommended) —', '- **B)** <choice> —',
     'Reply with just the letter, or say what you want in your own words.', '`[needs you] <short question>`', '--label {{LABEL_NEEDS_HUMAN}}',
     "never listed under any sibling's `## Blocked by`", "ask the owner only when no sensible default exists or the owner's own resource is\n   needed",
@@ -118,7 +118,7 @@ test('decompose prompt: the question format, the [needs you] title and the rules
   assert.ok(f.indexOf('**Hx needs your answer:**') < f.indexOf('**A)**') && f.indexOf('**A)**') < f.indexOf('Reply with just the letter'));
 });
 
-test('decompose prompt: QUESTIONS_LEFT says how many may still be filed, and none at the cap', () => {
+test('decompose prompt: QUESTIONS_LEFT says how many may still be filed, and none at the cap', E2E, () => {
   const left = render(decompose, { QUESTIONS_LEFT: questionsLeftLine(1, 3), LABEL_NEEDS_HUMAN: L.needsHuman });
   assert.match(left, /You may still file 2 such question issue\(s\)/);
   assert.ok(!left.includes('{{QUESTIONS_LEFT}}'));
