@@ -22,6 +22,11 @@
 // NOTHINGTOBUILD in an issue body: an implement session closes it with a comment and prints its promise, no PR.
 // MAINRED in an issue body: its round-1 auditor pushes a BROKEN file to main; FAILSONBROKEN=X,Y: its shipped test command
 // fails X and Y while BROKEN exists.
+// IMPLQUESTION in an issue body: an implement session (audited or not) writes wip-<n>.txt in its worktree and ends its
+// first turn with a question and `<promise>NEEDS_HUMAN <n></promise>`, unless its prompt carries the owner's answer or
+// says the question cap is reached (IMPLQUESTIONALWAYS: asks even then; IMPLQUESTIONFIRST: only in the issue's first
+// session, whatever its prompt says; IMPLQUESTIONBARE: the question lacks the <!-- hx-question --> marker line).
+// FAKE_CLAUDE_TEXT=<text>: every turn replies exactly that text, nothing else.
 // FAKE_CLAUDE_PAUSE=<file>: an implement session writes `drain` there as it closes its issue
 // FAKE_CLAUDE_PAUSE_START=<file>: an implement session writes `drain` there as its first turn starts (mid-session)
 // FAKE_CLAUDE_TIMES=<file>: each turn appends {sid, start, end} (ms) as one line when it exits.
@@ -95,6 +100,7 @@ process.stdin.on('data', (d) => (prompt += d)).on('end', () => {
     return;
   }
   if (mode === 'crash') { process.stderr.write('boom'); process.exit(3); }
+  if (process.env.FAKE_CLAUDE_TEXT !== undefined) return reply(process.env.FAKE_CLAUDE_TEXT);
   if (mode === 'fatal') {
     out({ type: 'result', subtype: 'success', is_error: true, api_error_status: 400, num_turns: 1, usage, total_cost_usd: 0,
       result: 'API Error: 400 Claude Code 2.1.150 does not support this model' });
@@ -182,6 +188,16 @@ function finish(st, checkpoint, prompt) {
     g('commit', '-q', '-m', `fix: main is green again (closes #${st.n})`); g('push', '-q', 'origin', 'HEAD:main');
     locked(boardFile, () => { const b = loadBoard(); b.issues.find((i) => i.number === st.n).state = 'CLOSED'; saveBoard(b); });
     return reply(`fixed main. ${done()}`);
+  }
+  const body = st.role === 'implement' && !checkpoint ? loadBoard().issues.find((i) => i.number === st.n)?.body ?? '' : '';
+  const askedFile = path.join(process.env.HX_FAKE_DIR ?? '.', `asked-${st.n}`);
+  const ask = /IMPLQUESTIONALWAYS/.test(body) || (/IMPLQUESTIONFIRST/.test(body) ? !existsSync(askedFile)
+    : /IMPLQUESTION/.test(body) && !/The owner answered|do not ask one/.test(prompt));
+  if (ask && st.turns === 1) {
+    writeFileSync(askedFile, '');
+    writeFileSync(path.join(process.cwd(), `wip-${st.n}.txt`), 'half done\n');
+    const q = '**Hx needs your answer:** keep the scores after a restart?\n\n- **A)** Yes (recommended) — scores stay\n- **B)** No — scores reset\n\nReply with just the letter, or say what you want in your own words.';
+    return reply(`${/IMPLQUESTIONBARE/.test(body) ? '' : '<!-- hx-question -->\n'}${q}\n\n<promise>NEEDS_HUMAN ${st.n}</promise>`);
   }
   // audited implementer: really commit, then really run ship.mjs --no-merge (real git, fake gh)
   if (st.role === 'implement' && / --no-merge/.test(prompt) && !checkpoint) {

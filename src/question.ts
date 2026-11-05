@@ -47,3 +47,14 @@ export function ownerAnswerNote(qa: { question: string; answer: string } | null)
   if (!qa) return '';
   return `The owner answered a question on this issue. Carry out the choice they made, and quote their answer in the PR body under \`## Owner decisions\`.\n\nThe question:\n\n${qa.question}\n\nThe owner's answer:\n\n${qa.answer}\n`;
 }
+
+/**
+ * The question comment an impl session that stopped with its NEEDS_HUMAN promise asks: its final message with every
+ * line holding that promise (`promiseRe`, PROMISE_RE of state.ts) removed, trimmed, with QUESTION_MARKER put first
+ * when it does not start with it.
+ */
+export function questionFromReply(text: string, promiseRe: RegExp): string {
+  const re = new RegExp(`^.*${promiseRe.source}.*$`, 'gm');
+  const q = text.replace(re, '').trim();
+  return startsWith(q, QUESTION_MARKER) ? q : `${QUESTION_MARKER}\n${q}`;
+}

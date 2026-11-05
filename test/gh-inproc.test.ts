@@ -51,7 +51,7 @@ test('fake gh: in-process gives the program\'s exit codes, output, board and rec
   const viaInProcess = withBoard(inp, () => CALLS.map(({ args, input }) => gh(args, { input: () => input ?? '', inProcess: true })));
   assert.deepEqual(viaInProcess, viaProgram);
   assert.deepEqual(viaProgram.map((r) => r.code), [0, 1, 0, 0, 0, 0, 1]);
-  const scrub = (b: string) => JSON.parse(readFileSync(b, 'utf8'), (k, v) => (k === 'closedAt' ? '' : v));
+  const scrub = (b: string) => JSON.parse(readFileSync(b, 'utf8'), (k, v) => (k === 'closedAt' || k === 'createdAt' ? '' : v));
   assert.deepEqual(scrub(inp.board), scrub(prog.board));
   assert.equal(scrub(inp.board).comments[0].body, 'hello\n');
   assert.equal(readFileSync(inp.log, 'utf8'), readFileSync(prog.log, 'utf8'));

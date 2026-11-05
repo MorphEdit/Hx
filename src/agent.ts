@@ -122,6 +122,7 @@ export function runTurn(o: TurnOptions): Promise<TurnResult> {
 export interface GoalOptions extends Omit<TurnOptions, 'prompt' | 'sessionId' | 'resume'> {
   prompt: string;
   promise: string;
+  altPromise?: string; // a second promise that also stops the loop (impl: NEEDS_HUMAN <n>); reported as promiseSeen 'alt'
   maxIterations: number;
   continuePrompt: string;
   onTurn?: (iteration: number, sessionId: string, r: TurnResult) => void;
@@ -135,12 +136,14 @@ export interface GoalResult {
   costUsd: number;
   last?: TurnResult;
   stopReason: 'promise' | 'max-iterations' | 'error' | 'limited' | 'aborted' | 'fatal';
+  promiseSeen?: 'main' | 'alt'; // which promise stopped the loop (stopReason 'promise'); 'alt' is not a completion: done is false
 }
 
 /** The Ralph loop: same session, re-prompted until the promise shows up. */
 export async function runGoal(o: GoalOptions): Promise<GoalResult> {
   const sessionId = randomUUID();
   const promiseRe = PROMISE_RE(o.promise);
+  const altRe = o.altPromise ? PROMISE_RE(o.altPromise) : null;
   const total = emptyUsage();
   let costUsd = 0;
   let last: TurnResult | undefined;
@@ -154,7 +157,8 @@ export async function runGoal(o: GoalOptions): Promise<GoalResult> {
     if (o.signal?.aborted) return { done: false, sessionId, iterations: i, usage: total, costUsd, last, stopReason: 'aborted' };
     if (last.limited) return { done: false, sessionId, iterations: i, usage: total, costUsd, last, stopReason: 'limited' };
     if (last.fatal) return { done: false, sessionId, iterations: i, usage: total, costUsd, last, stopReason: 'fatal' };
-    if (promiseRe.test(last.text)) return { done: true, sessionId, iterations: i, usage: total, costUsd, last, stopReason: 'promise' };
+    if (promiseRe.test(last.text)) return { done: true, sessionId, iterations: i, usage: total, costUsd, last, stopReason: 'promise', promiseSeen: 'main' };
+    if (altRe?.test(last.text)) return { done: false, sessionId, iterations: i, usage: total, costUsd, last, stopReason: 'promise', promiseSeen: 'alt' };
     // A first turn that never started (bad flag, auth) cannot be resumed; two failed turns in a row is not transient.
     if (!last.ok && (i === 1 && last.numTurns === 0 || ++errors >= 2))
       return { done: false, sessionId, iterations: i, usage: total, costUsd, last, stopReason: 'error' };

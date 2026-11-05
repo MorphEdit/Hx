@@ -478,6 +478,22 @@ other-owner/other-repo#3
 
 Write `None` under the heading (or leave it out) for an issue with no dependencies.
 
+## When a task needs you
+
+A worker that hits a point only the owner can settle (a decision with no sensible default, the owner's own
+key, sign-up or login, a check by eye or by hand) does not guess. It commits and pushes its work so far and ends
+its session with one plain-language question (lettered choices, one marked recommended) and
+`<promise>NEEDS_HUMAN <n></promise>` on the last line. That is not a completion: hx verifies nothing, looks for no
+PR and runs no audit. Under `maxOpenQuestions` open `needs-human` issues, hx posts the question as a comment
+starting with `<!-- hx-question -->` (the promise line removed), swaps `ready-for-agent` and `agent-working` for
+`needs-human`, and keeps the worktree and branch. Answer it in one comment (for example `A`); the next poll makes
+the issue `ready-for-agent` again and the next session resumes the kept branch with the question and your answer.
+At the cap, hx posts no question: it comments `**hx:** too many open questions; the next session takes the
+recommended choice`, keeps the worktree and puts the issue back to `ready-for-agent`; that session's prompt says
+the cap is reached. The count and the relabel run one at a time, so two sessions that stop together cannot both
+pass at the last free place. Anything with a sensible default the worker decides itself and lists in the PR
+body under `## Decisions made for you`.
+
 ## Every PR is audited before it merges
 
 The implementer never merges its own work. It ships with `ship.mjs --no-merge` and stops at an open PR.
@@ -734,7 +750,7 @@ review / security / triage round caps, an audit that kept failing and a failed m
 | the audit passes but the merge's tests fail only where the red default branch fails too | held: no round counted, one `<!-- hx-merge-held -->` comment, `held (main red)` in `hx status`; the merge is retried once the gate is green (see [CI gate](#ci-gate)) |
 | the audit fails | the findings go to a fresh implementer session on the same branch; after `auditRounds` FAILs: `agent-blocked` |
 | no promise after `maxIterations` turns, or the agent errors | comments the reason and last reply on the issue, labels it `agent-blocked`, keeps the worktree |
-| the worker needs the owner (a decision, a key, a check by hand) | commits and pushes its work, posts the question as a `<!-- hx-question -->` comment, swaps `ready-for-agent` for `needs-human`, keeps the worktree; the owner's answer (one trusted comment) relabels it `ready-for-agent` and the next worker gets the question and the answer |
+| the worker needs the owner (a decision, a key, a check by hand) | commits and pushes its work, posts the question as a `<!-- hx-question -->` comment, swaps `ready-for-agent` for `needs-human`, keeps the worktree; the owner's answer (one trusted comment) relabels it `ready-for-agent` and the next worker gets the question and the answer. At `maxOpenQuestions` open questions: no question, a too-many comment, back to `ready-for-agent` |
 | usage limit hit | releases the issue, stops claiming until the limit resets |
 | Claude rejects the setup (API 400/401/403/404: unknown model, outdated CLI, auth) | hands the issue back untouched and stops the whole run with the reason |
 
@@ -813,7 +829,7 @@ and the dashboard's per-model numbers use it). To spot one:
 | `effort` | `medium` | `claude --effort`: `low`, `medium`, `high`, `xhigh`, `max`, or `""` for the CLI default |
 | `agentCli` | `"claude"` | the agent CLI that workers, `hx grill` and `hx issue` run (an adapter in `src/agents/`); `claude` is the only one |
 | `maxIterations` | 8 | turns per session before giving up |
-| `maxOpenQuestions` | 3 | open `needs-human` issues (questions waiting on the owner) at once. The decompose prompt says how many `[needs you]` question issues it may still file; after a decompose session past the cap, hx gives that PRD's newest ones `ready-for-agent` instead, with a comment (the agent takes the recommended choice) |
+| `maxOpenQuestions` | 3 | open `needs-human` issues (questions waiting on the owner) at once. The decompose prompt says how many `[needs you]` question issues it may still file; after a decompose session past the cap, hx gives that PRD's newest ones `ready-for-agent` instead, with a comment (the agent takes the recommended choice). An impl session that stops with `NEEDS_HUMAN` at the cap has its question dropped and the issue put back to `ready-for-agent`; the impl prompt says so when the cap is reached |
 | `gauntlet` | `true` | critique and revise a PRD in rounds before it is decomposed |
 | `gauntletRounds` | 2 | critic → reviser rounds before the PRD is decomposed anyway |
 | `reviewRounds` | 3 | PRD reviews before a human has to look |

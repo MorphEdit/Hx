@@ -212,7 +212,11 @@ export function gh(a, { input = () => '', cwd = process.cwd(), inProcess = false
     } else if (a[0] === 'repo' && a[1] === 'view') {
       print(opt('-q') === '.defaultBranchRef.name' ? 'main\n' : 'me/app\n');
     } else if (a[0] === 'issue' && a[1] === 'comment') {
-      withStdin((body) => mutate((cur) => { cur.comments.push({ issue: Number(a[2]), body, author: LOGIN }); }));
+      // state.commentFails: a comment whose body starts with it fails
+      withStdin((body) => {
+        if (s.commentFails && body.startsWith(s.commentFails)) { printErr('HTTP 502: Bad Gateway'); exit(1); }
+        mutate((cur) => { cur.comments.push({ issue: Number(a[2]), body, author: LOGIN, createdAt: new Date().toISOString() }); });
+      });
     } else if (a[0] === 'issue' && a[1] === 'close') {
       mutate((cur) => {
         const i = find(cur, a[2]);

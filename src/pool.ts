@@ -7,7 +7,7 @@ import { DEFAULTS, effectiveRtddBin, formatRoleModels, ghReservePctError, health
 import * as gh from './github.ts';
 import type { Issue } from './github.ts';
 import { hhmm, reserveState, type GhBudget } from './ghlimit.ts';
-import { claimable, externalRefs, fenceFindings, isTrusted, issueKey, openQuestions, parseParent, plan, prdKey, refKey, render, TRIAGE_MARKER, triageVerdict, trustedSet, type Action, type Plan } from './state.ts';
+import { claimable, externalRefs, fenceFindings, isTrusted, issueKey, openQuestions, parseParent, plan, prdKey, PROMISE_RE, refKey, render, TRIAGE_MARKER, triageVerdict, trustedSet, type Action, type Plan } from './state.ts';
 import { addWorktree, auditWorktree, cleanStaleWorktrees, implWorktree, prdWorktree, removeWorktree, repairBrokenRefs, selfReviewWorktree, triageWorktree, type AddedWorktree } from './worktree.ts';
 import { emptyUsage, runGoal, runTurn, type GoalResult, type RateLimit } from './agent.ts';
 import { clearSetupRecord, readSetupRecord, setupLine, setupNote, setupWorktree, writeSetupRecord, type SetupResult } from './setup.ts';
@@ -25,7 +25,7 @@ import { checkGit, checkRelease, handover, hxRoot, installKind, readSelfUpdate, 
 import { findingBody, parseFindings, readSelfReview, selfReviewDecision, SELFREVIEW_PROMISE, writeSelfReview } from './selfreview.ts';
 import { BAR_JUDGE_PROMISE, BAR_PROMISE, barCapComment, barLine, barMarker, barRound, barStatus, gapIssueBody, parseJudgeReply, pickMapping, readMapping, refDir, roundDir, writeMapping, type Side } from './bar.ts';
 import { parseQualityBar } from './prd.ts';
-import { ownerAnswer, ownerAnswerNote } from './question.ts';
+import { ownerAnswer, ownerAnswerNote, questionFromReply } from './question.ts';
 import { HELD_STATUS, heldComment, mergeFailure, readHeld, setHeld } from './held.ts';
 import { appendSkills, resolveSkills, rtddCheck, rtddEnv, SKILL_CHECKS, skillNames, skillsLogLine, type Skill } from './skills.ts';
 
@@ -752,7 +752,7 @@ async function pool(p: Project, o: PoolOptions): Promise<number> {
             holdUntil(r.last?.limited?.resetsAt ? r.last.limited.resetsAt * 1000 : Date.now() + 30 * 60_000, 'usage limit reached');
           } else if (r?.stopReason === 'fatal') {
             fatal = r.last?.error ?? 'unknown setup error';
-          } else if (r && !r.done && r.stopReason !== 'aborted') failures++;
+          } else if (r && !r.done && r.stopReason !== 'aborted' && r.promiseSeen !== 'alt') failures++; // a question is no failure
         }).catch((e) => { failures++; log(`crashed: ${e.message}`, target(a)); })
           .finally(() => { if (fleetDir && slot !== null) releaseSlot(fleetDir, slot); inFlight.delete(key); live.sessions = live.sessions.filter((s) => s.key !== key); save(); finished++; });
         inFlight.set(key, task);
@@ -1002,6 +1002,9 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
     // counted as the prompt is rendered; hx enforces the cap again after the session (capQuestions)
     QUESTIONS_LEFT: a.kind === 'decompose'
       ? questionsLeftLine(openQuestions(await gh.listIssues(c.repo), L, c.repo, ctx.trusted).length, c.maxOpenQuestions) : '',
+    // counted as the prompt is rendered; hx counts again when the session stops with a question (askOwner)
+    QUESTION_NOTE: a.kind === 'impl'
+      ? questionNote(openQuestions(await gh.listIssues(c.repo), L, c.repo, ctx.trusted).length, c.maxOpenQuestions) : '',
   };
   const logDir = path.join(p.stateDir, 'logs');
   mkdirSync(logDir, { recursive: true });
@@ -1010,7 +1013,7 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
   const env = trustedEnv(ctx.trusted);
   const agent = ctx.agent ?? agentFor(c.agentCli);
   /** One role session (a fresh Claude session with its Ralph loop), logged and counted. */
-  const goal = (role: string, cwd: string, promptFile: string, promise: string, extra: Record<string, string | number> = {}) => {
+  const goal = (role: string, cwd: string, promptFile: string, promise: string, extra: Record<string, string | number> = {}, altPromise?: string) => {
     const v = { ...vars, ...extra, PROMISE: promise };
     // the role's skills go after the rendered prompt (never rendered themselves); the continue prompt gets none
     const skills = ctx.skills?.[role] ?? [];
@@ -1022,7 +1025,7 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
       stallMs: c.stallMinutes * 60_000,
       prompt: appendSkills(render(readFileSync(path.join(PROMPTS, promptFile), 'utf8'), v), skills, PROMPTS),
       continuePrompt: render(readFileSync(path.join(PROMPTS, 'continue.md'), 'utf8'), v),
-      promise, maxIterations: c.maxIterations, signal: ctx.signal,
+      promise, altPromise, maxIterations: c.maxIterations, signal: ctx.signal,
       env: rtddEnv(env, skills.some((s) => s.name === 'rtdd'), effectiveRtddBin(c)),
       onEvent: (ev) => { appendFileSync(eventLog, JSON.stringify(ev) + '\n'); turnEvents.push(ev); },
       onRateLimit: (rl) => ctx.rateLimit(rl),
@@ -1083,6 +1086,26 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
 
   const stopped = (r: GoalResult) => r.stopReason === 'aborted' || r.stopReason === 'limited' || r.stopReason === 'fatal';
   const promise = `${a.kind === 'impl' ? 'ISSUE' : a.kind.toUpperCase()} ${n} DONE`;
+  // an impl session may stop with a question for the owner instead (not a completion: no verify, no PR, no audit)
+  const askPromise = a.kind === 'impl' ? `NEEDS_HUMAN ${n}` : undefined;
+  /** An impl session stopped with NEEDS_HUMAN: under the cap the question is posted and the issue waits on the owner;
+   *  at it, the issue goes back to ready-for-agent. The worktree and branch are kept either way. */
+  const askOwner = (r: GoalResult, summary: string) => oneAtATime(async () => {
+    const open = openQuestions(await gh.listIssues(c.repo), L, c.repo, ctx.trusted).length;
+    if (open >= c.maxOpenQuestions) {
+      await gh.comment(c.repo, n, IMPL_TOO_MANY_QUESTIONS).catch(() => {});
+      await relabel(c.repo, n, [L.ready], [L.working]);
+      log(`asked a question, but ${open} of at most ${c.maxOpenQuestions} are open — not posted, back to ${L.ready} (${summary}); worktree kept`, n);
+      return r;
+    }
+    // a question that cannot be posted fails the issue: released, the next session would only ask it again
+    try { await gh.comment(c.repo, n, questionFromReply(r.last?.text ?? '', PROMISE_RE(askPromise!))); } catch (e: any) {
+      return fail(r, `the question for the owner could not be posted: ${String(e?.message ?? e).slice(0, 300)}`, summary);
+    }
+    await relabel(c.repo, n, [L.needsHuman], [L.ready, L.working]);
+    log(`asked the owner a question — labelled ${L.needsHuman} (${open + 1} of at most ${c.maxOpenQuestions} open; ${summary}); worktree kept`, n);
+    return r;
+  });
 
   // gauntlet: one round = a critic in a fresh checkout; on FAIL a reviser rewrites the PRD body
   if (a.kind === 'gauntlet') {
@@ -1245,8 +1268,9 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
   }
 
   if (!audited) {
-    const r = await goal(a.kind, wt.dir, `${a.kind}.md`, promise);
+    const r = await goal(a.kind, wt.dir, `${a.kind}.md`, promise, {}, askPromise);
     const summary = `${r.iterations} turn(s), ${fmt(totalTokens(r.usage))} tokens`;
+    if (r.promiseSeen === 'alt') return askOwner(r, summary);
     if (r.stopReason === 'aborted' && a.kind === 'impl' && r.iterations > 0) await checkpoint(p, agent, n, 'impl', r.sessionId, wt.dir, vars, eventLog, env);
     if (stopped(r)) return handBack(r, summary);
     const why = await verify(p, a, n, ctx.trusted, before);
@@ -1280,8 +1304,9 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
       summary = `${fmt(sessionTokens)} tokens`;
       log(`${c.defaultBranch} is green: merging held PR #${pr} (audit ${attempt}/${c.auditRounds} PASS kept)`, n);
     } else {
-      r = await goal('impl', wt.dir, 'impl.md', promise, extra);
+      r = await goal('impl', wt.dir, 'impl.md', promise, extra, askPromise);
       summary = `${fmt(sessionTokens)} tokens so far`;
+      if (r.promiseSeen === 'alt') return askOwner(r, summary);
       if (r.stopReason === 'aborted' && r.iterations > 0) await checkpoint(p, agent, n, 'impl', r.sessionId, wt.dir, vars, eventLog, env);
       if (stopped(r)) return handBack(r, summary);
       // the owner's answer left nothing to build: the implementer closed the issue with a comment, no PR
@@ -1369,6 +1394,24 @@ export function questionsLeftLine(open: number, cap: number): string {
 }
 
 export const TOO_MANY_QUESTIONS = '**hx:** too many open questions; the agent takes the recommended choice';
+/** On an impl NEEDS_HUMAN stop at the cap: no question is posted, the issue goes back to ready-for-agent. */
+export const IMPL_TOO_MANY_QUESTIONS = '**hx:** too many open questions; the next session takes the recommended choice';
+
+/** {{QUESTION_NOTE}} in the impl prompt: '' under the cap; at it, ask nothing and take the recommended choice. */
+export function questionNote(open: number, cap: number): string {
+  return open < cap ? '' : `NOTE: the owner already has ${open} open question(s), the most allowed (${cap}): do not ask one. Take the recommended choice yourself and note it in the PR body under \`## Decisions made for you\`.\n`;
+}
+
+let questionQueue: Promise<unknown> = Promise.resolve();
+/**
+ * Runs `fn` once every earlier call has settled: the impl NEEDS_HUMAN stop's "count → post → relabel" runs one at a
+ * time in the runner, so two sessions that stop together cannot both pass at maxOpenQuestions − 1.
+ */
+export function oneAtATime<T>(fn: () => Promise<T>): Promise<T> {
+  const run = questionQueue.then(fn, fn);
+  questionQueue = run.catch(() => {});
+  return run;
+}
 
 /**
  * After a decompose session: past maxOpenQuestions open `needs-human` issues in the repo, PRD `n`'s newest
