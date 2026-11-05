@@ -415,3 +415,21 @@ test('a quality-bar PRD renders its status label and round / last result as text
   assert.deepEqual(rows[3].slice(2), ['building', '0/1 done', '']);
   assert.ok(bd.all().every((e) => e.tag !== 'img'), 'the gap is text');
 });
+
+test('a running hx supervise shows supervised and its last line as text; a stopped one shows not supervised', E2E, async () => {
+  const at = new Date().toISOString();
+  const base = { repo: 'me/app', runner: { running: false }, sessions: [], gate: null, health: null, log: [],
+    usage: { total: null, byRole: [], byModel: [], byDay: [], byPrd: null } };
+  const p = page({ ...base, supervised: { running: true, pid: 7, last: { at, line: `supervise: started hx run (pid 8) ${XSS}` } } }, null);
+  await p.flush();
+  const now = p.ids.get('now-body')!;
+  assert.ok(text(now).includes('supervised'), text(now));
+  assert.ok(text(now).includes(`supervise: started hx run (pid 8) ${XSS}`), 'the last supervise line, as text');
+  assert.ok(now.all().every((e) => e.tag !== 'img'));
+  const q = page({ ...base, supervised: { running: false, pid: null, last: { at, line: 'supervise: gave up after 5 crashes in 10 min' } } }, null);
+  await q.flush();
+  assert.ok(text(q.ids.get('now-body')!).includes('not supervised'));
+  const none = page(base, null);
+  await none.flush();
+  assert.ok(!text(none.ids.get('now-body')!).includes('supervis'), 'never supervised: no line');
+});
