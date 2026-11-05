@@ -28,14 +28,17 @@ const { readLive } = await import('../src/runstate.ts');
 
 const L = DEFAULTS.labels;
 const git = (cwd: string, ...a: string[]) => execFileSync('git', a, { cwd, encoding: 'utf8', stdio: 'pipe' }).trim();
-const origin = path.join(tmp, 'origin.git');
-const root = path.join(tmp, 'app');
-git(tmp, 'init', '-q', '--bare', '-b', 'main', origin);
-git(tmp, 'clone', '-q', origin, root);
-git(root, '-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '--allow-empty', '-m', 'init');
-git(root, 'push', '-q', 'origin', 'HEAD:main');
-const stateDir = path.join(root, '.hx');
-mkdirSync(stateDir, { recursive: true });
+/** A repo of its own (a local bare origin) for each test: what one test's sessions push never reaches the next. */
+function repo(k: number) {
+  const origin = path.join(tmp, `origin${k}.git`);
+  const root = path.join(tmp, `app${k}`);
+  git(tmp, 'init', '-q', '--bare', '-b', 'main', origin);
+  git(tmp, 'clone', '-q', origin, root);
+  git(root, '-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '--allow-empty', '-m', 'init');
+  git(root, 'push', '-q', 'origin', 'HEAD:main');
+  return root;
+}
+let stateDir = '';
 
 const MIN = 60_000;
 const tick = () => new Promise((r) => setTimeout(r, 50));
@@ -50,12 +53,14 @@ const held = () => readdirSync(fakeDir).filter((f) => /^held-\d+$/.test(f)).leng
 const workerLines = (lines: string[]) => lines.filter((l) => /workers: \d+ → \d+/.test(l));
 
 let run = 0;
-/** A fresh board and session dir; issues with HOLD in the body run until the returned release() is called. */
+/** A fresh repo, board and session dir; issues with HOLD in the body run until the returned release() is called. */
 function setup(issues: { number: number; body?: string }[], config: Record<string, unknown> = {}) {
   run++;
   rmSync(fakeDir, { recursive: true, force: true });
   mkdirSync(fakeDir);
-  rmSync(path.join(stateDir, 'gate.json'), { force: true });
+  const root = repo(run);
+  stateDir = path.join(root, '.hx');
+  mkdirSync(stateDir, { recursive: true });
   const holdFile = path.join(tmp, `release-${run}`);
   process.env.FAKE_CLAUDE_HOLD = holdFile;
   writeFileSync(stateFile, JSON.stringify({ comments: [], prs: [], issues: issues.map((i) =>
