@@ -45,6 +45,7 @@ svg .test { stroke: var(--bar); fill: var(--bar); } svg .gate { stroke: var(--wa
   <span id="repo" class="mute"></span>
   <span id="status" class="note">loading…</span>
 </header>
+<section id="waiting"><h2>Waiting on you</h2><div id="waiting-body" class="mute">loading…</div></section>
 <section id="now"><h2>Now</h2><div id="now-body" class="mute">loading…</div></section>
 <section id="board"><h2>Board</h2><div id="board-body" class="mute">loading…</div></section>
 <section id="stats"><h2>Stats</h2><div id="stats-body" class="mute">loading…</div></section>
@@ -95,6 +96,16 @@ function table(head, rows, numCols) {
   return el('div', { class: 'scroll' }, el('table', {},
     el('thead', {}, el('tr', {}, head.map((h, i) => el('th', { class: nc.has(i) ? 'num' : null }, h)))),
     el('tbody', {}, rows.map((r) => el('tr', {}, r.map((c, i) => el('td', { class: nc.has(i) ? 'num' : (i === 1 && head[1] === 'title' ? 'wrap' : null) }, c)))))));
+}
+
+// ---- Waiting on you ----
+// the open needs-human questions: number (a link) and title as text; null before the first board read
+function renderWaiting(qs) {
+  const body = $('waiting-body');
+  if (!Array.isArray(qs)) { body.className = 'mute'; fill(body, 'waiting for the board'); return; }
+  body.className = '';
+  fill(body, qs.length ? el('ul', {}, qs.map((q) => el('li', {}, issueLink(q.number), ' ', String(q.title ?? ''))))
+    : el('p', { class: 'mute' }, 'nothing waiting on you'));
 }
 
 // ---- Now ----
@@ -313,7 +324,7 @@ function renderLog(lines) {
 }
 
 // ---- polling ----
-let lastOk = null, failing = false;
+let lastOk = null, failing = false, waitingSeen = false;
 function status() {
   const n = $('status');
   n.className = 'note' + (failing ? ' offline' : '');
@@ -329,13 +340,15 @@ async function pollState() {
     const s = await getJson('api/state');
     repo = String(s.repo ?? '');
     $('repo').textContent = repo;
+    if (Array.isArray(s.waiting) || !waitingSeen) renderWaiting(s.waiting);
     renderNow(s); renderStats(s); renderLog(s.log);
     lastOk = new Date(); failing = false;
   } catch { failing = true; }
   status();
 }
 async function pollBoard() {
-  try { const b = await getJson('api/board'); if (!repo) repo = String(b.repo ?? ''); renderBoard(b); }
+  try { const b = await getJson('api/board'); if (!repo) repo = String(b.repo ?? ''); renderBoard(b);
+    if (b.error === undefined && Array.isArray(b.questions)) { waitingSeen = true; renderWaiting(b.questions); } }
   catch { failing = true; status(); }
 }
 // Mounted under /repo/<k>/ of the fleet dashboard: a link back to the overview. At / nothing shows.

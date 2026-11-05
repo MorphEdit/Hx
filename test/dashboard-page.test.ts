@@ -98,7 +98,7 @@ class E extends N {
 function page(state: object | (() => object | null), board: object | null, pathname = '/') {
   const root = new E('body');
   const ids = new Map<string, E>();
-  for (const id of ['back', 'repo', 'status', 'now-body', 'board-body', 'stats-body', 'log']) ids.set(id, root.appendChild(new E('div')) as E);
+  for (const id of ['back', 'repo', 'status', 'waiting-body', 'now-body', 'board-body', 'stats-body', 'log']) ids.set(id, root.appendChild(new E('div')) as E);
   const timers: (() => void)[] = [];
   const document = {
     getElementById: (id: string) => ids.get(id) ?? null,
@@ -432,4 +432,47 @@ test('a running hx supervise shows supervised and its last line as text; a stopp
   const none = page(base, null);
   await none.flush();
   assert.ok(!text(none.ids.get('now-body')!).includes('supervis'), 'never supervised: no line');
+});
+
+test('Waiting on you: a section before Now; dashboardState and /api/board carry the open needs-human list; the page renders it as text', E2E, async () => {
+  assert.ok(html.indexOf('<h2>Waiting on you</h2>') >= 0 && html.indexOf('<h2>Waiting on you</h2>') < html.indexOf('<h2>Now</h2>'), 'before Now');
+  assert.ok(html.indexOf('id="waiting-body"') < html.indexOf('id="now-body"'));
+  const { dashboardState } = await import('../src/dashboard.ts');
+  const before = readFileSync(stateFile, 'utf8');
+  writeFileSync(stateFile, JSON.stringify({ comments: [], prs: [], issues: [
+    { number: 12, title: XSS, body: 'q', state: 'OPEN', labels: [L.needsHuman] },
+    { number: 5, title: 'Keep the old API?', body: 'q', state: 'OPEN', labels: [L.needsHuman, L.ready] },
+    { number: 9, title: 'answered', body: 'q', state: 'CLOSED', labels: [L.needsHuman] },
+    { number: 3, title: 'a task', body: 't', state: 'OPEN', labels: [L.ready] },
+  ] }));
+  try {
+    const d = await serveDashboard(project as any, { port: 0 });
+    servers.push(d);
+    assert.equal(JSON.parse((await get(d.port, '/api/state')).body).waiting, null, 'null before any board read');
+    const board = JSON.parse((await get(d.port, '/api/board')).body);
+    const want = [{ number: 5, title: 'Keep the old API?', url: 'https://github.com/me/app/issues/5' },
+      { number: 12, title: XSS, url: 'https://github.com/me/app/issues/12' }];
+    assert.deepEqual(board.questions, want);
+    const state = JSON.parse((await get(d.port, '/api/state')).body);
+    assert.deepEqual(state.waiting, want, 'from the last board read; the closed one is not listed');
+    assert.deepEqual((dashboardState(project as any, () => ({ plan: { questions: want } as any })) as any).waiting, want);
+    assert.equal((dashboardState(project as any, () => ({})) as any).waiting, null);
+
+    // rendered from /api/state alone (no board): text nodes and integer links only
+    const p = page(state, null);
+    await p.flush();
+    const w = p.ids.get('waiting-body')!;
+    assert.ok(text(w).includes('#5') && text(w).includes('Keep the old API?'), text(w));
+    assert.ok(text(w).includes(XSS), 'the hostile title verbatim, as text');
+    assert.ok(w.all().every((e) => e.tag !== 'img'));
+    assert.deepEqual(links(w), ['https://github.com/me/app/issues/5', 'https://github.com/me/app/issues/12']);
+    assert.ok(!text(w).includes('answered'));
+    // before a board read: waiting for the board; an empty list: the note
+    const p0 = page({ ...state, waiting: null }, null);
+    await p0.flush();
+    assert.equal(text(p0.ids.get('waiting-body')!), 'waiting for the board');
+    const pe = page({ ...state, waiting: null }, { ...board, questions: [] });
+    await pe.flush();
+    assert.equal(text(pe.ids.get('waiting-body')!), 'nothing waiting on you', 'the board read fills it at once');
+  } finally { writeFileSync(stateFile, before); }
 });
