@@ -21,7 +21,7 @@ process.env.HX_FAKE_DIR = fakeDir;
 mkdirSync(fakeDir);
 
 const { runTurn } = await import('../src/agent.ts');
-const { runPool } = await import('../src/pool.ts');
+const { runPool, HANDOFF_MARKER } = await import('../src/pool.ts');
 const { DEFAULTS } = await import('../src/config.ts');
 
 const fakeClaude = path.join(here, 'fakes', 'claude.mjs');
@@ -78,7 +78,7 @@ test('stallMinutes 0: the stall timer never fires; the turn ends by its own exit
   assert.ok(await gone(stallPids().at(-1)!.pid));
 });
 
-test('through the pool: a stalled issue is handed back as after a timed-out turn, and the log says stalled', E2E, async () => {
+test('through the pool: a stalled issue is handed back as after a timed-out turn, but with no checkpoint (#310), and the log says stalled', E2E, async () => {
   const origin = path.join(tmp, 'origin.git');
   const proj = path.join(tmp, 'app');
   git(tmp, 'init', '-q', '--bare', '-b', 'main', origin);
@@ -100,7 +100,10 @@ test('through the pool: a stalled issue is handed back as after a timed-out turn
     return lines;
   };
   const stalled = await run(1, { stallMinutes: 0.02, turnTimeoutMinutes: 5 });
-  const timed = await run(2, { stallMinutes: 0, turnTimeoutMinutes: 0.02 });
+  // a timed-out turn gets a checkpoint turn (#310): in stall mode it sleeps too, so it times out quickly
+  const timed = await run(2, { stallMinutes: 0, turnTimeoutMinutes: 0.02, checkpointMinutes: 0.02 });
+  assert.ok(!stalled.some((l) => /checkpointing/.test(l)), stalled.join('\n'));
+  assert.ok(timed.some((l) => /\[#2\] checkpointing/.test(l)), timed.join('\n'));
   assert.ok(stalled.some((l) => /turn 1: error .*stalled: no output for 0\.02 min/.test(l)), stalled.join('\n'));
   assert.ok(timed.some((l) => /turn timed out/.test(l)), timed.join('\n'));
   const s = JSON.parse(readFileSync(stateFile, 'utf8'));
@@ -111,8 +114,16 @@ test('through the pool: a stalled issue is handed back as after a timed-out turn
   // the exit-time health pass unblocks each transient stop once: its marker differs only in the time
   const comment = (n: number) => s.comments.filter((c: any) => c.issue === n)
     .map((c: any) => c.body.split('\n')[0].replace(/(<!-- hx:health unblock )\S+/, '$1T'));
+  // the timeout alone gets hx's handoff note before each stop (its checkpoint left none) and names the timeout in its reason
+  assert.deepEqual(comment(1).filter((b: string) => b === HANDOFF_MARKER), []);
+  const stops = comment(2).filter((b: string) => /^\*\*hx:\*\* impl stopped — the impl turn timed out/.test(b)).length;
+  assert.ok(stops > 0);
+  assert.equal(comment(2).filter((b: string) => b === HANDOFF_MARKER).length, stops);
+  assert.equal(comment(2)[0], HANDOFF_MARKER, 'the note comes before the stop');
   assert.deepEqual(comment(1).map((b: string) => b.replace(/stalled: no output for 0\.02 min/, 'X')),
-    comment(2).map((b: string) => b.replace(/turn timed out after \d+ min/, 'X')), 'same hand-back comment but the error');
+    comment(2).filter((b: string) => b !== HANDOFF_MARKER)
+      .map((b: string) => b.replace(/the impl turn timed out \(agent error: turn timed out after \d+ min\)/, 'agent error: X')),
+    'same hand-back comment but the error');
 });
 
 test('the ten worker prompts (not grill) carry the foreground-only rule verbatim', E2E, () => {
