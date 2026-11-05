@@ -1,7 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { board, externalRefs, issueKey, parseBlockedBy, parseParent, plan, prdKey, PROMISE_RE, refKey, render, trustedSet } from '../src/state.ts';
-import { DEFAULTS, workerArgs } from '../src/config.ts';
+import { board, externalRefs, issueKey, openQuestions, parseBlockedBy, parseParent, plan, prdKey, PROMISE_RE, refKey, render, trustedSet } from '../src/state.ts';
+import { DEFAULTS, labelSpecs, loadProject, workerArgs } from '../src/config.ts';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 
 const R = 'me/app';
 
@@ -229,4 +232,56 @@ test('plan: only issues and PRDs opened by a trusted account are worked on', () 
 
   // no trusted set (pure unit use): no filter
   assert.equal(plan([i(2, [L.ready], 'mallory')], R, L, new Map()).board[0].status, 'claimable');
+});
+
+test('needs-human: never claimed, never auto-readied, holds its PRD in building, listed as a question', () => {
+  const L = DEFAULTS.labels;
+  const i = (number: number, labels: string[], body = '', state: 'OPEN' | 'CLOSED' = 'OPEN', author = 'me') =>
+    ({ number, title: `t${number}`, body, state, labels, author });
+  const kid = (n: number, labels: string[], state: 'OPEN' | 'CLOSED' = 'OPEN', author = 'me') => i(n, labels, '## Parent\n#1', state, author);
+  const trusted = trustedSet('me');
+  const run = (all: ReturnType<typeof i>[]) =>
+    plan(all, R, L, new Map(all.map((x) => [refKey({ repo: R, number: x.number }), x.state])), new Set(), { trusted });
+  const acts = (p: ReturnType<typeof plan>) => p.actions.map((a) => `${a.kind}:${'issue' in a ? a.issue : a.prd}`);
+
+  // a PRD child labelled only needs-human: no label-ready, not claimable, and the PRD stays building
+  const only = run([i(1, [L.prd, L.hardened]), kid(10, [L.needsHuman]), kid(11, [L.ready], 'CLOSED')]);
+  assert.deepEqual(acts(only), []);
+  assert.ok(!only.board.some((r) => r.number === 10 && r.status === 'claimable'));
+  assert.equal(only.prds[0].status, 'building');
+  assert.equal(only.prds[0].open, 1);
+  // once it is closed the PRD moves on to review
+  const closed = run([i(1, [L.prd, L.hardened]), kid(10, [L.needsHuman], 'CLOSED'), kid(11, [L.ready], 'CLOSED')]);
+  assert.equal(closed.prds[0].status, 'review');
+  assert.deepEqual(acts(closed), ['review:1']);
+
+  // needs-human wins over ready-for-agent
+  const both = run([i(5, [L.ready, L.needsHuman]), i(6, [L.ready])]);
+  assert.deepEqual(acts(both), ['impl:6']);
+  assert.equal(both.board.find((r) => r.number === 5)?.status, 'question');
+  assert.equal(board([i(5, [L.ready, L.needsHuman])], R, L, new Map())[0].status, 'question');
+
+  // questions: open, trusted needs-human issues by number; closed and untrusted ones are left out
+  const q = run([i(9, [L.needsHuman]), i(3, [L.needsHuman, L.ready]), i(4, [L.needsHuman], '', 'CLOSED'),
+    i(7, [L.needsHuman], '', 'OPEN', 'mallory'), i(8, [L.ready])]);
+  assert.deepEqual(q.questions, [
+    { number: 3, title: 't3', url: 'https://github.com/me/app/issues/3' },
+    { number: 9, title: 't9', url: 'https://github.com/me/app/issues/9' }]);
+  assert.equal(openQuestions([i(9, [L.needsHuman]), i(7, [L.needsHuman], '', 'OPEN', 'mallory')], L, R, trusted).length, 1);
+  assert.deepEqual(run([i(8, [L.ready])]).questions, []);
+});
+
+test('needs-human config: label default, its spec, maxOpenQuestions, an override in .hx/config.json', () => {
+  assert.equal(DEFAULTS.labels.needsHuman, 'needs-human');
+  assert.equal(DEFAULTS.maxOpenQuestions, 3);
+  const spec = labelSpecs(DEFAULTS.labels).find((s) => s.name === 'needs-human');
+  assert.ok(spec && spec.color && /owner/.test(spec.description));
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'hx-nh-'));
+  mkdirSync(path.join(dir, '.hx'));
+  writeFileSync(path.join(dir, '.hx', 'config.json'), JSON.stringify({ repo: R, labels: { needsHuman: 'ask-owner' } }));
+  const { config } = loadProject(dir);
+  assert.equal(config.labels.needsHuman, 'ask-owner');
+  assert.equal(config.labels.ready, 'ready-for-agent');
+  assert.equal(config.maxOpenQuestions, 3);
+  assert.ok(labelSpecs(config.labels).some((s) => s.name === 'ask-owner'));
 });

@@ -36,7 +36,7 @@ export const refKey = (r: Ref) => `${r.repo.toLowerCase()}#${r.number}`;
 export interface BoardRow {
   number: number;
   title: string;
-  status: 'triage' | 'claimable' | 'working' | 'blocked-label' | 'waiting' | 'untrusted';
+  status: 'triage' | 'claimable' | 'working' | 'blocked-label' | 'question' | 'waiting' | 'untrusted';
   waitingOn: Ref[]; // open blockers, for status === 'waiting'
   author?: string; // status 'untrusted' through its own author ('' = a deleted account)
   untrustedPrd?: { number: number; author: string }; // status 'untrusted' through its PRD's author
@@ -85,13 +85,14 @@ export function board(issues: Issue[], repo: string, labels: Labels, states: Map
     }
     if (inFlight.has(i.number) || i.labels.includes(labels.working)) status = 'working';
     else if (i.labels.includes(labels.blocked)) status = 'blocked-label';
+    else if (i.labels.includes(labels.needsHuman)) status = 'question'; // needs-human wins over ready
     else {
       waitingOn = openBlockers(i, repo, states).concat(inherited.get(i.number) ?? []);
       status = waitingOn.length ? 'waiting' : triage ? 'triage' : 'claimable';
     }
     rows.push({ number: i.number, title: i.title, status, waitingOn });
   }
-  const rank = { triage: 0, claimable: 1, working: 2, waiting: 3, 'blocked-label': 4, untrusted: 5 } as const;
+  const rank = { triage: 0, claimable: 1, working: 2, waiting: 3, 'blocked-label': 4, question: 5, untrusted: 6 } as const;
   return rows.sort((a, b) => rank[a.status] - rank[b.status] || a.number - b.number);
 }
 
@@ -150,11 +151,22 @@ export interface PrdRow {
   bar?: BarStatus; // its round and last result, added by readBar (hx status, the dashboard)
 }
 
+/** An open issue waiting on the owner's answer (`needs-human`). */
+export interface Question { number: number; title: string; url: string }
+
+/** Every open, trusted issue carrying `needsHuman`, oldest first: the owner's open questions. */
+export function openQuestions(issues: Issue[], labels: Labels, repo: string, trusted?: Set<string>): Question[] {
+  return issues.filter((i) => i.state === 'OPEN' && i.labels.includes(labels.needsHuman) && isTrusted(i, trusted))
+    .sort((a, b) => a.number - b.number)
+    .map((i) => ({ number: i.number, title: i.title, url: `https://github.com/${repo}/issues/${i.number}` }));
+}
+
 export interface Plan {
   actions: Action[]; // in priority order: triage, bug implementation, PRD sessions, engine-only steps, then implementation
   prds: PrdRow[];
   board: BoardRow[];
   parents: Record<number, number>; // issue → its PRD (closed PRDs too), from the issue's `## Parent`
+  questions: Question[]; // open needs-human issues, counted against maxOpenQuestions
 }
 
 /** Session keys the pool tracks in flight: one session per PRD, one per issue. */
@@ -241,7 +253,7 @@ export function plan(all: Issue[], repo: string, labels: Labels, states: Map<str
     // an open child filed without any lane label would hold its PRD forever: make it claimable
     if (status === 'building')
       for (const k of open)
-        if (![labels.ready, labels.working, labels.blocked].some((l) => k.labels.includes(l)))
+        if (![labels.ready, labels.working, labels.blocked, labels.needsHuman].some((l) => k.labels.includes(l)))
           engine.push({ kind: 'label-ready', issue: k.number, prd: p.number });
   }
 
@@ -253,7 +265,8 @@ export function plan(all: Issue[], repo: string, labels: Labels, states: Map<str
   for (const r of rows)
     if (r.status === 'triage') triage.push({ kind: 'triage', issue: r.number, title: r.title });
     else if (r.status === 'claimable') (bugs.has(r.number) ? bugImpl : impl).push({ kind: 'impl', issue: r.number, title: r.title });
-  return { actions: [...triage, ...bugImpl, ...actions, ...engine, ...impl], prds, board: rows, parents: Object.fromEntries(parentOf) };
+  return { actions: [...triage, ...bugImpl, ...actions, ...engine, ...impl], prds, board: rows, parents: Object.fromEntries(parentOf),
+    questions: openQuestions(all, labels, repo, opts.trusted) };
 }
 
 /** Every ref the ready issues depend on that lives in another repo (resolved one by one). */

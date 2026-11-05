@@ -961,6 +961,7 @@ and the dashboard's per-model numbers use it). To spot one:
 | `effort` | `medium` | `claude --effort`: `low`, `medium`, `high`, `xhigh`, `max`, or `""` for the CLI default |
 | `agentCli` | `"claude"` | the agent CLI that workers, `hx grill` and `hx issue` run (an adapter in `src/agents/`); `claude` is the only one |
 | `maxIterations` | 8 | turns per session before giving up |
+| `maxOpenQuestions` | 3 | open `needs-human` issues (questions waiting on the owner) at once |
 | `gauntlet` | `true` | critique and revise a PRD in rounds before it is decomposed |
 | `gauntletRounds` | 2 | critic → reviser rounds before the PRD is decomposed anyway |
 | `reviewRounds` | 3 | PRD reviews before a human has to look |
@@ -998,7 +999,7 @@ and the dashboard's per-model numbers use it). To spot one:
 | `claudeArgs` | `[]` | extra flags for every `claude` call |
 | `leanWorkers` | `true` | workers start without MCP servers, skills, slash commands or user-level settings and plugins (~8K instead of ~44K tokens of base context per call) |
 | `workerTools` | `Bash Read Edit Write Glob Grep` | the only built-in tools a lean worker gets; add e.g. `Agent` or `WebFetch` if your issues need them |
-| `labels` | `ready-for-agent`, `agent-working`, `agent-blocked`, `prd`, `prd-hardened`, `prd-reviewed`, `security-reviewed`, `quality-bar-passed`, `security`, `hx-gate-fix`, `bug`, `bug-triaged` (keys `ready`, `working`, `blocked`, `prd`, `hardened`, `reviewed`, `secured`, `barPassed`, `security`, `gateFix`, `bug`, `triaged`) | `hx init` creates them all; `hx run` creates any missing at start, and a label edit that fails because a label is missing creates it and retries once |
+| `labels` | `ready-for-agent`, `agent-working`, `agent-blocked`, `prd`, `prd-hardened`, `prd-reviewed`, `security-reviewed`, `quality-bar-passed`, `security`, `hx-gate-fix`, `bug`, `bug-triaged`, `needs-human` (keys `ready`, `working`, `blocked`, `prd`, `hardened`, `reviewed`, `secured`, `barPassed`, `security`, `gateFix`, `bug`, `triaged`, `needsHuman`) | `hx init` creates them all; an issue with `needs-human` waits on the owner's answer: it is never claimed (even with `ready-for-agent`) and holds its PRD in building; `hx run` creates any missing at start, and a label edit that fails because a label is missing creates it and retries once |
 
 ## ⚠️ Safety
 
