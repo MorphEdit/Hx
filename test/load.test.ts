@@ -33,7 +33,7 @@ const series = (start: number, stepMs: number, busy: number[], freeGB = 8) => {
   return out;
 };
 
-test('cpuBusyPct: (Δtotal − Δidle) / Δtotal over every core; user + nice + sys + idle + irq; Δtotal 0 → 0', () => {
+test('cpuBusyPct: (Δtotal − Δidle) / Δtotal over every core; user + nice + sys + idle + irq; Δtotal 0 → 0', E2E, () => {
   const a = snapshotOf(0, [core(100, 50, 850), core(200, 0, 800), core(0, 0, 1000, 0, 0), core(10, 10, 970, 5, 5)], 16 * GB);
   assert.equal(a.total, 4000);
   assert.equal(a.idle, 3620);
@@ -44,7 +44,7 @@ test('cpuBusyPct: (Δtotal − Δidle) / Δtotal over every core; user + nice + 
   assert.equal(cpuBusyPct(a, a), 0);
 });
 
-test('loadReading: null with 0 or 1 snapshot, a partial window averages what is there, old intervals are left out', () => {
+test('loadReading: null with 0 or 1 snapshot, a partial window averages what is there, old intervals are left out', E2E, () => {
   assert.equal(loadReading([], 1000), null);
   assert.equal(loadReading([snap(0, null, 0)], 1000), null);
   // 3 snapshots over 10 s: two intervals, 40% and 80%
@@ -65,7 +65,7 @@ const SET = { ceiling: 3, minWorkers: 1, loadHighPct: 85, loadLowPct: 60, minFre
 const R = (cpuPct: number, freeMemGB = 8) => ({ cpuPct, freeMemGB });
 const MIN = 60_000;
 
-test('decideTarget: starts at the ceiling; down at CPU ≥ high at the first reading, with the line', () => {
+test('decideTarget: starts at the ceiling; down at CPU ≥ high at the first reading, with the line', E2E, () => {
   const s0 = initialTarget(3, 0);
   assert.equal(s0.target, 3);
   const d = decideTarget(s0, R(91.4, 7.94), 5000, SET);
@@ -74,14 +74,14 @@ test('decideTarget: starts at the ceiling; down at CPU ≥ high at the first rea
   assert.equal(decideTarget(s0, R(85), 5000, SET).state.target, 2, 'exactly at loadHighPct is high');
 });
 
-test('decideTarget: down on low memory alone; minFreeMemGB 0 turns the memory check off', () => {
+test('decideTarget: down on low memory alone; minFreeMemGB 0 turns the memory check off', E2E, () => {
   const d = decideTarget(initialTarget(3, 0), R(10, 1.5), 5000, SET);
   assert.equal(d.state.target, 2);
   assert.equal(d.line, 'workers: 3 → 2 (cpu 10%, free 1.5 GB)');
   assert.equal(decideTarget(initialTarget(3, 0), R(10, 0), 5000, { ...SET, minFreeMemGB: 0 }).line, undefined);
 });
 
-test('decideTarget: no second step down within 60 s of a change, one after', () => {
+test('decideTarget: no second step down within 60 s of a change, one after', E2E, () => {
   let s = decideTarget(initialTarget(3, 0), R(95), 5000, SET).state;
   const inside = decideTarget(s, R(95), 5000 + MIN - 1, SET);
   assert.equal(inside.state.target, 2);
@@ -92,7 +92,7 @@ test('decideTarget: no second step down within 60 s of a change, one after', () 
   assert.equal(after.line, 'workers: 2 → 1 (cpu 95%, free 8.0 GB)');
 });
 
-test('decideTarget: between the thresholds changes nothing; null reading changes nothing', () => {
+test('decideTarget: between the thresholds changes nothing; null reading changes nothing', E2E, () => {
   const s = initialTarget(3, 0);
   for (const cpu of [61, 70, 84.9]) { const d = decideTarget(s, R(cpu), 10 * MIN, SET); assert.equal(d.state.target, 3); assert.equal(d.line, undefined); }
   const down = decideTarget(s, R(90), 5000, SET).state;
@@ -101,7 +101,7 @@ test('decideTarget: between the thresholds changes nothing; null reading changes
   assert.equal(n.line, undefined);
 });
 
-test('decideTarget: up only after scaleUpMinutes of low readings since the last change, with the line', () => {
+test('decideTarget: up only after scaleUpMinutes of low readings since the last change, with the line', E2E, () => {
   let s = decideTarget(initialTarget(3, 0), R(90), 0, SET).state; // 2 at t = 0
   for (const t of [1, 2, 3, 4]) { const d = decideTarget(s, R(52), t * MIN, SET); assert.equal(d.line, undefined, `t=${t}`); s = d.state; }
   assert.equal(decideTarget(s, R(52), 5 * MIN - 1, SET).line, undefined);
@@ -113,13 +113,13 @@ test('decideTarget: up only after scaleUpMinutes of low readings since the last 
   assert.equal(decideTarget(s, R(10, 1.9), 5 * MIN, SET).state.target, 1, 'low memory is high load: a step down instead');
 });
 
-test('decideTarget: the runner start counts as a change for the up wait', () => {
+test('decideTarget: the runner start counts as a change for the up wait', E2E, () => {
   const s0 = { ...initialTarget(3, 0), target: 2 }; // e.g. a target below the ceiling right at the start
   assert.equal(decideTarget(s0, R(10), 5 * MIN - 1, SET).line, undefined);
   assert.equal(decideTarget(s0, R(10), 5 * MIN, SET).line, 'workers: 2 → 3 (cpu 10% for 5 min)');
 });
 
-test('decideTarget: a between-thresholds reading restarts the up wait from its own time', () => {
+test('decideTarget: a between-thresholds reading restarts the up wait from its own time', E2E, () => {
   let s = decideTarget(initialTarget(3, 0), R(90), 0, SET).state; // 2 at t = 0
   s = decideTarget(s, R(50), 3 * MIN, SET).state;
   s = decideTarget(s, R(70), 4 * MIN, SET).state; // between: the wait starts again at 4 min
@@ -135,7 +135,7 @@ test('decideTarget: a between-thresholds reading restarts the up wait from its o
   assert.equal(decideTarget(h, R(50), 5 * MIN + 30_000, SET).line, 'workers: 2 → 3 (cpu 50% for 5 min)');
 });
 
-test('decideTarget: never below the floor nor above the ceiling', () => {
+test('decideTarget: never below the floor nor above the ceiling', E2E, () => {
   const atFloor = { ...initialTarget(3, 0), target: 1 };
   const hi = decideTarget(atFloor, R(99), 10 * MIN, SET);
   assert.equal(hi.state.target, 1);
@@ -149,7 +149,7 @@ test('decideTarget: never below the floor nor above the ceiling', () => {
   assert.equal(floor2.line, undefined);
 });
 
-test('decideTarget: a ceiling below minWorkers clamps the floor to the ceiling, no error', () => {
+test('decideTarget: a ceiling below minWorkers clamps the floor to the ceiling, no error', E2E, () => {
   const s = initialTarget(1, 0);
   const d = decideTarget(s, R(99), 5000, { ...SET, ceiling: 1, minWorkers: 2 });
   assert.equal(d.state.target, 1);
@@ -158,7 +158,7 @@ test('decideTarget: a ceiling below minWorkers clamps the floor to the ceiling, 
   assert.equal(two.state.target, 2, 'floor = min(3, 2) = 2');
 });
 
-test('mayClaim: the gate counts as one; the floor counts sessions only; the floor clamped to the ceiling', () => {
+test('mayClaim: the gate counts as one; the floor counts sessions only; the floor clamped to the ceiling', E2E, () => {
   assert.equal(mayClaim({ sessions: 1, gateRunning: true, target: 2, minWorkers: 1, ceiling: 2 }), false);
   assert.equal(mayClaim({ sessions: 1, gateRunning: false, target: 2, minWorkers: 1, ceiling: 2 }), true);
   assert.equal(mayClaim({ sessions: 0, gateRunning: true, target: 1, minWorkers: 1, ceiling: 2 }), true);
@@ -168,12 +168,12 @@ test('mayClaim: the gate counts as one; the floor counts sessions only; the floo
   assert.equal(mayClaim({ sessions: 0, gateRunning: true, target: 0, minWorkers: 3, ceiling: 1 }), true);
 });
 
-test('config: the autoWorkers keys and their defaults', () => {
+test('config: the autoWorkers keys and their defaults', E2E, () => {
   assert.deepEqual([DEFAULTS.minWorkers, DEFAULTS.autoWorkers, DEFAULTS.loadHighPct, DEFAULTS.loadLowPct, DEFAULTS.minFreeMemGB, DEFAULTS.scaleUpMinutes],
     [1, true, 85, 60, 2, 5]);
 });
 
-test('autoWorkersConfigError: accepts the defaults, minFreeMemGB 0 and every key unset', () => {
+test('autoWorkersConfigError: accepts the defaults, minFreeMemGB 0 and every key unset', E2E, () => {
   assert.equal(autoWorkersConfigError(DEFAULTS), null);
   assert.equal(autoWorkersConfigError({ ...DEFAULTS, autoWorkers: false }), null);
   assert.equal(autoWorkersConfigError({ ...DEFAULTS, minFreeMemGB: 0 }), null);
@@ -182,7 +182,7 @@ test('autoWorkersConfigError: accepts the defaults, minFreeMemGB 0 and every key
   assert.equal(autoWorkersConfigError({ loadLowPct: 0, loadHighPct: 100 }), null);
 });
 
-test('autoWorkersConfigError: rejects each bad value with its key, whatever autoWorkers is', () => {
+test('autoWorkersConfigError: rejects each bad value with its key, whatever autoWorkers is', E2E, () => {
   const bad: [Record<string, unknown>, RegExp][] = [
     [{ workers: 2, minWorkers: 3 }, /^minWorkers: 3 must not be above workers \(2\)$/],
     [{ minWorkers: 0 }, /^minWorkers: 0 must be a whole number, 1 or more$/],
