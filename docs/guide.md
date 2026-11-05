@@ -499,6 +499,32 @@ other-owner/other-repo#3
 
 Write `None` under the heading (or leave it out) for an issue with no dependencies.
 
+**The size check.** A single issue is sized once, up front, before its first impl session: one `size` session
+(`prompts/size.md`, mode `up-front`, run as the `decompose` role: its model, effort and skills, its turns recorded
+as `decompose` in `usage.jsonl`) reads the issue and the code it names in the new impl worktree, changes nothing,
+and answers `SIZE: fits` or `SIZE: split` with two or more `=== CHILD k: <title>` blocks, each about one session of
+30–45 min of work. Only an issue with no parent in any form (`## Parent`, `## Parent #N`, `Parent: #N`, `Part of #N`),
+not labelled `bug` or `hx-gate-fix`, on a new impl worktree (not resumed) and without a size marker is sized.
+The markers are comments whose first line is `<!-- hx-size fits -->`, `<!-- hx-size split -->` or
+`<!-- hx-size narrowed -->`; only those written by hx's own gh login count (not `trustedAuthors`).
+- **fits:** hx comments `<!-- hx-size fits -->` and `**hx:** sized: fits one session.`, logs `size #n: fits`, and the
+  impl session starts in the same worktree.
+- **split:** hx reads the open issues `Blocked by` #n, files the children `ready-for-agent` with `## Blocked by`
+  (the earlier children the reply names, or `None`) and `## Parent #n`, adds the children to those dependents'
+  `## Blocked by`, comments `<!-- hx-size split -->` and `**hx:** split into #a, #b, … — each about one session; the
+  work continues there.`, closes #n as not planned, removes `agent-working` and the worktree, and logs
+  `split #n → #a, #b`. No impl session runs for #n.
+- **the session fails** (an agent error, no promise after `maxIterations`, a reply in no valid shape, or the
+  dependents cannot be read): hx comments `<!-- hx-size fits -->` and `**hx:** size check failed (<reason>); treated
+  as fits.` and implements the issue. It is never retried and never blocks.
+- **a GitHub write fails partway through a split:** hx writes nothing more and labels #n `agent-blocked` (worktree
+  kept); the fail comment starts with `<!-- hx-size split -->` and says where it stopped and what was filed, so the
+  issue is never sized again. Finish or undo the split by hand.
+- **stopped** (`hx pause --now`, a usage limit, a setup error): the issue is handed back with no marker and the fresh
+  worktree is removed, so the next claim sizes it again.
+
+`sizeCheck: false` turns the up-front check off.
+
 ## When a task needs you
 
 A worker that hits a point only the owner can settle (a decision with no sensible default, the owner's own
@@ -767,6 +793,7 @@ review / security / triage round caps, an audit that kept failing and a failed m
 
 | Outcome | Hx does |
 |---|---|
+| split up front (the size check answered `split`) | files the children `ready-for-agent` (each `## Parent #n`), adds them to the `Blocked by` of the open issues waiting on #n, comments `<!-- hx-size split -->` with the list, closes #n as not planned and removes its worktree; no impl session runs (see [Single issues](#single-issues)) |
 | the audit passes and the merge goes through | hx merges the PR, closes the issue, removes `agent-working` and the worktree |
 | the audit passes but the merge's tests fail only where the red default branch fails too | held: no round counted, one `<!-- hx-merge-held -->` comment, `held (main red)` in `hx status`; the merge is retried once the gate is green (see [CI gate](#ci-gate)) |
 | the audit fails | the findings go to a fresh implementer session on the same branch; after `auditRounds` FAILs: `agent-blocked` |
@@ -851,6 +878,7 @@ and the dashboard's per-model numbers use it). To spot one:
 | `agentCli` | `"claude"` | the agent CLI that workers, `hx grill` and `hx issue` run (an adapter in `src/agents/`); `claude` is the only one |
 | `maxIterations` | 8 | turns per session before giving up |
 | `maxOpenQuestions` | 3 | open `needs-human` issues (questions waiting on the owner) at once. The decompose prompt says how many `[needs you]` question issues it may still file; after a decompose session past the cap, hx gives that PRD's newest ones `ready-for-agent` instead, with a comment (the agent takes the recommended choice). An impl session that stops with `NEEDS_HUMAN` at the cap has its question dropped and the issue put back to `ready-for-agent`; the impl prompt says so when the cap is reached |
+| `sizeCheck` | `true` | a single issue (no parent, not `bug` or `hx-gate-fix`) is sized by one `size` session before its first impl session and split when too big; `false` turns off the up-front check (see [Single issues](#single-issues)) |
 | `gauntlet` | `true` | critique and revise a PRD in rounds before it is decomposed |
 | `gauntletRounds` | 2 | critic → reviser rounds before the PRD is decomposed anyway |
 | `reviewRounds` | 3 | PRD reviews before a human has to look |

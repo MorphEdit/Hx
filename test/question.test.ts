@@ -125,7 +125,7 @@ test('a trusted answer relabels a needs-human issue ready, and the impl prompt c
   const answer = 'B — cloud, please. I have an account.';
   board([asked(5)], [{ issue: 5, body: answer, author: 'alice', createdAt: '2026-01-02T00:00:00Z' }]);
   const before = new Set(readdirSync(fakeDir));
-  const { rc, lines } = await run();
+  const { rc, lines } = await run({ sizeCheck: false });
   assert.equal(rc, 0, lines.join('\n'));
   assert.ok(lines.some((l) => /\[#5\] the owner answered — needs-human → ready-for-agent/.test(l)), lines.join('\n'));
   const i = issue(5);
@@ -159,7 +159,7 @@ test('a plain ready issue with a trusted comment (the hx stop note) gets no owne
   board([{ number: 12, title: 'dark mode', body: 'Add a dark mode toggle.', state: 'OPEN', labels: [L.ready], createdAt: '2026-01-01T00:00:00Z' }],
     [{ issue: 12, body: '**hx:** impl stopped — no completion after 3 turns.', author: 'Hx-Bot', createdAt: '2026-01-02T00:00:00Z' }]);
   const before = new Set(readdirSync(fakeDir));
-  const { rc, lines } = await run();
+  const { rc, lines } = await run({ sizeCheck: false });
   assert.equal(rc, 0, lines.join('\n'));
   const prompts = newPrompts(before);
   assert.equal(prompts.length, 1, lines.join('\n'));

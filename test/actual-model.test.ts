@@ -137,7 +137,7 @@ test('a checkpoint turn that ran another model logs no mismatch line; its record
   // not sooner than E2E.timeout: on a loaded machine the session can take more than 30 s to start (#159)
   setTimeout(() => clearInterval(t), E2E.timeout).unref();
   const seen = readUsage(stateDir).length;
-  const r = await run({ FAKE_CLAUDE_DELAY_MS: '5000', FAKE_CLAUDE_RAN: SONNET }, ac.signal);
+  const r = await run({ FAKE_CLAUDE_DELAY_MS: '5000', FAKE_CLAUDE_RAN: SONNET }, ac.signal, { sizeCheck: false });
   assert.equal(r.rc, 0);
   assert.ok(r.lines.some((l) => /checkpoint saved/.test(l)), r.lines.join('\n'));
   const cps = readUsage(stateDir).slice(seen).filter((u) => u.issue === 3 && u.role === 'checkpoint');

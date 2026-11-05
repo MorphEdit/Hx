@@ -122,7 +122,7 @@ process.stdin.resume(); // hold the slots (a live pid) until the test has checke
 
 // two repos, each with its own origin, board and fake session dir
 const git = (cwd: string, ...a: string[]) => execFileSync('git', a, { cwd, encoding: 'utf8', stdio: 'pipe' }).trim();
-function repo(name: string, issues: number[]) {
+function repo(name: string, issues: number[], extra = {}) {
   const base = path.join(tmp, name);
   mkdirSync(base);
   const origin = path.join(base, 'origin.git');
@@ -132,7 +132,7 @@ function repo(name: string, issues: number[]) {
   git(root, '-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '--allow-empty', '-m', 'init');
   git(root, 'push', '-q', 'origin', 'HEAD:main');
   saveConfig(path.join(root, '.hx'), { ...DEFAULTS, repo: `me/${name}`, defaultBranch: 'main', worktreeRoot: path.join(base, 'wt'),
-    claudeBin: path.join(here, 'fakes', 'claude.mjs'), maxIterations: 3, pollSeconds: 1, audit: false });
+    claudeBin: path.join(here, 'fakes', 'claude.mjs'), maxIterations: 3, pollSeconds: 1, audit: false, ...extra });
   const board = path.join(base, 'board.json');
   writeFileSync(board, JSON.stringify({ comments: [], prs: [], issues: issues.map((number) => ({ number, title: `task ${number}`, body: '', state: 'OPEN', labels: [DEFAULTS.labels.ready] })) }));
   const fake = path.join(base, 'sessions');
@@ -152,7 +152,7 @@ test('two hx run children with HX_FLEET_WORKERS=1 build both boards one session 
   const fleet = path.join(tmp, 'fleet');
   const times = path.join(tmp, 'times.jsonl');
   const env = { HX_FLEET_DIR: fleet, HX_FLEET_WORKERS: '1', HX_HOME: path.join(tmp, 'home'), FAKE_CLAUDE_TIMES: times, FAKE_CLAUDE_DELAY_MS: '300' };
-  const a = repo('a', [1, 2]), b = repo('b', [1, 2]);
+  const a = repo('a', [1, 2], { sizeCheck: false }), b = repo('b', [1, 2], { sizeCheck: false }); // the turn count is exact
   const [ra, rb] = await Promise.all([hxRun(a, env), hxRun(b, env)]);
   assert.equal(ra.code, 0, ra.out); assert.equal(rb.code, 0, rb.out);
   assert.deepEqual(closed(a.board), [1, 2], ra.out);

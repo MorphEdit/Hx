@@ -46,6 +46,7 @@ export interface Config {
   effort: string; // claude --effort: low | medium | high | xhigh | max ('' = the CLI's default)
   maxIterations: number; // Ralph-loop turns per issue before giving up
   maxOpenQuestions: number; // open needs-human issues at once (the owner's questions)
+  sizeCheck: boolean; // a single issue (no parent, not a bug or gate fix) is sized by one session before its first impl session, and split when too big
   gauntlet: boolean; // critique and revise a PRD in rounds before it is decomposed
   gauntletRounds: number; // critic → reviser rounds before the PRD is decomposed anyway
   reviewRounds: number; // PRD reviews (each may file gap issues) before a human has to look
@@ -104,6 +105,7 @@ export const DEFAULTS: Omit<Config, 'repo' | 'defaultBranch' | 'worktreeRoot'> =
   effort: 'medium',
   maxIterations: 8,
   maxOpenQuestions: 3,
+  sizeCheck: true,
   gauntlet: true,
   gauntletRounds: 2,
   reviewRounds: 3,

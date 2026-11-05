@@ -113,7 +113,7 @@ test('a checkpoint turn records its test time too', E2E, async () => {
     if (readdirSync(fakeDir).some((f) => !before.has(f) && f.endsWith('.prompt-1.txt'))) { clearInterval(t); setTimeout(() => ac.abort(), 200); }
   }, 50);
   setTimeout(() => clearInterval(t), E2E.timeout).unref();
-  const r = await run({ FAKE_CLAUDE_DELAY_MS: '5000', FAKE_CLAUDE_TESTS: '1' }, {}, ac.signal);
+  const r = await run({ FAKE_CLAUDE_DELAY_MS: '5000', FAKE_CLAUDE_TESTS: '1' }, { sizeCheck: false }, ac.signal);
   assert.equal(r.rc, 0, r.lines.join('\n'));
   assert.ok(r.lines.some((l) => /checkpoint saved/.test(l)), r.lines.join('\n'));
   const cps = readUsage(stateDir).filter((u) => u.issue === 6 && u.role === 'checkpoint');

@@ -43,12 +43,12 @@ const read = () => JSON.parse(readFileSync(stateFile, 'utf8'));
 const issue = (n: number, body = '') => ({ number: n, title: `task ${n}`, body, state: 'OPEN', labels: [L.ready] });
 const audits = (n: number) => read().comments.filter((c: any) => c.issue === n && c.body.startsWith('<!-- hx-audit -->'));
 
-async function run(only: number[]) {
+async function run(only: number[], extra = {}) {
   const lines: string[] = [];
   const orig = console.log;
   console.log = (m: string) => { lines.push(m); orig(m); };
   try {
-    return { rc: await pooled((signal) => runPool(project(), { workers: 1, watch: false, dryRun: false, only, signal })), lines };
+    return { rc: await pooled((signal) => runPool(project(extra), { workers: 1, watch: false, dryRun: false, only, signal })), lines };
   } finally { console.log = orig; }
 }
 
@@ -68,7 +68,7 @@ test('auditVerdict reads a PASS whose FINDINGS are per-criterion evidence lines 
 
 test('audit PASS: hx merges the PR the implementer left open', E2E, async () => {
   board([issue(1)]);
-  const { rc, lines } = await run([1]);
+  const { rc, lines } = await run([1], { sizeCheck: false });
   assert.equal(rc, 0, lines.join('\n'));
   const s = read();
   assert.equal(s.issues[0].state, 'CLOSED');

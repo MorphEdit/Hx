@@ -2,7 +2,7 @@
 import { E2E } from './isolate.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -11,7 +11,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const board = path.join(mkdtempSync(path.join(os.tmpdir(), 'hx-gh-')), 'board.json');
 process.env.HX_GH_BIN = path.join(here, 'fakes', 'gh.mjs');
 process.env.HX_FAKE_STATE = board;
-const { openPrFor, hasAnyPrFor } = await import('../src/github.ts');
+const { openPrFor, hasAnyPrFor, closeIssue } = await import('../src/github.ts');
 
 const prs = (list: any[]) => writeFileSync(board, JSON.stringify({ comments: [], issues: [], prs: list }));
 
@@ -33,4 +33,14 @@ test('hasAnyPrFor: an own PR in any state counts (open, merged, closed); a fork 
   assert.equal(await hasAnyPrFor('me/app', 'issue/7'), false);
   prs([]);
   assert.equal(await hasAnyPrFor('me/app', 'issue/7'), false);
+});
+
+test('closeIssue: the comment is optional (a size split closes not planned without one); with one it is posted', E2E, async () => {
+  const two = () => writeFileSync(board, JSON.stringify({ comments: [], prs: [], issues: [7, 8].map((number) => ({ number, title: 't', body: '', state: 'OPEN', labels: [] })) }));
+  two();
+  await closeIssue('me/app', 7, undefined, 'not planned');
+  await closeIssue('me/app', 8, 'done here');
+  const s = JSON.parse(readFileSync(board, 'utf8'));
+  assert.deepEqual(s.issues.map((i: any) => [i.number, i.state, i.stateReason]), [[7, 'CLOSED', 'NOT_PLANNED'], [8, 'CLOSED', 'COMPLETED']]);
+  assert.deepEqual(s.comments.map((c: any) => [c.issue, c.body]), [[8, 'done here']], 'no empty comment on #7');
 });
