@@ -299,6 +299,7 @@ one interface, `AgentCli`, in `src/agents/`. The `agentCli` config key picks the
 |---|---|
 | `hx pause` | claims nothing new; running sessions finish their issue, then `hx run` exits |
 | `hx pause --now`, or Ctrl+C in `hx run` | stops every running session, then resumes each one for a **checkpoint**: commit and push its WIP, and post a `<!-- hx-handoff -->` comment (done / left / next step). The issue is handed back. |
+| nothing: an impl turn times out (`turnTimeoutMinutes`) | while the issue is still open, the session gets the same **checkpoint**; then hx commits what is left (`wip: checkpoint (#n)`), and the WIP is pushed to `issue/<n>` (never a force push), with a handoff note of hx's own when the checkpoint posted none. The issue is labelled `agent-blocked`, the worktree kept. If the push fails, the comment says so: the WIP is then only in the kept worktree. |
 | `hx resume`, then `hx run` | picks the issues up again: the worktree and branch still hold the work, and the new session's prompt includes the handoff note |
 | Ctrl+C twice | force-quits and kills every session; the worktrees keep whatever was written |
 

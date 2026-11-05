@@ -26,6 +26,11 @@
 // first turn with a question and `<promise>NEEDS_HUMAN <n></promise>`, unless its prompt carries the owner's answer or
 // says the question cap is reached (IMPLQUESTIONALWAYS: asks even then; IMPLQUESTIONFIRST: only in the issue's first
 // session, whatever its prompt says; IMPLQUESTIONBARE: the question lacks the <!-- hx-question --> marker line).
+// IMPLTIMEOUT in an issue body: every implement turn (audited or not) writes wip-<n>.txt in its worktree, then sleeps
+// 10 min, so a small turnTimeoutMinutes kills it; its checkpoint turn commits (`checkpoint by agent`), pushes issue/<n>
+// and posts the handoff note, as a real one does. IMPLTIMEOUTCPFAIL: that checkpoint turn fails instead (exit 6,
+// nothing committed, pushed or posted). IMPLTIMEOUTCLOSE: the turn first closes the issue (as ship.mjs merging it
+// before the kill would). IMPLCRASH: an implement turn writes wip-<n>.txt and exits 3 with no result (no timeout).
 // FAKE_CLAUDE_TEXT=<text>: every turn replies exactly that text, nothing else.
 // FAKE_CLAUDE_PAUSE=<file>: an implement session writes `drain` there as it closes its issue
 // FAKE_CLAUDE_PAUSE_START=<file>: an implement session writes `drain` there as its first turn starts (mid-session)
@@ -181,6 +186,22 @@ function reply(text, narrate = []) {
 
 function finish(st, checkpoint, prompt) {
   const done = () => `<promise>${st.role === 'implement' ? 'ISSUE' : st.role.toUpperCase()} ${st.n} DONE</promise>`;
+  const mine = st.role === 'implement' ? loadBoard().issues.find((i) => i.number === st.n)?.body ?? '' : '';
+  if (/IMPLCRASH/.test(mine) && !checkpoint) {
+    writeFileSync(path.join(process.cwd(), `wip-${st.n}.txt`), 'half done\n');
+    process.stderr.write('crashed'); process.exit(3);
+  }
+  if (/IMPLTIMEOUT/.test(mine)) {
+    if (!checkpoint) {
+      if (/IMPLTIMEOUTCLOSE/.test(mine)) locked(boardFile, () => { const b = loadBoard(); b.issues.find((i) => i.number === st.n).state = 'CLOSED'; saveBoard(b); });
+      writeFileSync(path.join(process.cwd(), `wip-${st.n}.txt`), 'half done\n');
+      setTimeout(() => reply('woke up'), 600000); // outlives the turn timeout: killed
+      return;
+    }
+    if (/IMPLTIMEOUTCPFAIL/.test(mine)) { process.stderr.write('checkpoint failed'); process.exit(6); }
+    const g = (...a) => spawnSync('git', a, { encoding: 'utf8', env: { ...process.env, ...GIT_ID } });
+    g('add', '-A'); g('commit', '-q', '-m', 'checkpoint by agent'); g('push', '-q', '-u', 'origin', `issue/${st.n}`);
+  }
   // NOTHINGTOBUILD in the issue body: the owner's answer left nothing to do — close the issue, no PR, the promise
   if (st.role === 'implement' && !checkpoint && /NOTHINGTOBUILD/.test(loadBoard().issues.find((i) => i.number === st.n)?.body ?? '')) {
     locked(boardFile, () => { const b = loadBoard(); b.issues.find((i) => i.number === st.n).state = 'CLOSED'; b.comments.push({ issue: st.n, body: 'nothing left to build' }); saveBoard(b); });

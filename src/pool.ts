@@ -1055,8 +1055,9 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
     log(`${what} — released (${summary})${keepOnStop ? '; worktree kept' : ''}`, n);
     return r;
   };
-  const fail = async (r: GoalResult, reason: string, summary: string) => {
-    await gh.comment(c.repo, n, `**hx:** ${a.kind} stopped — ${reason} (${summary}).\n\nLast reply:\n\n${(r.last?.text ?? '').slice(-1500).replace(/^/gm, '> ')}\n\n${a.kind === 'impl' ? `Work is on branch \`issue/${n}\` if it was pushed. ` : ''}Remove the \`${L.blocked}\` label to let hx try again.`).catch(() => {});
+  /** where: the comment's line on where an impl's work is (default: on its branch if it was pushed) */
+  const fail = async (r: GoalResult, reason: string, summary: string, where?: string) => {
+    await gh.comment(c.repo, n, `**hx:** ${a.kind} stopped — ${reason} (${summary}).\n\nLast reply:\n\n${(r.last?.text ?? '').slice(-1500).replace(/^/gm, '> ')}\n\n${a.kind === 'impl' ? where ?? `Work is on branch \`issue/${n}\` if it was pushed. ` : ''}Remove the \`${L.blocked}\` label to let hx try again.`).catch(() => {});
     const labelled = await relabel(c.repo, n, [L.blocked], [L.working]);
     if (!keepOnStop) await removeWorktree(p.root, wt.dir);
     log(`${a.kind} FAILED ✗ — ${reason} (${summary}); ${labelled ? `labelled ${L.blocked}` : `NOT labelled ${L.blocked}`}${keepOnStop ? ', worktree kept' : ''}`, n);
@@ -1086,6 +1087,24 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
   if (a.kind === 'impl' || a.kind === 'triage') vars.SETUP_NOTE = setupMsg; // PRD roles get no note
 
   const stopped = (r: GoalResult) => r.stopReason === 'aborted' || r.stopReason === 'limited' || r.stopReason === 'fatal';
+  const goalFailure = (r: GoalResult) => r.stopReason === 'max-iterations' ? `no completion after ${r.iterations} turns` : `agent error: ${r.last?.error ?? 'unknown'}`;
+  /** An implementer goal that failed on a timed-out last turn while #n is still open (#310); a closed #n was shipped. */
+  const timedOutOpen = async (r: GoalResult) => (r.stopReason === 'error' || r.stopReason === 'max-iterations') && !!r.last?.timedOut
+    && (await gh.issueState(c.repo, n)) === 'OPEN';
+  /** A timed-out impl turn never leaves its WIP only on the local disk: the checkpoint turn, then hx's own commit and
+   *  push of what it left, and a handoff note when the checkpoint wrote none. The goal still ends in fail(). */
+  const saveTimedOut = async (r: GoalResult, summary: string) => {
+    const notes = async () => (await gh.commentBodies(c.repo, n, ctx.trusted).catch(() => [] as string[])).filter((b) => b.trimStart().startsWith(HANDOFF_MARKER)).length;
+    const before = await notes();
+    await checkpoint(p, agent, n, 'impl', r.sessionId, wt.dir, vars, eventLog, env);
+    const saved = await saveWip(wt.dir, n, c.defaultBranch);
+    if (saved.committed) log(`timed out: hx committed the WIP (wip: checkpoint (#${n}))`, n);
+    if (saved.error !== undefined) return fail(r, `the impl turn timed out (${goalFailure(r)}); the ${saved.step} of its WIP failed: ${saved.error}`, summary,
+      `The ${saved.step} failed, so the WIP is only in the kept worktree \`${wt.dir}\`. `);
+    if (saved.pushed) log(`timed out: hx pushed issue/${n}`, n);
+    if ((await notes()) <= before) await gh.comment(c.repo, n, `${HANDOFF_MARKER}\n**hx:** the impl turn timed out and its checkpoint left no note; the work is on branch issue/${n}.`).catch(() => {});
+    return fail(r, `the impl turn timed out (${goalFailure(r)})`, summary, `The WIP is on branch \`issue/${n}\`. `);
+  };
   const promise = `${a.kind === 'impl' ? 'ISSUE' : a.kind.toUpperCase()} ${n} DONE`;
   // an impl session may stop with a question for the owner instead (not a completion: no verify, no PR, no audit)
   const askPromise = a.kind === 'impl' ? `NEEDS_HUMAN ${n}` : undefined;
@@ -1275,6 +1294,7 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
     if (r.promiseSeen === 'alt') return askOwner(r, summary);
     if (r.stopReason === 'aborted' && a.kind === 'impl' && r.iterations > 0) await checkpoint(p, agent, n, 'impl', r.sessionId, wt.dir, vars, eventLog, env);
     if (stopped(r)) return handBack(r, summary);
+    if (a.kind === 'impl' && await timedOutOpen(r)) return saveTimedOut(r, summary);
     const why = await verify(p, a, n, ctx.trusted, before);
     if (!why) {
       // the pass filed security issues: once they are fixed the PRD is reviewed, then checked, again
@@ -1289,7 +1309,7 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
       if (a.kind === 'impl') ctx.merged?.();
       return { ...r, done: true };
     }
-    return fail(r, r.done ? why : r.stopReason === 'max-iterations' ? `no completion after ${r.iterations} turns` : `agent error: ${r.last?.error ?? 'unknown'}`, summary);
+    return fail(r, r.done ? why : goalFailure(r), summary);
   }
 
   // implement → independent audit → (hx merges | back to the implementer with the findings)
@@ -1311,6 +1331,7 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
       if (r.promiseSeen === 'alt') return askOwner(r, summary);
       if (r.stopReason === 'aborted' && r.iterations > 0) await checkpoint(p, agent, n, 'impl', r.sessionId, wt.dir, vars, eventLog, env);
       if (stopped(r)) return handBack(r, summary);
+      if (await timedOutOpen(r)) return saveTimedOut(r, summary);
       // the owner's answer left nothing to build: the implementer closed the issue with a comment, no PR
       // (asked first: findOpenPr waits ~30 s for a PR that is not there). A PR in any state rules it out: one the
       // implementer merged itself was never audited, and falls through to the no-open-PR failure below
@@ -1494,6 +1515,28 @@ async function waitClosed(repo: string, n: number, ms: number): Promise<boolean>
   for (const end = Date.now() + ms; Date.now() < end; await new Promise((r) => setTimeout(r, 10_000)))
     if ((await gh.issueState(repo, n)) === 'CLOSED') return true;
   return false;
+}
+
+/**
+ * hx's own save of a timed-out impl turn's WIP (#310), after its checkpoint: uncommitted changes are committed as
+ * `wip: checkpoint (#n)`, and `issue/<n>` is pushed when HEAD has commits beyond `origin/<base>` that origin's
+ * `issue/<n>` does not point at. Never a force push. error: git's own (trimmed) when the commit or the push failed.
+ */
+export async function saveWip(cwd: string, n: number, base: string): Promise<{ committed: boolean; pushed: boolean; error?: string; step?: 'commit' | 'push' }> {
+  const git = (...a: string[]) => runCmd('git', ['-C', cwd, ...a]);
+  const err = (x: { stdout: string; stderr: string }) => (x.stderr.trim() || x.stdout.trim()).replace(/\s*\n\s*/g, ' ').slice(-500);
+  let committed = false;
+  if ((await git('status', '--porcelain')).stdout.trim()) {
+    await git('add', '-A');
+    const cm = await git('commit', '-q', '-m', `wip: checkpoint (#${n})`);
+    if (cm.code) return { committed, pushed: false, error: err(cm), step: 'commit' };
+    committed = true;
+  }
+  if (!Number((await git('rev-list', '--count', `origin/${base}..HEAD`)).stdout.trim())) return { committed, pushed: false };
+  const head = (await git('rev-parse', 'HEAD')).stdout.trim();
+  if ((await git('ls-remote', 'origin', `refs/heads/issue/${n}`)).stdout.split(/\s/)[0] === head) return { committed, pushed: false };
+  const push = await git('push', '-u', 'origin', `issue/${n}`);
+  return push.code ? { committed, pushed: false, error: err(push), step: 'push' } : { committed, pushed: true };
 }
 
 /** What the implementer's `ship --no-merge` recorded in its worktree (repo, base, test command, PR). */
