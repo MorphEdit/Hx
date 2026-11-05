@@ -61,6 +61,58 @@ export function killTree(pid: number | undefined, sync = false, onKilled?: () =>
   onKilled?.();
 }
 
+export interface Proc { pid: number; ppid: number; cmd: string }
+
+/** Every process this user can see, with its parent and command line: Win32_Process on Windows, ps elsewhere. */
+export async function listProcesses(): Promise<Proc[]> {
+  if (process.platform === 'win32') {
+    const r = await run('powershell', ['-NoProfile', '-NonInteractive', '-Command',
+      'Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,CommandLine | ConvertTo-Json -Compress']);
+    if (r.code !== 0) return [];
+    try {
+      const j = JSON.parse(r.stdout);
+      return (Array.isArray(j) ? j : [j]).map((x: any) => ({ pid: Number(x.ProcessId), ppid: Number(x.ParentProcessId), cmd: String(x.CommandLine ?? '') }));
+    } catch { return []; }
+  }
+  const r = await run('ps', ['-eo', 'pid=,ppid=,args=']);
+  if (r.code !== 0) return [];
+  return r.stdout.split('\n').map((l) => /^\s*(\d+)\s+(\d+)\s+(.*)$/.exec(l)).filter((m) => m !== null)
+    .map((m) => ({ pid: Number(m[1]), ppid: Number(m[2]), cmd: m[3] }));
+}
+
+/** Whether a command line names a path inside `dir`: dir followed by a separator, a quote, a space or the end, in
+ *  its `\` and `/` forms (case-insensitive on Windows), so i28 never matches i285. */
+export function namesDir(cmd: string, dir: string): boolean {
+  const d = path.resolve(dir).replace(/[\\/]+$/, '');
+  const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const forms = [...new Set([d.replace(/\//g, '\\'), d.replace(/\\/g, '/')])].map(esc).join('|');
+  return new RegExp(`(?:${forms})(?:[\\\\/"' ]|$)`, process.platform === 'win32' ? 'i' : '').test(cmd);
+}
+
+/** The processes whose command line names a path inside `dir`; never `self` or one of its ancestors. */
+export function procsInDir(procs: Proc[], dir: string, self = process.pid): number[] {
+  const byPid = new Map(procs.map((p) => [p.pid, p]));
+  const spare = new Set<number>([self]);
+  for (let p = byPid.get(self); p && p.ppid && !spare.has(p.ppid); p = byPid.get(p.ppid)) spare.add(p.ppid);
+  return procs.filter((p) => p.pid > 0 && !spare.has(p.pid) && namesDir(p.cmd, dir)).map((p) => p.pid);
+}
+
+/** Whether `dir` is strictly inside `root`. */
+export function isInside(dir: string, root: string): boolean {
+  const rel = path.relative(path.resolve(root), path.resolve(dir));
+  return rel !== '' && !rel.startsWith('..') && !path.isAbsolute(rel);
+}
+
+/** Kill, with their trees, the processes whose command line names a path inside `dir` (#328): what a session's
+ *  agent started outlives taskkill /T once the step between them has exited. A `dir` outside `root` (the worktree
+ *  root) is refused. Returns the number of processes killed. */
+export async function killByPath(dir: string, root: string, procs?: Proc[]): Promise<number> {
+  if (!isInside(dir, root)) return 0;
+  const pids = procsInDir(procs ?? await listProcesses(), dir);
+  await Promise.all(pids.map((pid) => new Promise<void>((gone) => killTree(pid, false, gone))));
+  return pids.length;
+}
+
 export interface ShellResult {
   code: number;
   output: string; // stdout then stderr, the last 1 MB of each

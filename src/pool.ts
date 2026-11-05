@@ -8,7 +8,7 @@ import * as gh from './github.ts';
 import type { Issue } from './github.ts';
 import { hhmm, reserveState, type GhBudget } from './ghlimit.ts';
 import { claimable, externalRefs, fenceFindings, isTrusted, issueKey, openQuestions, parseBlockedBy, parseParent, plan, prdKey, PROMISE_RE, refKey, render, TRIAGE_MARKER, triageVerdict, trustedSet, type Action, type Plan } from './state.ts';
-import { addWorktree, auditWorktree, cleanStaleWorktrees, implWorktree, prdWorktree, removeWorktree, repairBrokenRefs, selfReviewWorktree, triageWorktree, type AddedWorktree } from './worktree.ts';
+import { addWorktree, auditWorktree, cleanStaleWorktrees, implWorktree, prdWorktree, removeWorktree, repairBrokenRefs, selfReviewWorktree, sweepWorktrees, triageWorktree, type AddedWorktree } from './worktree.ts';
 import { emptyUsage, runGoal, runTurn, type GoalResult, type RateLimit } from './agent.ts';
 import { clearSetupRecord, readSetupRecord, setupLine, setupNote, setupWorktree, writeSetupRecord, type SetupResult } from './setup.ts';
 import { agentFor, type AgentCli } from './agents/index.ts';
@@ -353,10 +353,16 @@ async function pool(p: Project, o: PoolOptions): Promise<number> {
     }
     if (until !== ghWaitLogged) { ghWaitLogged = until; log(`github rate limited — waiting until ${hhmm(until / 1000)}`); }
   });
+  // processes left running in a worktree no session uses (#328): one line per directory with something killed
+  const sweepLeftovers = async (skip: string[] = []) => {
+    for (const x of await sweepWorktrees(c.worktreeRoot, skip).catch(() => [])) log(`health: killed ${x.killed} leftover process(es) in ${x.name}`);
+  };
   // a crash mid-write can leave an hx branch ref full of NUL bytes: repair it before anything uses the branch
   await repairBrokenRefs(p.root, c.worktreeRoot, (m) => log(m)).catch((e) => log(`could not check branch refs: ${e.message}`));
   await ensureBoardLabels(c);
   await recoverStaleClaims(p);
+  // no session runs yet: what a crashed or killed one left running in its worktree goes first (it holds the directory open)
+  await sweepLeftovers();
   // a removal that failed last run (a file held open on Windows) left its directory behind; no session runs yet
   for (const d of await cleanStaleWorktrees(p.root, c.worktreeRoot).catch(() => [])) log(`removed leftover directory ${d}`);
   // budget-low: the GitHub API budget is below ghReservePct. Before `until` (ms epoch) nothing is claimed, engine steps
@@ -525,6 +531,9 @@ async function pool(p: Project, o: PoolOptions): Promise<number> {
   const healthCheck = async (): Promise<boolean> => {
     healthAt = Date.now();
     try {
+      // the worktrees with no live session; the gate's and the release's while they may run
+      await sweepLeftovers([...live.sessions.flatMap((x) => ['i', 'a', 't', 'p'].map((k) => `${k}${x.number}`)),
+        ...(gateRunning ? ['gate'] : []), ...(releasing ? ['r', 'gate'] : [])]);
       const r = await healthPass(p, {
         repairs: c.selfHeal,
         live: new Set(live.sessions.map((s) => s.number)),
@@ -849,7 +858,7 @@ async function selfReview(p: Project, ctx: WorkContext, o: { range: string; head
     const turnEvents: unknown[] = []; // this turn's events, for its test time
     return await runGoal({
       agent, bin: agent.bin(c), cwd: wt.dir, model: m.model, effort: m.effort, extraArgs: workerArgs(c), timeoutMs: c.turnTimeoutMinutes * 60_000,
-      stallMs: c.stallMinutes * 60_000,
+      stallMs: c.stallMinutes * 60_000, sweepRoot: c.worktreeRoot,
       prompt: appendSkills(render(readFileSync(path.join(PROMPTS, 'selfreview.md'), 'utf8'), v), skills, PROMPTS),
       continuePrompt: render(readFileSync(path.join(PROMPTS, 'continue.md'), 'utf8'), v),
       promise: SELFREVIEW_PROMISE, maxIterations: c.maxIterations, signal: ctx.signal,
@@ -1023,7 +1032,7 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
     const turnEvents: unknown[] = []; // this turn's events, for its test time
     return runGoal({
       agent, bin: agent.bin(c), cwd, model: m.model, effort: m.effort, extraArgs: workerArgs(c), timeoutMs: c.turnTimeoutMinutes * 60_000,
-      stallMs: c.stallMinutes * 60_000,
+      stallMs: c.stallMinutes * 60_000, sweepRoot: c.worktreeRoot,
       prompt: appendSkills(render(readFileSync(path.join(PROMPTS, promptFile), 'utf8'), v), skills, PROMPTS),
       continuePrompt: render(readFileSync(path.join(PROMPTS, 'continue.md'), 'utf8'), v),
       promise, altPromise, maxIterations: c.maxIterations, signal: ctx.signal,
@@ -1576,7 +1585,7 @@ async function checkpoint(p: Project, agent: AgentCli, n: number, role: string, 
   log('checkpointing: committing WIP and writing a handoff note…', n);
   const turnEvents: unknown[] = []; // this turn's events, for its test time
   const t = await runTurn({ agent, bin: agent.bin(c), cwd, model: m.model, effort: m.effort, extraArgs: workerArgs(c),
-    timeoutMs: c.checkpointMinutes * 60_000, stallMs: c.stallMinutes * 60_000, sessionId, resume: true, env,
+    timeoutMs: c.checkpointMinutes * 60_000, stallMs: c.stallMinutes * 60_000, sweepRoot: c.worktreeRoot, sessionId, resume: true, env,
     prompt: render(readFileSync(path.join(PROMPTS, 'checkpoint.md'), 'utf8'), vars),
     onEvent: (ev) => { appendFileSync(eventLog, JSON.stringify(ev) + '\n'); turnEvents.push(ev); } });
   recordUsage(p.stateDir, { ts: new Date().toISOString(), issue: n, role: 'checkpoint', sessionId, iteration: 0, model: m.model,

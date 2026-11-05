@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, unlinkSync } from 'node:fs';
 import path from 'node:path';
-import { run, runOk } from './exec.ts';
+import { killByPath, listProcesses, run, runOk } from './exec.ts';
 
 const GIT = process.env.HX_GIT_BIN || 'git';
 
@@ -123,6 +123,26 @@ export function cleanStaleWorktrees(checkout: string, root: string, owned: Itera
     }
     return removed;
   });
+}
+
+/**
+ * Kill the processes left running in the directories under `root` (#328): a session that ended (a crash, a kill
+ * whose tree had already lost a parent) can leave its tests holding the worktree open for hours. `skip` names the
+ * directories still in use. Returns each directory with something killed and how many; nothing is listed when
+ * there is no directory to sweep.
+ */
+export async function sweepWorktrees(root: string, skip: Iterable<string> = []): Promise<{ name: string; killed: number }[]> {
+  if (!existsSync(root)) return [];
+  const busy = new Set(skip);
+  const dirs = readdirSync(root, { withFileTypes: true }).filter((e) => e.isDirectory() && !busy.has(e.name)).map((e) => e.name);
+  if (!dirs.length) return [];
+  const procs = await listProcesses();
+  const out: { name: string; killed: number }[] = [];
+  for (const name of dirs) {
+    const killed = await killByPath(path.join(root, name), root, procs);
+    if (killed) out.push({ name, killed });
+  }
+  return out;
 }
 
 /** hx's branches whose loose ref is checked at startup, with the worktree name each one uses. */
