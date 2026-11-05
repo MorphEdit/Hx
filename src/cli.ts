@@ -24,7 +24,7 @@ import { healthPass, readHealth, renderResult } from './health.ts';
 import { hxRoot, installKind, readSelfUpdate } from './selfupdate.ts';
 import { addRepo, type Fleet, fleetDir, fleetFile, fleetWorkers, readFleet, readGithubHold, readHold, readRepos, registerRepo, removeRepo, sameRoot, slotsInUse, startFleetRun, writeFleet, writeRepos } from './fleet.ts';
 import { readSupervise, supervise } from './supervise.ts';
-import { service } from './service.ts';
+import { service, syncAutoStart } from './service.ts';
 import type { Question } from './state.ts';
 import { splitLines } from './size.ts';
 import { change, compare, parseTime, SMALL_SAMPLE, type Period } from './compare.ts';
@@ -244,7 +244,7 @@ async function start(args: string[]): Promise<number> {
 /** hx run's startup gate: the doctor checks without the label lookup (hx run creates the labels). A required ✗
  *  prints the non-✓ lines with their fixes and stops; a ? is printed and the run starts. */
 async function startupChecks(cwd?: string): Promise<boolean> {
-  const { checks, code } = await doctor({ cwd, skipLabels: true });
+  const { checks, code } = await doctor({ cwd, skipLabels: true, skipAutoStart: true });
   if (code !== 0) { console.error(`hx run: a required check failed (hx doctor shows them all)
 ${render(checks.filter((c) => c.mark !== '✓'))}`); return false; }
   const unsure = checks.filter((c) => c.mark === '?');
@@ -285,6 +285,12 @@ async function init(args: string[]): Promise<number> {
     if (process.stdin.isTTY) config.selfUpdate = saved.selfUpdate = /^y(es)?$/i.test((await ask(q)).trim());
     else delete saved.selfUpdate;
     notes.push(`self-update: ${config.selfUpdate ? 'on' : 'off'} — change selfUpdate in .hx/config.json (see Stopping and resuming in docs/guide.md)`);
+  }
+  if (!('autoStart' in raw) && process.platform === 'win32') {
+    // --yes keeps the default: a logon task is registered only on an explicit yes
+    const q = 'Start hx at Windows logon (a Task Scheduler task for you, no password stored, no elevation)? [y/N] ';
+    config.autoStart = saved.autoStart = !args.includes('--yes') && /^y(es)?$/i.test((await ask(q)).trim());
+    notes.push(`autoStart: ${config.autoStart ? 'on — hx run registers the logon task' : 'off'} — change autoStart in .hx/config.json (see Starting at logon in docs/guide.md)`);
   }
   saveConfig(path.join(root, STATE_DIR), saved);
   registerRepo(root, config.repo);
@@ -388,6 +394,11 @@ async function runCmd(args: string[]): Promise<number> {
     else { log('force quit — killing sessions; their worktrees keep the work'); killAllSessions(); process.exit(130); }
   };
   registerRepo(p.root, p.config.repo);
+  const dryRun = args.includes('--dry-run');
+  if (!dryRun) { // autoStart: this repo's logon task registered or removed to match the setting, a line only when it changed
+    setRunLog(runLogFile(p.stateDir));
+    await syncAutoStart({ enabled: p.config.autoStart === true, repo: p.config.repo, root: p.root, stateDir: p.stateDir, entry: process.argv[1], log: (l) => log(l) });
+  }
   process.on('SIGINT', press);
   // started by hx fleet run: its Ctrl+C arrives as an IPC message; the channel never keeps us alive, and the fleet dying does not stop us
   if (process.send) {
@@ -395,7 +406,7 @@ async function runCmd(args: string[]): Promise<number> {
     process.on('disconnect', () => {});
     (process.channel as any)?.unref?.();
   }
-  return runPool(p, { workers, only, watch: args.includes('--watch'), dryRun: args.includes('--dry-run'), signal: ac.signal });
+  return runPool(p, { workers, only, watch: args.includes('--watch'), dryRun, signal: ac.signal });
 }
 
 function workersArgs(args: string[]): string[] {
@@ -512,8 +523,10 @@ ${nextLine(p.stateDir, lane)}`);
   return (await interview(args, { role: 'issue', dir: 'issues', noun: 'issue', later: `hx issue --file <file>${bugLane ? ' --bug' : ''}`, lane, file })).code;
 }
 
-/** One line from stdin ('' when stdin closes first). */
+/** One line from stdin ('' when stdin closes first, or closed at an earlier question: a new readline on an ended stdin
+ *  would wait for nothing and node would exit mid-command). */
 function ask(question: string): Promise<string> {
+  if (process.stdin.readableEnded) { process.stdout.write(question + '\n'); return Promise.resolve(''); }
   return new Promise((resolve) => {
     const rl = createInterface({ input: process.stdin, output: process.stdout });
     let answer = '';

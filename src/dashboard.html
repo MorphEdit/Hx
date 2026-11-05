@@ -142,6 +142,9 @@ function renderNow(s) {
   const sv = s.supervised;
   if (sv) parts.push(el('div', { class: 'kv' }, el('span', {}, sv.running ? badge('ok', 'supervised') : badge('mute', 'not supervised')),
     sv.last ? el('span', {}, el('b', {}, String(sv.last.line ?? '')), ' at ', when(sv.last.at)) : null));
+  const as = s.autoStart; // read-only: set autoStart in .hx/config.json
+  if (as) parts.push(el('div', { class: 'kv' }, el('span', {}, 'autoStart ', as.enabled ? badge('ok', 'on') : badge('mute', 'off')),
+    el('span', {}, String(as.text ?? '')), as.at ? el('span', {}, 'checked ', when(as.at)) : null));
   sessions = s.sessions || [];
   if (r.running) {
     parts.push(sessions.length ? table(['issue', 'title', 'kind', 'turn', 'tokens', 'elapsed'], sessions.map((x) =>
