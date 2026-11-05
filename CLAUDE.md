@@ -2,7 +2,7 @@
 
 Hx is a Windows-native rewrite of the ideas in [VocanicZ/Harness](https://github.com/VocanicZ/Harness):
 a pool of headless Claude Code workers (`claude -p --output-format stream-json`) driving a GitHub-issues
-board. Read `README.md` (what it does, benchmark) and `docs/design.md` (why it is built this way, the
+board. Read `README.md` (what it does), `docs/guide.md` (every command and setting) and `docs/design.md` (why it is built this way, the
 roadmap and the agreed order of the next features) before changing anything.
 
 ## Where things are
@@ -28,14 +28,19 @@ roadmap and the agreed order of the next features) before changing anything.
 - `test/` — `npm test`. End-to-end tests use real git (local bare origin) with fake `gh` and `claude`
   in `test/fakes/` (`HX_GH_BIN`, `claudeBin` pointing at a `.mjs` run under node; `test/isolate.ts` sets `HX_GH_INPROC`, so the fake gh answers in-process)
 - `bench/` — the six-issue benchmark (`node bench/run.mjs chat|hx1|hx3`, then `node bench/figures.mjs`), and the project benchmark (`node bench/project.mjs chat|hx3`: one brief
-  through the whole PRD flow, graded by hidden tests; `figures.mjs` renders its README table from
+  through the whole PRD flow, graded by hidden tests; `figures.mjs` renders its table in `docs/benchmark.md` from
   `bench/results/project-*.json` via `bench/project-table.mjs`).
   It creates private GitHub repos and spends real usage: run it only when asked.
 
 ## Conventions
 - Everything in the repo is English (code, docs, commits). Talk to the user in Thai.
 - `npm test` must pass before every commit; never push with a failing test.
-- A change that can affect quality or tokens is re-measured with the benchmark, and the README numbers
+- User docs: `README.md` is a short landing page (what Hx is, how it works, quick start, everyday
+  commands, links), kept under ~150 lines. Every detail (a command's flags, a setting, a section about a
+  feature, a config row) goes in `docs/guide.md`; benchmark results go in `docs/benchmark.md`. Add to the
+  README only what a first-time reader needs. Tests that check a feature is documented read all three
+  (`test/docs-text.ts`).
+- A change that can affect quality or tokens is re-measured with the benchmark, and the benchmark numbers
   and figures are regenerated from the new results — never edited by hand.
 - Defaults: model `claude-opus-5-5` (full id; the `opus` alias resolved to an older Opus), effort `medium`.
 - Windows: keep paths short (worktrees), spawn without a shell, pass prompts and bodies via stdin.

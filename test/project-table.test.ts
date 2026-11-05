@@ -1,5 +1,5 @@
-// The README "Project benchmark" table: bench/project-table.mjs on in-memory text, and bench/figures.mjs
-// run on a copy in a temp dir, so the repo's README.md and bench/results/ are never touched.
+// The "Project benchmark" table in docs/benchmark.md: bench/project-table.mjs on in-memory text, and bench/figures.mjs
+// run on a copy in a temp dir, so the repo's docs/benchmark.md and bench/results/ are never touched.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -74,11 +74,12 @@ test('updateReadme without the markers leaves the text unchanged even with resul
   assert.equal(updateReadme(plain, [hx3]), plain);
 });
 
-test('the repo README has the Project benchmark part under Benchmark with the two markers adjacent', () => {
-  const readme = readFileSync(path.join(root, 'README.md'), 'utf8');
-  const bm = readme.indexOf('\n## Benchmark'), pb = readme.indexOf('\n### Project benchmark');
-  const next = readme.indexOf('\n## ', bm + 1);
-  assert.ok(bm >= 0 && pb > bm && pb < next, 'Project benchmark sits under ## Benchmark');
+test('docs/benchmark.md has the Project benchmark section with the two markers adjacent, and the README links to it', () => {
+  const readme = readFileSync(path.join(root, 'docs', 'benchmark.md'), 'utf8');
+  const pb = readme.indexOf('\n## Project benchmark');
+  const next = readme.indexOf('\n## ', pb + 1);
+  assert.ok(pb >= 0 && next > pb, 'docs/benchmark.md has a Project benchmark section');
+  assert.ok(readFileSync(path.join(root, 'README.md'), 'utf8').includes('](docs/benchmark.md)'), 'the README links to docs/benchmark.md');
   assert.ok(readme.includes(START + END), 'markers adjacent');
   const part = readme.slice(pb, next);
   for (const s of ['tally', '80+ hidden tests', 'node bench/project.mjs chat', 'node bench/project.mjs hx3',
@@ -92,32 +93,33 @@ test('the repo README has the Project benchmark part under Benchmark with the tw
   assert.match(block, /real usage/);
 });
 
-/** A copy of figures.mjs and its inputs in a temp dir: <tmp>/README.md, <tmp>/bench/... */
+/** A copy of figures.mjs and its inputs in a temp dir: <tmp>/docs/benchmark.md, <tmp>/bench/... */
 function figuresCopy(sixIssue: boolean) {
   const dir = mkdtempSync(path.join(os.tmpdir(), 'hx-ptab-'));
   mkdirSync(path.join(dir, 'bench', 'results'), { recursive: true });
   for (const f of ['figures.mjs', 'project-table.mjs', 'issues.json']) copyFileSync(path.join(bench, f), path.join(dir, 'bench', f));
   if (sixIssue) for (const f of ['chat.json', 'hx1.json', 'hx3.json']) copyFileSync(path.join(bench, 'results', f), path.join(dir, 'bench', 'results', f));
-  writeFileSync(path.join(dir, 'README.md'), withMarkers);
+  mkdirSync(path.join(dir, 'docs'), { recursive: true });
+  writeFileSync(path.join(dir, 'docs', 'benchmark.md'), withMarkers);
   return dir;
 }
 const runFigures = (dir: string) => spawnSync(process.execPath, [path.join(dir, 'bench', 'figures.mjs')], { encoding: 'utf8' });
 
-test('figures.mjs with no project results leaves README.md byte-identical and still draws the SVGs', () => {
+test('figures.mjs with no project results leaves docs/benchmark.md byte-identical and still draws the SVGs', () => {
   const dir = figuresCopy(true);
   const r = runFigures(dir);
   assert.equal(r.status, 0, r.stderr);
-  assert.equal(readFileSync(path.join(dir, 'README.md'), 'utf8'), withMarkers);
+  assert.equal(readFileSync(path.join(dir, 'docs', 'benchmark.md'), 'utf8'), withMarkers);
   assert.ok(readFileSync(path.join(dir, 'docs', 'figures', 'bench-summary.svg'), 'utf8').includes('<svg'));
 });
 
-test('figures.mjs renders project-*.json into README.md before it exits 1 for missing six-issue results', () => {
+test('figures.mjs renders project-*.json into docs/benchmark.md before it exits 1 for missing six-issue results', () => {
   const dir = figuresCopy(false);
   writeFileSync(path.join(dir, 'bench', 'results', 'project-hx3.json'), JSON.stringify(hx3));
   writeFileSync(path.join(dir, 'bench', 'results', 'project-chat.json'), JSON.stringify(chat));
   const r = runFigures(dir);
   assert.equal(r.status, 1);
-  const out = readFileSync(path.join(dir, 'README.md'), 'utf8');
+  const out = readFileSync(path.join(dir, 'docs', 'benchmark.md'), 'utf8');
   assert.equal(out, updateReadme(withMarkers, [chat, hx3]));
   assert.equal(tableRows(out).length, 4);
 });

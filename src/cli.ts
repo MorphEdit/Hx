@@ -281,7 +281,7 @@ async function init(args: string[]): Promise<number> {
     const q = `hx runs from the git checkout ${hxRoot()}: let hx run --watch fast-forward it and restart itself when idle? [y/N] `;
     if (process.stdin.isTTY) config.selfUpdate = saved.selfUpdate = /^y(es)?$/i.test((await ask(q)).trim());
     else delete saved.selfUpdate;
-    notes.push(`self-update: ${config.selfUpdate ? 'on' : 'off'} — change selfUpdate in .hx/config.json (see Stopping and resuming in the README)`);
+    notes.push(`self-update: ${config.selfUpdate ? 'on' : 'off'} — change selfUpdate in .hx/config.json (see Stopping and resuming in docs/guide.md)`);
   }
   saveConfig(path.join(root, STATE_DIR), saved);
   registerRepo(root, config.repo);

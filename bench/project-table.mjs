@@ -1,5 +1,5 @@
-// The README "Project benchmark" table, built from the parsed bench/results/project-<arm>.json files.
-// Pure: no I/O. bench/figures.mjs reads the files and writes README.md when the text changed.
+// The "Project benchmark" table in docs/benchmark.md, built from the parsed bench/results/project-<arm>.json files.
+// Pure: no I/O. bench/figures.mjs reads the files and writes docs/benchmark.md when the text changed.
 // Fields read (as bench/project.mjs writes them): arm, passed, total, wallMs, tokens (a number or
 // { total }), costUsd, sessions (by role: { impl: 3, … }, or a number), issuesClosed, issuesFiled,
 // auditFails, gateReds, escapedDefects, capped. A null or missing value shows as –.

@@ -11,6 +11,7 @@ import { fileURLToPath } from 'node:url';
 import { change, compare, parseTime, stopCause, type CompareIssue } from '../src/compare.ts';
 import { DEFAULTS, saveConfig } from '../src/config.ts';
 import { barMarker } from '../src/bar.ts';
+import { docsText } from './docs-text.ts';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const tmp = mkdtempSync(path.join(os.tmpdir(), 'hx-cmp-'));
@@ -233,6 +234,6 @@ test('hx usage --compare: a bad time exits 1 with a clear message, before any Gi
 test('hx help and the README name --compare', E2E, () => {
   const r = spawnSync(process.execPath, ['--disable-warning=ExperimentalWarning', path.join(here, '..', 'bin', 'hx.mjs'), 'help'], { encoding: 'utf8' });
   assert.match(r.stdout, /usage --compare <time>/);
-  const readme = readFileSync(path.join(here, '..', 'README.md'), 'utf8');
+  const readme = docsText();
   assert.ok(readme.includes('**Did a change help?**') && readme.includes('hx usage --compare'));
 });
