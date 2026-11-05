@@ -79,6 +79,21 @@ describe what you want.
 
 Every command and setting is in the [guide](docs/guide.md).
 
+## When hx needs you
+
+Some things only you can do: make a choice, sign up for something, or try the result by hand. Then Hx
+asks you on the issue, labels it `needs-human`, and works on everything else meanwhile.
+- **A question** starts with **Hx needs your answer:**, then lettered choices, one marked
+  *(recommended)*.
+- **To answer**, add one comment to the issue: just the letter (`A`), or say what you want in your own
+  words. Hx picks the issue up again from your answer.
+- **Never paste a secret** (a key, a password) in a comment. Put it where the steps say (a local file or
+  an environment variable), then reply `done`.
+- **See what waits on you** at the top of `hx status` and in the dashboard's *Waiting on you* panel.
+- **Questions are rare.** At most `maxOpenQuestions` (3) are open at once. Anything with a sensible default
+  is decided for you and listed in the PR under `## Decisions made for you`; your answers are quoted
+  under `## Owner decisions`.
+
 ## Does it work?
 
 From real runs. The [benchmarks](docs/benchmark.md) page has the details and shows how to reproduce

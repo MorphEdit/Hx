@@ -71,6 +71,7 @@ role prompts, promise-based completion.
 | 8 | Releases (PRD #139): `hx release` on a green gate (patch, minor once a PRD closed, major by hand), notes from git and GitHub, `autoRelease` in `hx run` | done |
 | 9 | Onboarding (PRD #183): `npx github:MorphEdit/Hx install`, `hx doctor` and the `hx run` startup gate, `hx start`, `hx update`, the `/hx` skill | done |
 | 10 | Quality bar (PRD #254): an opt-in `## Quality bar` section; after review and the security pass, a blind A/B against the named product, one gap issue per lost round, `barRounds`, `quality-bar-passed` | done |
+| 11 | needs-human (PRD #286): a `needs-human` label, one plain-language `<!-- hx-question -->` with lettered choices (from decompose as a `[needs you]` issue, or from impl via `NEEDS_HUMAN`), the owner's trusted comment as the answer, `maxOpenQuestions`, `hx status` and the dashboard first, questions asked and answered in `hx usage --compare` | done |
 
 ### Next: the rest of Harness's features, ordered by how much they improve the quality of what Hx ships
 

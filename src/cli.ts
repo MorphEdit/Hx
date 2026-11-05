@@ -68,7 +68,8 @@ const HELP = `usage: hx <command> [options]
                            tag the next version on a green default branch: bump package.json, push the
                            tag, write notes from the merged PRs and closed PRDs, create the GitHub release
                            (autoRelease: hx run releases by itself, minor per closed PRD, patch for fixes)
-  status                   the runner, its live sessions, usage limits, and the board
+  status                   the runner, its live sessions, usage limits, and the board; first the needs-human
+                           questions waiting on you (answer one with a comment on its issue, e.g. "A")
   pause [--now]            stop claiming new work; running sessions finish (--now: they commit,
                            push and leave a handoff note, then stop). Works on a running hx run.
   resume                   clear a pause; then hx run continues where it stopped
@@ -77,7 +78,7 @@ const HELP = `usage: hx <command> [options]
   usage --compare <time> [--from <time>]
                            the runs before and after <time> (ISO or "YYYY-MM-DD HH:MM") side by side: per role
                            from usage.jsonl, audits, closed issues, stops and retries from hx's own GitHub
-                           comments, each with its change (--from: drop older runs)
+                           comments, questions asked and answered, each with its change (--from: drop older runs)
   dashboard [--port N] [--open]
                            a read-only page on http://127.0.0.1:${DEFAULT_PORT}/ (localhost only): the runner,
                            sessions, gate, usage by PRD/role/model/day, run log and the board (--open: browser)
@@ -729,6 +730,8 @@ function printCompare(b: Period, a: Period): void {
     ['first-round FAILs', b.firstRoundFails, a.firstRoundFails, String, 'count'],
     ['bar rounds won', b.barWon, a.barWon, String, 'count'],
     ['bar rounds lost', b.barLost, a.barLost, String, 'count'],
+    ['questions asked', b.questionsAsked, a.questionsAsked, String, 'count'],
+    ['questions answered', b.questionsAnswered, a.questionsAnswered, String, 'count'],
     ['gate-fix issues', b.gateFixOpened, a.gateFixOpened, String, 'count'],
     ['stops: timed out', b.stops.timedOut, a.stops.timedOut, String, 'count'],
     ['stops: not mergeable', b.stops.conflict, a.stops.conflict, String, 'count'],

@@ -149,9 +149,11 @@ session and failed sessions, from `.hx/usage.jsonl`. Per period it counts, from 
 the issues and their comments: audits PASS/FAIL and the FAIL share, first-round FAILs, issues closed (not
 PRDs), gate-fix issues opened, tokens and cost per closed issue, stops by cause (timed out, not mergeable or
 conflict, out of audit rounds, other), "tests fail after the rebase" retries and quality-bar rounds won and
-lost (a `no verdict` round is neither); also the hours of runs.
+lost (a `no verdict` round is neither), and needs-human questions asked (by when asked) and answered (by
+when the owner's answer came); also the hours of runs.
 Only hx's own markers count (`<!-- hx-audit -->`, `**hx:** impl stopped`, `<!-- hx-retry -->`, `<!-- hx-bar round=N -->`,
-the gate-fix label), from a trusted account; each line shows the change (`+12%`, `-3`), and a period with fewer than 10
+`<!-- hx-question -->`, the gate-fix label), from a trusted account; an answer is the first trusted comment after a question that is
+not one of hx's own `<!-- hx-` comments; each line shows the change (`+12%`, `-3`), and a period with fewer than 10
 closed issues is flagged as a small sample.
 
 ## Adding work to a running fleet
@@ -457,6 +459,9 @@ PRD #20 [prd] ──gauntlet──▶ [prd-hardened] ──decompose──▶ ch
   counted from those markers by trusted accounts only (the gh login plus `trustedAuthors`); one by any
   other account never counts. `reviewRounds` counts only the reviews after the latest bar marker, so each
   review a lost round triggers gets the full `reviewRounds`. The bar never blocks a PRD.
+- A part of a PRD only a person can do (a decision, a key or login, a check by hand) is filed as a
+  `[needs you]` issue labelled `needs-human`, blocking no sibling; the PRD stays `building` until it is
+  answered. See [When hx needs you](../README.md#when-hx-needs-you).
 - Decompose, review and security sessions only file issues, labels and comments; they never push code.
 
 ## Single issues
@@ -716,6 +721,7 @@ review / security / triage round caps, an audit that kept failing and a failed m
 | the audit passes and the merge goes through | hx merges the PR, closes the issue, removes `agent-working` and the worktree |
 | the audit fails | the findings go to a fresh implementer session on the same branch; after `auditRounds` FAILs: `agent-blocked` |
 | no promise after `maxIterations` turns, or the agent errors | comments the reason and last reply on the issue, labels it `agent-blocked`, keeps the worktree |
+| the worker needs the owner (a decision, a key, a check by hand) | commits and pushes its work, posts the question as a `<!-- hx-question -->` comment, swaps `ready-for-agent` for `needs-human`, keeps the worktree; the owner's answer (one trusted comment) relabels it `ready-for-agent` and the next worker gets the question and the answer |
 | usage limit hit | releases the issue, stops claiming until the limit resets |
 | Claude rejects the setup (API 400/401/403/404: unknown model, outdated CLI, auth) | hands the issue back untouched and stops the whole run with the reason |
 
