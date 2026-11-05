@@ -1,7 +1,7 @@
 // The size session's reply parser and the hx-size markers (PRD #300, #306).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { SIZE_FITS, SIZE_NARROWED, SIZE_SPLIT, parseSizeReply } from '../src/size.ts';
+import { SIZE_FITS, SIZE_NARROWED, SIZE_SPLIT, parseSizeReply, splitLines } from '../src/size.ts';
 
 const P = 'SIZE 7 DONE';
 const tag = `<promise>${P}</promise>`;
@@ -111,4 +111,23 @@ test('code fences: a === CHILD line and a SIZE line inside a fence stay body tex
   const fenced = parseSizeReply(`\`\`\`\nSIZE: fits\n\`\`\`\n${narrow(scope)}`, 'after-timeout', P);
   assert.equal(fenced?.shape, 'narrow');
   assert.equal(parseSizeReply('```\nSIZE: fits\n```', 'up-front', P), null);
+});
+
+test('splitLines: the split # lines of the last 24 h, oldest first; other and malformed lines skipped (#308)', () => {
+  const now = Date.parse('2026-11-05T12:00:00.000Z');
+  const at = (h: number) => new Date(now - h * 3_600_000).toISOString();
+  const lines = [
+    `${at(1)} [#4] split #4 → #5, #6`,
+    `${at(25)} [#1] split #1 → #2, #3`,
+    `${at(2)} split #7 → #8, #9 (narrowed after a timeout)`,
+    `${at(1)} [#4] size #4: fits`,
+    'split #10 → #11, #12',
+    'not-a-time split #13 → #14, #15',
+    '',
+  ];
+  assert.deepEqual(splitLines(lines, now), [
+    { at: at(2), msg: 'split #7 → #8, #9 (narrowed after a timeout)' },
+    { at: at(1), msg: 'split #4 → #5, #6' },
+  ]);
+  assert.deepEqual(splitLines([], now), []);
 });
