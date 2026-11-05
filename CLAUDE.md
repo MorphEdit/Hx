@@ -26,7 +26,9 @@ roadmap and the agreed order of the next features) before changing anything.
 - `scripts/ship.mjs` — the one-call commit → rebase → test → push → PR → merge → close routine workers use
 - `test/` — `npm test`. End-to-end tests use real git (local bare origin) with fake `gh` and `claude`
   in `test/fakes/` (`HX_GH_BIN`, `claudeBin` pointing at a `.mjs` run under node; `test/isolate.ts` sets `HX_GH_INPROC`, so the fake gh answers in-process)
-- `bench/` — the six-issue benchmark (`node bench/run.mjs chat|hx1|hx3`, then `node bench/figures.mjs`).
+- `bench/` — the six-issue benchmark (`node bench/run.mjs chat|hx1|hx3`, then `node bench/figures.mjs`), and the project benchmark (`node bench/project.mjs chat|hx3`: one brief
+  through the whole PRD flow, graded by hidden tests; `figures.mjs` renders its README table from
+  `bench/results/project-*.json` via `bench/project-table.mjs`).
   It creates private GitHub repos and spends real usage: run it only when asked.
 
 ## Conventions
