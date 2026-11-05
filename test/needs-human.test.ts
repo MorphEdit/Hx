@@ -44,6 +44,9 @@ const commentsOn = (n: number) => read().comments.filter((c: any) => c.issue ===
 const openQuestionCount = () => read().issues.filter((i: any) => i.state === 'OPEN' && i.labels.includes(L.needsHuman)).length;
 const prd = (n: number, body: string) => ({ number: n, title: `feature ${n}`, body, state: 'OPEN', labels: [L.prd] });
 // the newest decompose prompt (this test's): file names are session ids, so order by time
+// the first impl prompt of issue n
+const implPrompt = (n: number) => readdirSync(fakeDir).filter((f) => /\.prompt-1\.txt$/.test(f))
+  .map((f) => readFileSync(path.join(fakeDir, f), 'utf8')).find((t) => t.startsWith('Role: implement') && t.includes(`Issue: #${n} `)) ?? '';
 const decomposePrompt = () => readdirSync(fakeDir).filter((f) => /\.prompt-1\.txt$/.test(f)).map((f) => path.join(fakeDir, f))
   .sort((a, b) => statSync(a).mtimeMs - statSync(b).mtimeMs)
   .map((f) => readFileSync(f, 'utf8')).filter((t) => /^Role: decompose/.test(t)).at(-1) ?? '';
@@ -94,6 +97,12 @@ test('decompose files more questions than the cap allows: the newest excess beco
     assert.ok(i.labels.includes(L.ready) && !i.labels.includes(L.needsHuman), `#${n}: ${i.labels.join()}`);
     assert.equal(commentsOn(n).filter((b: string) => b === TOO_MANY_QUESTIONS).length, 1, `#${n} commented once`);
     assert.equal(i.state, 'CLOSED', `#${n} was then built with the recommended choice`);
+    // hx's cap comment is not the owner's answer: the prompt says the owner was not asked (#332)
+    const prompt = implPrompt(n);
+    assert.ok(prompt, `#${n} had an impl session`);
+    assert.doesNotMatch(prompt, /The owner answered|## Owner decisions`\./, `#${n}`);
+    assert.match(prompt, /The owner was not asked this issue's question[\s\S]*Take the recommended choice yourself and note it in the PR body under `## Decisions made for you`/, `#${n}`);
+    assert.match(prompt, /keep scores\?/, `#${n}: the question is in the prompt`);
   }
   for (const n of [2, 4]) {
     assert.deepEqual(issue(n).labels, [L.needsHuman], `#${n} still a question`);

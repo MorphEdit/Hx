@@ -155,7 +155,7 @@ lost (a `no verdict` round is neither), and needs-human questions asked (by when
 when the owner's answer came); also the hours of runs.
 Only hx's own markers count (`<!-- hx-audit -->`, `**hx:** impl stopped`, `<!-- hx-retry -->`, `<!-- hx-bar round=N -->`,
 `<!-- hx-question -->`, the gate-fix label), from a trusted account; an answer is the first trusted comment after a question that is
-not one of hx's own `<!-- hx-` comments; each line shows the change (`+12%`, `-3`), and a period with fewer than 10
+not one of hx's own comments (`<!-- hx-` or `**hx:**` first); each line shows the change (`+12%`, `-3`), and a period with fewer than 10
 closed issues is flagged as a small sample.
 
 ## Adding work to a running fleet
@@ -538,7 +538,9 @@ the issue `ready-for-agent` again and the next session resumes the kept branch w
 At the cap, hx posts no question: it comments `**hx:** too many open questions; the next session takes the
 recommended choice`, keeps the worktree and puts the issue back to `ready-for-agent`; that session's prompt says
 the cap is reached. The count and the relabel run one at a time, so two sessions that stop together cannot both
-pass at the last free place. Anything with a sensible default the worker decides itself and lists in the PR
+pass at the last free place. hx's own comments (`<!-- hx-` or `**hx:**` first, the cap comments among them) are
+never taken as your answer: an issue put back at the cap gets a prompt that says you were not asked and to note
+the recommended choice under `## Decisions made for you`; a reply you post later is still your answer. Anything with a sensible default the worker decides itself and lists in the PR
 body under `## Decisions made for you`.
 
 ## Every PR is audited before it merges

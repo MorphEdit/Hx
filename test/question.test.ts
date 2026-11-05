@@ -8,7 +8,7 @@ import { mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { findAnswer, findQuestion, ownerAnswer, ownerAnswerNote, QUESTION_MARKER } from '../src/question.ts';
+import { cappedQuestion, cappedQuestionNote, findAnswer, findQuestion, IMPL_TOO_MANY_QUESTIONS, ownerAnswer, ownerAnswerNote, QUESTION_MARKER, TOO_MANY_QUESTIONS } from '../src/question.ts';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const tmp = mkdtempSync(path.join(os.tmpdir(), 'hx-q-'));
@@ -63,6 +63,30 @@ test('ownerAnswer: a stranger\'s question comment neither moves the question nor
   assert.equal(ownerAnswer({ ...t, comments: [c('mallory', 'A', '2026-01-02T00:00:00Z')] }, T), null);
   assert.equal(ownerAnswerNote(null), '');
   assert.match(ownerAnswerNote({ question: 'local or cloud?', answer: 'A' }), /## Owner decisions[\s\S]*local or cloud\?[\s\S]*answer:\s+A\n/);
+});
+
+test("hx's own cap comments are never the owner's answer; a later owner reply still is (#332)", E2E, () => {
+  for (const cap of [TOO_MANY_QUESTIONS, IMPL_TOO_MANY_QUESTIONS]) {
+    const t = { body: Q, createdAt: '2026-01-01T00:00:00Z', comments: [c('hx-bot', cap, '2026-01-02T00:00:00Z')] };
+    assert.equal(ownerAnswer(t, T), null, cap);
+    assert.equal(findAnswer({ text: QTEXT, createdAt: t.createdAt }, t.comments, T), null, cap);
+    assert.equal(cappedQuestion(t, T), QTEXT, `${cap}: the question was put back at the cap`);
+    // the owner answers anyway, after the cap comment: that is the answer, and the issue is no longer capped
+    const later = { ...t, comments: [...t.comments, c('alice', 'B', '2026-01-03T00:00:00Z')] };
+    assert.deepEqual(ownerAnswer(later, T), { question: QTEXT, answer: 'B' }, cap);
+    assert.equal(cappedQuestion(later, T), null, cap);
+  }
+  // any other **hx:** comment is not an answer either
+  assert.equal(ownerAnswer({ body: Q, createdAt: '2026-01-01T00:00:00Z', comments: [c('hx-bot', '**hx:** impl stopped — x', '2026-01-02T00:00:00Z')] }, T), null);
+  // no cap comment, or a stranger's, or one before a newer question comment: not capped
+  assert.equal(cappedQuestion({ body: Q, createdAt: '2026-01-01T00:00:00Z', comments: [] }, T), null);
+  assert.equal(cappedQuestion({ body: Q, createdAt: '2026-01-01T00:00:00Z', comments: [c('mallory', TOO_MANY_QUESTIONS, '2026-01-02T00:00:00Z')] }, T), null);
+  assert.equal(cappedQuestion({ body: 'plain', createdAt: '2026-01-01T00:00:00Z', comments: [c('hx-bot', IMPL_TOO_MANY_QUESTIONS, '2026-01-02T00:00:00Z'),
+    c('hx-bot', `${QUESTION_MARKER}\nnew?`, '2026-01-03T00:00:00Z')] }, T), null);
+  assert.equal(cappedQuestionNote(null), '');
+  const note = cappedQuestionNote(QTEXT);
+  assert.match(note, /owner was not asked[\s\S]*Take the recommended choice[\s\S]*`## Decisions made for you`[\s\S]*local or cloud\?/);
+  assert.doesNotMatch(note, /Owner decisions|The owner answered/);
 });
 
 test('a plain issue (body without the marker, no question comment) has no question: the hx stop comment or an owner comment is no answer', E2E, () => {
