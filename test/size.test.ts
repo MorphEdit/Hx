@@ -1,7 +1,8 @@
 // The size session's reply parser and the hx-size markers (PRD #300, #306).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { SIZE_FITS, SIZE_NARROWED, SIZE_SPLIT, parseSizeReply, splitLines } from '../src/size.ts';
+import { SIZE_FITS, SIZE_NARROWED, SIZE_SPLIT, addBlockers, parseSizeReply, splitLines, withTrailers } from '../src/size.ts';
+import { parseBlockedBy, parseParent } from '../src/state.ts';
 
 const P = 'SIZE 7 DONE';
 const tag = `<promise>${P}</promise>`;
@@ -130,4 +131,47 @@ test('splitLines: the split # lines of the last 24 h, oldest first; other and ma
     { at: at(1), msg: 'split #4 → #5, #6' },
   ]);
   assert.deepEqual(splitLines([], now), []);
+});
+
+const R = 'me/app';
+const nums = (body: string) => parseBlockedBy(body, R).map((r) => r.number);
+
+test('withTrailers: no blockers is None, two blockers one per line, then the parent (#309)', () => {
+  const none = withTrailers('  Do a.\n\nAC: a works.\n\n', [], 7);
+  assert.equal(none, 'Do a.\n\nAC: a works.\n\n## Blocked by\nNone\n\n## Parent\n#7');
+  assert.deepEqual(nums(none), []);
+  assert.equal(parseParent(none, R)?.number, 7);
+  const two = withTrailers('Do b.', [7, 12], 7);
+  assert.equal(two, 'Do b.\n\n## Blocked by\n#7\n#12\n\n## Parent\n#7');
+  assert.deepEqual(nums(two), [7, 12]);
+  assert.equal(parseParent(two, R)?.number, 7);
+});
+
+test('addBlockers: a None section becomes the refs (#309)', () => {
+  const b = addBlockers('Work.\n\n## Blocked by\nNone\n', [20, 21]);
+  assert.equal(b, 'Work.\n\n## Blocked by\n#20\n#21\n');
+  assert.deepEqual(nums(b), [20, 21]);
+});
+
+test('addBlockers: refs go after the existing ones; a ref already there is not added twice (#309)', () => {
+  // other/repo#20 is not #20 of this repo, so #20 is still added
+  const b = addBlockers('Work.\n\n## Blocked by\n#5\nother/repo#20\n', [20, 21]);
+  assert.equal(b, 'Work.\n\n## Blocked by\n#5\nother/repo#20\n#20\n#21\n');
+  assert.deepEqual(nums(b), [5, 20, 20, 21]);
+  assert.deepEqual(parseBlockedBy(b, R).map((r) => `${r.repo}#${r.number}`), ['me/app#5', 'other/repo#20', 'me/app#20', 'me/app#21']);
+  const again = addBlockers('## Blocked by\n#5\n#20', [20, 21]);
+  assert.equal(again, '## Blocked by\n#5\n#20\n#21');
+  assert.deepEqual(nums(again), [5, 20, 21]);
+  assert.equal(addBlockers('## Blocked by\n#5\n#20', [20, 5]), '## Blocked by\n#5\n#20');
+});
+
+test('addBlockers: a following ## Parent and the text before the section are unchanged (#309)', () => {
+  const b = addBlockers('Intro #9.\n\n## Blocked by\n#5\n\n## Parent\n#3\n\nTail.', [20, 21]);
+  assert.equal(b, 'Intro #9.\n\n## Blocked by\n#5\n#20\n#21\n\n## Parent\n#3\n\nTail.');
+  assert.deepEqual(nums(b), [5, 20, 21]);
+  assert.equal(parseParent(b, R)?.number, 3);
+  const none = addBlockers('## Blocked by\nNone\n\n## Parent\n#3', [20]);
+  assert.equal(none, '## Blocked by\n#20\n\n## Parent\n#3');
+  assert.deepEqual(nums(none), [20]);
+  assert.equal(parseParent(none, R)?.number, 3);
 });

@@ -94,3 +94,41 @@ export function splitLines(lines: string[], now: number): { at: string; msg: str
   }
   return out.sort((a, b) => a.t - b.t).map(({ at, msg }) => ({ at, msg }));
 }
+
+/** A child's body with the decompose trailers `parseBlockedBy` / `parseParent` read: `## Blocked by` (one `#n`
+ *  per line, or `None`), then `## Parent`. */
+export function withTrailers(body: string, blockedBy: number[], parent: number): string {
+  const refs = [...new Set(blockedBy)];
+  return `${(body ?? '').trim()}\n\n## Blocked by\n${refs.length ? refs.map((r) => `#${r}`).join('\n') : 'None'}\n\n## Parent\n#${parent}`;
+}
+
+// the grammar of parseBlockedBy in state.ts: the section runs from its heading to the next `##` / `###` heading
+const BLOCKED_BY_HEADING = /^#{2,3}\s+Blocked by\s*:?\s*$/im;
+const NEXT_HEADING = /^#{2,3}\s+/m;
+const ISSUE_REF = /(?:(?<![\w./-])([\w.-]+\/[\w.-]+)#(\d+))|(?:(?<![\w.-])#(\d+))/g;
+const NONE_SECTION = /^\s*None\b/i;
+
+/** `body` with `#r` lines added to its `## Blocked by` section after the refs already there (a `None` or empty
+ *  section becomes the refs; a same-repo ref already listed is not added again). Text outside the section is kept.
+ *  A body without the section gets one at the end. */
+export function addBlockers(body: string, refs: number[]): string {
+  body ??= '';
+  const eol = body.includes('\r\n') ? '\r\n' : '\n';
+  const h = BLOCKED_BY_HEADING.exec(body);
+  if (!h) {
+    const add = [...new Set(refs)];
+    return add.length ? `${body.trimEnd()}${eol}${eol}## Blocked by${eol}${add.map((r) => `#${r}`).join(eol)}` : body;
+  }
+  const start = h.index + h[0].length;
+  const next = NEXT_HEADING.exec(body.slice(start));
+  const end = next ? start + next.index : body.length;
+  const section = body.slice(start, end);
+  const trailing = /\s*$/.exec(section)![0];
+  const content = section.slice(0, section.length - trailing.length);
+  const none = !content.trim() || NONE_SECTION.test(content);
+  const have = new Set(none ? [] : [...content.matchAll(ISSUE_REF)].filter((m) => m[3]).map((m) => Number(m[3])));
+  const add = [...new Set(refs)].filter((r) => !have.has(r));
+  if (!add.length) return body;
+  const lines = add.map((r) => `#${r}`).join(eol);
+  return body.slice(0, start) + (none ? eol + lines : content + eol + lines) + trailing + body.slice(end);
+}

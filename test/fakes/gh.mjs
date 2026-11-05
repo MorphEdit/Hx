@@ -239,6 +239,10 @@ export function gh(a, { input = () => '', cwd = process.cwd(), inProcess = false
       mutate((cur) => { (cur.releases ??= []).push({ tag: a[2], title: opt('--title'), notes, latest: a.includes('--latest'), args: a }); });
       print(`https://github.com/me/app/releases/tag/${a[2]}\n`);
     } else if (a[0] === 'issue' && a[1] === 'create') {
+      // state.createFails = k: the k-th `issue create` from now fails (1 = the next one), the ones before it succeed
+      if (s.createFails && mutate((cur) => { if (!cur.createFails) return false; if (--cur.createFails > 0) return false; delete cur.createFails; return true; })) {
+        printErr('HTTP 502: Bad Gateway'); exit(1);
+      }
       withStdin((body) => {
         const number = mutate((cur) => {
           const n = Math.max(0, ...cur.issues.map((i) => i.number)) + 1;

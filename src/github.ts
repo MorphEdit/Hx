@@ -200,6 +200,11 @@ export async function editLabels(repo: string, n: number, add: string[], remove:
   await ghOk(args);
 }
 
+/** Replace issue `n`'s body (via stdin: a long body never hits the Windows command-line limit). */
+export async function editBody(repo: string, n: number, body: string): Promise<void> {
+  await ghOk(['issue', 'edit', String(n), '-R', repo, '--body-file', '-'], { input: body });
+}
+
 export async function comment(repo: string, n: number, body: string): Promise<void> {
   // body via stdin: a long comment never hits the Windows command-line limit
   await ghOk(['issue', 'comment', String(n), '-R', repo, '--body-file', '-'], { input: body });
