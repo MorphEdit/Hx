@@ -122,6 +122,14 @@ export async function commentBodies(repo: string, n: number, trusted: Set<string
     .map((c: any) => c.body ?? '');
 }
 
+/** Issue `n`'s body and creation time with every comment's author, body and creation time (unfiltered: callers apply
+ *  the trusted set, as ownerAnswer in question.ts does). A comment without an author has author ''. */
+export async function issueThread(repo: string, n: number): Promise<{ body: string; createdAt: string; comments: { author: string; body: string; createdAt: string }[] }> {
+  const raw = JSON.parse(await ghOk(['issue', 'view', String(n), '-R', repo, '--json', 'body,createdAt,comments']));
+  return { body: raw.body ?? '', createdAt: raw.createdAt ?? '',
+    comments: (raw.comments ?? []).map((c: any) => ({ author: typeof c.author?.login === 'string' ? c.author.login : '', body: c.body ?? '', createdAt: c.createdAt ?? '' })) };
+}
+
 export async function createIssue(repo: string, title: string, body: string, labels: string[]): Promise<string> {
   const args = ['issue', 'create', '-R', repo, '--title', title, '--body-file', '-'];
   for (const l of labels) args.push('--label', l);
@@ -139,6 +147,18 @@ export async function openPrFor(repo: string, branch: string): Promise<number | 
     const own = (JSON.parse(r.stdout) as { number: number; isCrossRepository: boolean }[]).find((p) => p.isCrossRepository === false);
     return own ? own.number : null;
   } catch { return null; }
+}
+
+/**
+ * Whether `branch` has a PR of its own in `repo` in any state (open, closed or merged). A failed list counts as
+ * a PR: the caller treats "no PR" as the case that skips the audit, so an unknown answer must not.
+ */
+export async function hasAnyPrFor(repo: string, branch: string): Promise<boolean> {
+  const r = await ghRun(['pr', 'list', '-R', repo, '--head', branch, '--state', 'all', '--json', 'number,isCrossRepository']);
+  if (r.code !== 0) return true;
+  try {
+    return (JSON.parse(r.stdout) as { isCrossRepository: boolean }[]).some((p) => p.isCrossRepository === false);
+  } catch { return true; }
 }
 
 /** The open PR `gh pr view <branch>` finds, or null: the fallback when `gh pr list --head` does not list a fresh PR yet. */

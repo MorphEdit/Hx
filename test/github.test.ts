@@ -11,7 +11,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const board = path.join(mkdtempSync(path.join(os.tmpdir(), 'hx-gh-')), 'board.json');
 process.env.HX_GH_BIN = path.join(here, 'fakes', 'gh.mjs');
 process.env.HX_FAKE_STATE = board;
-const { openPrFor } = await import('../src/github.ts');
+const { openPrFor, hasAnyPrFor } = await import('../src/github.ts');
 
 const prs = (list: any[]) => writeFileSync(board, JSON.stringify({ comments: [], issues: [], prs: list }));
 
@@ -22,4 +22,15 @@ test('openPrFor: a fork PR from a branch of the same name is never taken', E2E, 
   assert.equal(await openPrFor('me/app', 'issue/7'), 100);
   prs([{ number: 100, head: 'issue/7', state: 'MERGED' }]);
   assert.equal(await openPrFor('me/app', 'issue/7'), null);
+});
+
+test('hasAnyPrFor: an own PR in any state counts (open, merged, closed); a fork PR or none does not', E2E, async () => {
+  for (const state of ['OPEN', 'MERGED', 'CLOSED']) {
+    prs([{ number: 100, head: 'issue/7', state }]);
+    assert.equal(await hasAnyPrFor('me/app', 'issue/7'), true, state);
+  }
+  prs([{ number: 99, head: 'issue/7', state: 'MERGED', fork: true }, { number: 101, head: 'issue/8', state: 'MERGED' }]);
+  assert.equal(await hasAnyPrFor('me/app', 'issue/7'), false);
+  prs([]);
+  assert.equal(await hasAnyPrFor('me/app', 'issue/7'), false);
 });

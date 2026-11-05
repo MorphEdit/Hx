@@ -25,6 +25,7 @@ import { checkGit, checkRelease, handover, hxRoot, installKind, readSelfUpdate, 
 import { findingBody, parseFindings, readSelfReview, selfReviewDecision, SELFREVIEW_PROMISE, writeSelfReview } from './selfreview.ts';
 import { BAR_JUDGE_PROMISE, BAR_PROMISE, barCapComment, barLine, barMarker, barRound, barStatus, gapIssueBody, parseJudgeReply, pickMapping, readMapping, refDir, roundDir, writeMapping, type Side } from './bar.ts';
 import { parseQualityBar } from './prd.ts';
+import { ownerAnswer, ownerAnswerNote } from './question.ts';
 import { appendSkills, resolveSkills, rtddCheck, rtddEnv, SKILL_CHECKS, skillNames, skillsLogLine, type Skill } from './skills.ts';
 
 const PROMPTS = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'prompts');
@@ -215,6 +216,21 @@ export async function readPlan(p: Project, trusted: Set<string>, busy: Set<strin
     if (s) states.set(refKey(r), s);
   }
   return plan(issues, repo, labels, states, busy, { ...p.config, trusted });
+}
+
+/**
+ * Each open needs-human issue with a trusted answer after its question: needs-human swapped for ready, logged.
+ * Returns how many were relabelled. A failed read leaves that issue for the next poll.
+ */
+export async function answeredQuestions(p: Project, pl: Plan, trusted: Set<string>): Promise<number> {
+  const { repo, labels: L } = p.config;
+  let n = 0;
+  for (const q of pl.questions) {
+    const t = await gh.issueThread(repo, q.number).catch(() => null);
+    if (!t || !ownerAnswer(t, trusted)) continue;
+    if (await relabel(repo, q.number, [L.ready], [L.needsHuman])) { n++; log(`the owner answered — ${L.needsHuman} → ${L.ready}`, q.number); }
+  }
+  return n;
 }
 
 /** Adds each quality-bar PRD's round and last result (hx status, the dashboard): its trusted comments are
@@ -685,7 +701,9 @@ async function pool(p: Project, o: PoolOptions): Promise<number> {
       let budgetBlocked = false; // the budget gate skipped an action: wait for a reading or a reset instead of finishing
       if (!held && !live.draining) {
         try {
-          const pl = await readPlan(p, trusted, new Set(inFlight.keys()));
+          let pl = await readPlan(p, trusted, new Set(inFlight.keys()));
+          // an owner's answer turns a needs-human issue ready: read the board again so it can be claimed now
+          if (await answeredQuestions(p, pl, trusted)) pl = await readPlan(p, trusted, new Set(inFlight.keys()));
           for (const r of [...pl.prds, ...pl.board])
             if (r.status === 'untrusted' && !r.untrustedPrd && !skipped.has(r.number)) { skipped.add(r.number); log(skipLine(r)); }
           stuck = pl.board.filter((r) => r.status === 'working' && !inFlight.has(issueKey(r.number))).map((r) => r.number);
@@ -938,6 +956,9 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
       + (handoff ? `\nThat session's handoff note:\n\n${handoff.replace(HANDOFF_MARKER, '').trim()}\n` : '');
   }
 
+  // an answered owner question (needs-human): the question and the answer go to every impl session of the issue
+  const owner = a.kind === 'impl' ? ownerAnswerNote(await gh.issueThread(c.repo, n).then((t) => ownerAnswer(t, ctx.trusted), () => null)) : '';
+
   const L = c.labels;
   const audited = a.kind === 'impl' && c.audit;
   // a bug issue (triaged or not, a PRD child too) gets a reproduce-first note in its impl and audit prompts
@@ -949,6 +970,8 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
     ISSUE: n, PRD: n, BRANCH: `issue/${n}`,
     EXISTING: a.kind === 'decompose' ? childList(a.children) : '', CHILDREN: a.kind === 'review' || a.kind === 'security' ? childList(a.children) : '',
     RESUMED: resumeNote,
+    OWNER_ANSWER: owner ? `${owner}
+` : '',
     SUBJECT: a.kind === 'impl' ? `issue #${n} (branch issue/${n}): look at \`git status\`, its PR (\`gh pr list -R ${c.repo} --head issue/${n}\`) and the issue`
       : a.kind === 'decompose' ? `PRD #${n}: list the issues you have filed for it so far`
       : a.kind === 'gauntlet' ? `gauntlet round ${round} of PRD #${n}`
@@ -1232,6 +1255,15 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
     let summary = `${fmt(sessionTokens)} tokens so far`;
     if (r.stopReason === 'aborted' && r.iterations > 0) await checkpoint(p, agent, n, 'impl', r.sessionId, wt.dir, vars, eventLog, env);
     if (stopped(r)) return handBack(r, summary);
+    // the owner's answer left nothing to build: the implementer closed the issue with a comment, no PR
+    // (asked first: findOpenPr waits ~30 s for a PR that is not there). A PR in any state rules it out: one the
+    // implementer merged itself was never audited, and falls through to the no-open-PR failure below
+    if (r.done && (await gh.issueState(c.repo, n)) === 'CLOSED' && !(await gh.hasAnyPrFor(c.repo, `issue/${n}`))) {
+      await relabel(c.repo, n, [], [L.working]);
+      await removeWorktree(p.root, wt.dir);
+      log(`DONE ✓ closed without a PR (${summary})`, n);
+      return { ...r, done: true };
+    }
     const pr = r.done ? await findOpenPr(c.repo, `issue/${n}`) : null;
     if (!pr) return fail(r, r.done ? 'the implementer reported ready but no open PR for its branch exists'
       : r.stopReason === 'max-iterations' ? `no completion after ${r.iterations} turns` : `agent error: ${r.last?.error ?? 'unknown'}`, summary);
