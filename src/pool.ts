@@ -193,6 +193,7 @@ interface WorkContext {
   login?: string; // hx's own gh login: only its comments count as size markers (no login: no size check)
   skills?: Record<string, Skill[]>; // role → the skills appended to its prompt, resolved once per run
   agent?: AgentCli; // the agent CLI sessions run on (config.agentCli), resolved once per run
+  workersTarget: () => number; // the run's worker target now (autoWorkers' auto-scaled one, else the fixed count): each usage record carries it
 }
 
 const sleep = (ms: number, signal?: AbortSignal) => new Promise<void>((r) => {
@@ -758,6 +759,7 @@ async function pool(p: Project, o: PoolOptions): Promise<number> {
     login,
     skills: skills.byRole,
     agent,
+    workersTarget: () => (auto ? targetState.target : o.workers),
     started: (s) => { live.sessions.push(s); save(); },
     merged: (testCommand) => {
       if (testCommand && !gs.command) { gs.command = testCommand; writeGate(p.stateDir, gs); }
@@ -998,7 +1000,7 @@ async function selfReview(p: Project, ctx: WorkContext, o: { range: string; head
         ctx.progress(SELFREVIEW_KEY, i, tokens);
         recordUsage(p.stateDir, { ts: new Date().toISOString(), issue: 0, role, sessionId, iteration: i, model: m.model,
           ...(t.actualModel ? { actualModel: t.actualModel } : {}), ok: t.ok, usage: t.usage, costUsd: t.costUsd, durationMs: t.durationMs, numTurns: t.numTurns,
-          ...testTiming(p, turnEvents.splice(0), t.durationMs) });
+          ...testTiming(p, turnEvents.splice(0), t.durationMs), workersTarget: ctx.workersTarget() });
         log(`${role} turn ${i}: ${t.ok ? 'ok' : 'error'} · ${fmt(totalTokens(t.usage))} tokens (${fmt(t.usage.output)} out) · ${Math.round(t.durationMs / 1000)}s${t.error ? ` · ${t.error.slice(0, 160)}` : ''}`);
       },
     });
@@ -1177,7 +1179,7 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
         ctx.progress(key, i, sessionTokens);
         recordUsage(p.stateDir, { ts: new Date().toISOString(), issue: n, role, sessionId, iteration: i, model: m.model,
           ...(t.actualModel ? { actualModel: t.actualModel } : {}), ok: t.ok, usage: t.usage, costUsd: t.costUsd, durationMs: t.durationMs, numTurns: t.numTurns,
-          ...testTiming(p, turnEvents.splice(0), t.durationMs) });
+          ...testTiming(p, turnEvents.splice(0), t.durationMs), workersTarget: ctx.workersTarget() });
         if (t.actualModel && !mismatched && !modelMatches(m.model, t.actualModel)) {
           mismatched = true; // once per session; the session goes on
           log(`model mismatch: ${role} asked ${m.model}, ran ${t.actualModel}`, n);
@@ -1241,7 +1243,7 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
   const saveTimedOut = async (r: GoalResult, summary: string) => {
     const notes = async () => (await gh.commentBodies(c.repo, n, ctx.trusted).catch(() => [] as string[])).filter((b) => b.trimStart().startsWith(HANDOFF_MARKER)).length;
     const before = await notes();
-    await checkpoint(p, agent, n, 'impl', r.sessionId, wt.dir, vars, eventLog, env);
+    await checkpoint(p, agent, n, 'impl', r.sessionId, wt.dir, vars, eventLog, env, ctx.workersTarget);
     const saved = await saveWip(wt.dir, n, c.defaultBranch);
     if (saved.committed) log(`timed out: hx committed the WIP (wip: checkpoint (#${n}))`, n);
     if (saved.error !== undefined) return fail(r, `the impl turn timed out (${goalFailure(r)}); the ${saved.step} of its WIP failed: ${saved.error}`, summary,
@@ -1528,7 +1530,7 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
     const r = await goal(a.kind, wt.dir, `${a.kind}.md`, promise, {}, askPromise);
     const summary = `${r.iterations} turn(s), ${fmt(totalTokens(r.usage))} tokens`;
     if (r.promiseSeen === 'alt') return askOwner(r, summary);
-    if (r.stopReason === 'aborted' && a.kind === 'impl' && r.iterations > 0) await checkpoint(p, agent, n, 'impl', r.sessionId, wt.dir, vars, eventLog, env);
+    if (r.stopReason === 'aborted' && a.kind === 'impl' && r.iterations > 0) await checkpoint(p, agent, n, 'impl', r.sessionId, wt.dir, vars, eventLog, env, ctx.workersTarget);
     if (stopped(r)) return handBack(r, summary);
     if (a.kind === 'impl' && await timedOutOpen(r)) return saveTimedOut(r, summary);
     const why = await verify(p, a, n, ctx.trusted, before);
@@ -1565,7 +1567,7 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
       r = await goal('impl', wt.dir, 'impl.md', promise, extra, askPromise);
       summary = `${fmt(sessionTokens)} tokens so far`;
       if (r.promiseSeen === 'alt') return askOwner(r, summary);
-      if (r.stopReason === 'aborted' && r.iterations > 0) await checkpoint(p, agent, n, 'impl', r.sessionId, wt.dir, vars, eventLog, env);
+      if (r.stopReason === 'aborted' && r.iterations > 0) await checkpoint(p, agent, n, 'impl', r.sessionId, wt.dir, vars, eventLog, env, ctx.workersTarget);
       if (stopped(r)) return handBack(r, summary);
       if (await timedOutOpen(r)) return saveTimedOut(r, summary);
       // the owner's answer left nothing to build: the implementer closed the issue with a comment, no PR
@@ -1804,7 +1806,7 @@ function testTiming(p: Project, events: unknown[], durationMs: number): TurnTimi
  * WIP and leave a handoff comment, so the next session picks up where this one stopped.
  */
 async function checkpoint(p: Project, agent: AgentCli, n: number, role: string, sessionId: string, cwd: string, vars: Record<string, string | number>, eventLog: string,
-  env: Record<string, string>): Promise<void> {
+  env: Record<string, string>, workersTarget: () => number): Promise<void> {
   const c = p.config;
   const m = roleModel(c, role); // the resumed session's model and effort
   log('checkpointing: committing WIP and writing a handoff note…', n);
@@ -1815,7 +1817,7 @@ async function checkpoint(p: Project, agent: AgentCli, n: number, role: string, 
     onEvent: (ev) => { appendFileSync(eventLog, JSON.stringify(ev) + '\n'); turnEvents.push(ev); } });
   recordUsage(p.stateDir, { ts: new Date().toISOString(), issue: n, role: 'checkpoint', sessionId, iteration: 0, model: m.model,
     ...(t.actualModel ? { actualModel: t.actualModel } : {}), ok: t.ok, usage: t.usage, costUsd: t.costUsd, durationMs: t.durationMs, numTurns: t.numTurns,
-    ...testTiming(p, turnEvents.splice(0), t.durationMs) });
+    ...testTiming(p, turnEvents.splice(0), t.durationMs), workersTarget: workersTarget() });
   log(t.ok ? `checkpoint saved (${fmt(totalTokens(t.usage))} tokens)` : `checkpoint failed: ${t.error?.slice(0, 160)} — the worktree still has the work`, n);
 }
 

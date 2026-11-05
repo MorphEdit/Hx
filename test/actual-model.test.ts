@@ -143,6 +143,7 @@ test('a checkpoint turn that ran another model logs no mismatch line; its record
   const cps = readUsage(stateDir).slice(seen).filter((u) => u.issue === 3 && u.role === 'checkpoint');
   assert.ok(cps.length);
   for (const u of cps) { assert.equal(u.actualModel, SONNET); assert.equal(u.model, DEFAULTS.model); }
+  for (const u of cps) assert.equal(u.workersTarget, 1, 'the checkpoint record carries the run\'s worker target (#322)');
   assert.ok(!r.lines.some((l) => /model mismatch/.test(l)), r.lines.join('\n'));
   rmSync(path.join(tmp, 'wt', 'i3'), { recursive: true, force: true });
 });

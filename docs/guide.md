@@ -154,7 +154,9 @@ the issues and their comments: audits PASS/FAIL and the FAIL share, first-round 
 PRDs), gate-fix issues opened, tokens and cost per closed issue, stops by cause (timed out, not mergeable or
 conflict, out of audit rounds, other), "tests fail after the rebase" retries and quality-bar rounds won and
 lost (a `no verdict` round is neither), and needs-human questions asked (by when asked) and answered (by
-when the owner's answer came); also the hours of runs.
+when the owner's answer came); also the hours of runs and the median target workers (the median, over the period's
+turns, of the worker target `hx run` recorded with each turn in `usage.jsonl`: the auto-scaled one with `autoWorkers`,
+else `--workers`; `-` for a period whose records predate it).
 Only hx's own markers count (`<!-- hx-audit -->`, `**hx:** impl stopped`, `<!-- hx-retry -->`, `<!-- hx-bar round=N -->`,
 `<!-- hx-question -->`, the gate-fix label), from a trusted account; an answer is the first trusted comment after a question that is
 not one of hx's own comments (`<!-- hx-` or `**hx:**` first); each line shows the change (`+12%`, `-3`), and a period with fewer than 10

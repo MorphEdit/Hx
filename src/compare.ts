@@ -36,6 +36,7 @@ export interface Period {
   from?: number; // ms epoch; undefined = since the first run
   to?: number; // undefined = now
   hours: number; // the union of the turns' run time
+  medianWorkersTarget?: number; // per turn over the records with workersTarget (autoWorkers, #322); undefined when none has it
   roles: RoleStats[];
   auditPass: number;
   auditFail: number;
@@ -145,6 +146,10 @@ export function compare(recs: UsageRecord[], issues: CompareIssue[], o: CompareO
     }
     if (cur) ms += cur[1] - cur[0];
     p.hours = ms / 3_600_000;
+    // the run's worker target when each turn was recorded: older records without it are skipped
+    const targets = [...roles.values()].flat(2).map((r) => r.workersTarget).filter((t): t is number => typeof t === 'number' && Number.isFinite(t));
+    const mt = median(targets);
+    if (mt !== undefined) p.medianWorkersTarget = mt;
   });
 
   const trusted = (login: string) => !!login && o.trusted.has(login.toLowerCase());
