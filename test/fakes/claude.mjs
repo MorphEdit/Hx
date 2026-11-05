@@ -18,6 +18,7 @@
 //   grill:     interactive (prompt as the last argument, not stdin): writes a PRD to the output path the prompt
 //              names (FAKE_GRILL_NOWRITE=1: writes nothing, =blank: whitespace only) and exits
 //   issue:     the same for `hx issue`: writes a small issue to its output path (same FAKE_GRILL_NOWRITE)
+// NOTHINGTOBUILD in an issue body: an implement session closes it with a comment and prints its promise, no PR.
 // FAKE_CLAUDE_PAUSE=<file>: an implement session writes `drain` there as it closes its issue
 // FAKE_CLAUDE_PAUSE_START=<file>: an implement session writes `drain` there as its first turn starts (mid-session)
 // FAKE_CLAUDE_TIMES=<file>: each turn appends {sid, start, end} (ms) as one line when it exits.
@@ -166,6 +167,11 @@ function reply(text) {
 
 function finish(st, checkpoint, prompt) {
   const done = () => `<promise>${st.role === 'implement' ? 'ISSUE' : st.role.toUpperCase()} ${st.n} DONE</promise>`;
+  // NOTHINGTOBUILD in the issue body: the owner's answer left nothing to do — close the issue, no PR, the promise
+  if (st.role === 'implement' && !checkpoint && /NOTHINGTOBUILD/.test(loadBoard().issues.find((i) => i.number === st.n)?.body ?? '')) {
+    locked(boardFile, () => { const b = loadBoard(); b.issues.find((i) => i.number === st.n).state = 'CLOSED'; b.comments.push({ issue: st.n, body: 'nothing left to build' }); saveBoard(b); });
+    return reply(`closed, nothing to build. ${done()}`);
+  }
   // audited implementer: really commit, then really run ship.mjs --no-merge (real git, fake gh)
   if (st.role === 'implement' && / --no-merge/.test(prompt) && !checkpoint) {
     const ship = /node "([^"]+ship\.mjs)"/.exec(prompt)[1];

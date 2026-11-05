@@ -110,7 +110,7 @@ export function gh(a, { input = () => '', cwd = process.cwd(), inProcess = false
       const number = mutate((cur) => {
         cur.prs ??= [];
         const n = 100 + cur.prs.length;
-        cur.prs.push({ number: n, head: opt('--head'), base: opt('--base'), title: opt('--title'), state: 'OPEN', hide: cur.prListLag ?? 0 });
+        cur.prs.push({ number: n, head: opt('--head'), base: opt('--base'), title: opt('--title'), body: opt('--body'), state: 'OPEN', hide: cur.prListLag ?? 0 });
         return n;
       });
       print(`https://github.com/me/app/pull/${number}\n`);

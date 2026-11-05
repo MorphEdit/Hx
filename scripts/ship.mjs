@@ -5,6 +5,8 @@
 //   squash-merge → delete the branch → close the issue
 //
 //   node ship.mjs --repo owner/name --base main --issue 12 --title "feat: add x" --test "npm test"
+//   --body-file <file>  appended to the new PR's body after `Closes #<issue>` (e.g. `## Owner decisions`);
+//                       keep the file outside the worktree, which ship commits whole
 //
 // With an auditor in the loop the routine is split in two:
 //   --no-merge  stops after the PR is open, prints `READY #<issue> PR #<pr>`, and remembers its
@@ -168,7 +170,10 @@ let pr = String(JSON.parse(ok('gh', ['pr', 'list', '-R', repo, '--head', branch,
 // merge exactly the commit tested and pushed here: GitHub refuses if the PR's head has moved since
 const head = ok('git', ['rev-parse', 'HEAD'], 'git rev-parse');
 if (!pr) {
-  const url = ok('gh', ['pr', 'create', '-R', repo, '--base', base, '--head', branch, '--title', title, '--body', `Closes #${issue}`], 'gh pr create');
+  const extra = opt('body-file') ? readFileSync(opt('body-file'), 'utf8').trim() : '';
+  const url = ok('gh', ['pr', 'create', '-R', repo, '--base', base, '--head', branch, '--title', title, '--body', `Closes #${issue}${extra ? `
+
+${extra}` : ''}`], 'gh pr create');
   pr = /\/pull\/(\d+)/.exec(url)?.[1] ?? '';
 }
 if (noMerge) {

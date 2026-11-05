@@ -122,6 +122,14 @@ export async function commentBodies(repo: string, n: number, trusted: Set<string
     .map((c: any) => c.body ?? '');
 }
 
+/** Issue `n`'s body and creation time with every comment's author, body and creation time (unfiltered: callers apply
+ *  the trusted set, as ownerAnswer in question.ts does). A comment without an author has author ''. */
+export async function issueThread(repo: string, n: number): Promise<{ body: string; createdAt: string; comments: { author: string; body: string; createdAt: string }[] }> {
+  const raw = JSON.parse(await ghOk(['issue', 'view', String(n), '-R', repo, '--json', 'body,createdAt,comments']));
+  return { body: raw.body ?? '', createdAt: raw.createdAt ?? '',
+    comments: (raw.comments ?? []).map((c: any) => ({ author: typeof c.author?.login === 'string' ? c.author.login : '', body: c.body ?? '', createdAt: c.createdAt ?? '' })) };
+}
+
 export async function createIssue(repo: string, title: string, body: string, labels: string[]): Promise<string> {
   const args = ['issue', 'create', '-R', repo, '--title', title, '--body-file', '-'];
   for (const l of labels) args.push('--label', l);
