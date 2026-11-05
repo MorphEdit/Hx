@@ -26,6 +26,7 @@ import { findingBody, parseFindings, readSelfReview, selfReviewDecision, SELFREV
 import { BAR_JUDGE_PROMISE, BAR_PROMISE, barCapComment, barLine, barMarker, barRound, barStatus, gapIssueBody, parseJudgeReply, pickMapping, readMapping, refDir, roundDir, writeMapping, type Side } from './bar.ts';
 import { parseQualityBar } from './prd.ts';
 import { ownerAnswer, ownerAnswerNote } from './question.ts';
+import { HELD_STATUS, heldComment, mergeFailure, readHeld, setHeld } from './held.ts';
 import { appendSkills, resolveSkills, rtddCheck, rtddEnv, SKILL_CHECKS, skillNames, skillsLogLine, type Skill } from './skills.ts';
 
 const PROMPTS = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'prompts');
@@ -180,6 +181,7 @@ interface WorkContext {
   progress: (key: string, turn: number, tokens: number) => void;
   rateLimit: (rl: RateLimit) => void;
   merged?: (testCommand?: string) => void; // a PR reached the default branch: the CI gate re-tests it
+  mainGate?: () => Promise<{ last?: GateResult; fixIssue?: number }>; // the gate's result for the default branch as it is now (gate off: none)
   trusted: Set<string>; // this run's trusted set: only their comments count in hx's own logic; passed to every session as HX_TRUSTED
   skills?: Record<string, Skill[]>; // role → the skills appended to its prompt, resolved once per run
   agent?: AgentCli; // the agent CLI sessions run on (config.agentCli), resolved once per run
@@ -215,7 +217,11 @@ export async function readPlan(p: Project, trusted: Set<string>, busy: Set<strin
     const s = await gh.issueState(r.repo, r.number);
     if (s) states.set(refKey(r), s);
   }
-  return plan(issues, repo, labels, states, busy, { ...p.config, trusted });
+  const pl = plan(issues, repo, labels, states, busy, { ...p.config, trusted });
+  // an audited PR held while the default branch is red (#301): claimable once the gate is green, shown as held
+  const held = readHeld(p.stateDir);
+  for (const r of pl.board) if (r.status === 'claimable' && held[r.number]) r.held = true;
+  return pl;
 }
 
 /**
@@ -264,7 +270,7 @@ export function printPlan(pl: Plan, repo: string): void {
              ${barLine(r.bar)}` : ''}`);
   if (pl.prds.length) console.log('');
   for (const r of pl.board)
-    console.log(`  #${String(r.number).padEnd(8)} ${r.status.padEnd(13)} ${untrustedNote(r)}${r.title.slice(0, 60)}${r.waitingOn.length ? `  waits on ${refs(r.waitingOn)}` : ''}`);
+    console.log(`  #${String(r.number).padEnd(8)} ${(r.held ? HELD_STATUS : r.status).padEnd(13)} ${untrustedNote(r)}${r.title.slice(0, 60)}${r.waitingOn.length ? `  waits on ${refs(r.waitingOn)}` : ''}`);
 }
 
 /** The --dry-run `next:` listing: each action with its forecast (`~7%`) when it has one, `(budget: skip)` when the gate would skip it. */
@@ -654,6 +660,13 @@ async function pool(p: Project, o: PoolOptions): Promise<number> {
       if (testCommand && !gs.command) { gs.command = testCommand; writeGate(p.stateDir, gs); }
       void gateCheck();
       void releaseCheck();
+    },
+    // a result for an older commit says nothing of the base a PR was just rebased onto: that base is tested first
+    mainGate: async () => {
+      if (!c.gate) return {};
+      if (gateRunning) await gateRunning;
+      if (gateCommand() && (!gs.last || (await remoteSha(p.root, c.defaultBranch)) !== gs.last.sha)) await gateCheck();
+      return { last: gs.last, fixIssue: gs.fixIssue };
     },
     progress: (key, turn, tokens) => { const s = live.sessions.find((x) => x.key === key); if (s) { s.turn = turn; s.tokens = tokens; save(); } },
     rateLimit: (rl) => {
@@ -1255,41 +1268,55 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
 
   // implement → independent audit → (hx merges | back to the implementer with the findings)
   let extra: Record<string, string | number> = {};
-  for (let attempt = 1; ; attempt++) {
-    const r = await goal('impl', wt.dir, 'impl.md', promise, extra);
-    let summary = `${fmt(sessionTokens)} tokens so far`;
-    if (r.stopReason === 'aborted' && r.iterations > 0) await checkpoint(p, agent, n, 'impl', r.sessionId, wt.dir, vars, eventLog, env);
-    if (stopped(r)) return handBack(r, summary);
-    // the owner's answer left nothing to build: the implementer closed the issue with a comment, no PR
-    // (asked first: findOpenPr waits ~30 s for a PR that is not there). A PR in any state rules it out: one the
-    // implementer merged itself was never audited, and falls through to the no-open-PR failure below
-    if (r.done && (await gh.issueState(c.repo, n)) === 'CLOSED' && !(await gh.hasAnyPrFor(c.repo, `issue/${n}`))) {
-      await relabel(c.repo, n, [], [L.working]);
-      await removeWorktree(p.root, wt.dir);
-      log(`DONE ✓ closed without a PR (${summary})`, n);
-      return { ...r, done: true };
-    }
-    const pr = r.done ? await findOpenPr(c.repo, `issue/${n}`) : null;
-    if (!pr) return fail(r, r.done ? 'the implementer reported ready but no open PR for its branch exists'
-      : r.stopReason === 'max-iterations' ? `no completion after ${r.iterations} turns` : `agent error: ${r.last?.error ?? 'unknown'}`, summary);
+  // a PASS held while the default branch was red (#301): only its merge is retried, in the round it passed
+  const held = readHeld(p.stateDir)[n];
+  if (held) setHeld(p.stateDir, n, undefined);
+  for (let attempt = held?.round ?? 1; ; attempt++) {
+    let r: GoalResult, pr: number, v: { pass: boolean; findings: string }, summary: string;
+    if (held && attempt === held.round) {
+      r = { done: true, sessionId: '', iterations: 0, usage: emptyUsage(), costUsd: 0, stopReason: 'promise' };
+      pr = held.pr;
+      v = { pass: true, findings: '' };
+      summary = `${fmt(sessionTokens)} tokens`;
+      log(`${c.defaultBranch} is green: merging held PR #${pr} (audit ${attempt}/${c.auditRounds} PASS kept)`, n);
+    } else {
+      r = await goal('impl', wt.dir, 'impl.md', promise, extra);
+      summary = `${fmt(sessionTokens)} tokens so far`;
+      if (r.stopReason === 'aborted' && r.iterations > 0) await checkpoint(p, agent, n, 'impl', r.sessionId, wt.dir, vars, eventLog, env);
+      if (stopped(r)) return handBack(r, summary);
+      // the owner's answer left nothing to build: the implementer closed the issue with a comment, no PR
+      // (asked first: findOpenPr waits ~30 s for a PR that is not there). A PR in any state rules it out: one the
+      // implementer merged itself was never audited, and falls through to the no-open-PR failure below
+      if (r.done && (await gh.issueState(c.repo, n)) === 'CLOSED' && !(await gh.hasAnyPrFor(c.repo, `issue/${n}`))) {
+        await relabel(c.repo, n, [], [L.working]);
+        await removeWorktree(p.root, wt.dir);
+        log(`DONE ✓ closed without a PR (${summary})`, n);
+        return { ...r, done: true };
+      }
+      const open = r.done ? await findOpenPr(c.repo, `issue/${n}`) : null;
+      if (!open) return fail(r, r.done ? 'the implementer reported ready but no open PR for its branch exists'
+        : r.stopReason === 'max-iterations' ? `no completion after ${r.iterations} turns` : `agent error: ${r.last?.error ?? 'unknown'}`, summary);
+      pr = open;
 
-    // the auditor works in its own fresh checkout of the pushed branch and never sees the implementer's session
-    const awt = await addWorktree(p.root, c.worktreeRoot, auditWorktree(n));
-    log(`audit ${attempt}/${c.auditRounds}: PR #${pr}`, n);
-    const auditNote = await setup(awt, `a${n}`);
-    if (auditNote === null) {
+      // the auditor works in its own fresh checkout of the pushed branch and never sees the implementer's session
+      const awt = await addWorktree(p.root, c.worktreeRoot, auditWorktree(n));
+      log(`audit ${attempt}/${c.auditRounds}: PR #${pr}`, n);
+      const auditNote = await setup(awt, `a${n}`);
+      if (auditNote === null) {
+        await removeWorktree(p.root, awt.dir);
+        return handBack(setupStopped(), 'during the audit worktree setup');
+      }
+      const ar = await goal('audit', awt.dir, 'audit.md', `AUDIT ${n} DONE`, { PR: pr, ROUND: attempt, ROUNDS: c.auditRounds,
+        BUG_NOTE: bug ? `${AUDIT_BUG_NOTE}\n` : '', SETUP_NOTE: auditNote });
       await removeWorktree(p.root, awt.dir);
-      return handBack(setupStopped(), 'during the audit worktree setup');
+      summary = `${fmt(sessionTokens)} tokens`;
+      if (stopped(ar)) return handBack(ar, summary);
+      const verdict = auditVerdict(ar.done ? ar.last?.text ?? '' : '');
+      if (!verdict) return fail(ar, ar.done ? 'the auditor gave no VERDICT line' : `audit did not complete: ${ar.last?.error ?? ar.stopReason}`, summary);
+      v = verdict;
+      await gh.comment(c.repo, n, `${AUDIT_MARKER}\n**hx audit ${attempt}/${c.auditRounds}: ${v.pass ? 'PASS ✓' : 'FAIL ✗'}** (PR #${pr})\n\n${v.findings}`).catch(() => {});
+      log(`audit ${v.pass ? 'PASS ✓' : 'FAIL ✗'}${v.pass ? '' : ` — ${v.findings.split('\n')[0].slice(0, 140)}`}`, n);
     }
-    const ar = await goal('audit', awt.dir, 'audit.md', `AUDIT ${n} DONE`, { PR: pr, ROUND: attempt, ROUNDS: c.auditRounds,
-      BUG_NOTE: bug ? `${AUDIT_BUG_NOTE}\n` : '', SETUP_NOTE: auditNote });
-    await removeWorktree(p.root, awt.dir);
-    summary = `${fmt(sessionTokens)} tokens`;
-    if (stopped(ar)) return handBack(ar, summary);
-    const v = auditVerdict(ar.done ? ar.last?.text ?? '' : '');
-    if (!v) return fail(ar, ar.done ? 'the auditor gave no VERDICT line' : `audit did not complete: ${ar.last?.error ?? ar.stopReason}`, summary);
-    await gh.comment(c.repo, n, `${AUDIT_MARKER}\n**hx audit ${attempt}/${c.auditRounds}: ${v.pass ? 'PASS ✓' : 'FAIL ✗'}** (PR #${pr})\n\n${v.findings}`).catch(() => {});
-    log(`audit ${v.pass ? 'PASS ✓' : 'FAIL ✗'}${v.pass ? '' : ` — ${v.findings.split('\n')[0].slice(0, 140)}`}`, n);
 
     let feedback: string, why: string;
     if (v.pass) {
@@ -1305,8 +1332,21 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
         return { ...r, done: true };
       }
       if (!m.retry) return fail(r, `merging the audited PR failed: ${m.output.slice(-300)}`, summary);
-      feedback = `The audit passed, but merging failed after rebasing on the latest ${c.defaultBranch}:\n\n${m.output.slice(-1500)}\n\nFix that on your branch, then ship again with --no-merge. ${RESUME_TESTS_NOTE}`;
-      why = `merge after audit failed (${m.code === 3 ? 'rebase conflict' : 'tests fail after the rebase'})`;
+      // tests fail after the rebase: on a red default branch the PR is at fault only for a test that does not fail there
+      const g: { last?: GateResult; fixIssue?: number } = m.code === 4 ? await (ctx.mainGate ? ctx.mainGate() : Promise.resolve(readGate(p.stateDir))) : {};
+      const mf = m.code === 4 ? mergeFailure(m.output, g.last) : { held: false as const, notOnMain: [] };
+      if (mf.held) {
+        setHeld(p.stateDir, n, { pr, round: attempt, at: new Date().toISOString() });
+        await gh.comment(c.repo, n, heldComment(c.defaultBranch, g.fixIssue, pr)).catch(() => {});
+        await relabel(c.repo, n, [], [L.working]);
+        log(`merge held: ${c.defaultBranch} is red${g.fixIssue ? ` (#${g.fixIssue})` : ''} and every failing test fails there too — PR #${pr} merges once it is green; no round counted (${summary})`, n);
+        return { ...r, done: true };
+      }
+      const own = mf.notOnMain;
+      feedback = `The audit passed, but merging failed after rebasing on the latest ${c.defaultBranch}:\n\n${m.output.slice(-1500)}\n\n`
+        + (own.length ? `${c.defaultBranch} is red, but these failing tests do not fail there, so your branch broke them: ${own.join(', ')}.\n\n` : '')
+        + `Fix that on your branch, then ship again with --no-merge. ${RESUME_TESTS_NOTE}`;
+      why = `merge after audit failed (${m.code === 3 ? 'rebase conflict' : `tests fail after the rebase${own.length ? `; not failing on ${c.defaultBranch}: ${own.join(', ')}` : ''}`})`;
     } else {
       feedback = `An independent audit of PR #${pr} FAILED with these findings — fix every one (add a test for each), then ship again with --no-merge. ${RESUME_TESTS_NOTE}\n\n${v.findings}`;
       why = 'audit failed';
