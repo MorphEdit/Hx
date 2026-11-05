@@ -156,10 +156,11 @@ test('a failing command: ok false, exit 1, the last 20 lines; setupNote and setu
 });
 
 test('a command that hangs is killed with its tree after worktreeSetupMinutes: timedOut, not ok', E2E, async () => {
-  const cmd = script('hang.js', `require('child_process').spawn(process.execPath, ['-e', 'setTimeout(() => {}, 120e3)'], { stdio: 'inherit' });
-console.log('waiting'); setTimeout(() => {}, 120e3);`);
+  const cmd = script('hang.js', `require('child_process').spawn(process.execPath, ['-e', 'setTimeout(() => {}, 600e3)'], { stdio: 'inherit' });
+console.log('waiting'); setTimeout(() => {}, 600e3);`);
   const t0 = Date.now();
   const s = await setup(cfg({ worktreeSetup: cmd, worktreeSetupMinutes: 0.03 }));
+  // 1.8 s plus the kill: a bound far above that and 10× below the 600 s child (#298)
   assert.ok(Date.now() - t0 < 60_000, 'returned well before the child would exit');
   assert.equal(s.res?.timedOut, true);
   assert.equal(s.res?.ok, false);

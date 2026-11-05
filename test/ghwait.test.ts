@@ -222,7 +222,8 @@ test('hx run: Ctrl+C during a limited wait stops promptly, the call is not retri
     if (/github rate limited/.test(l) && !abortedAt) setTimeout(() => { abortedAt = Date.now(); ctrlC.abort(); }, 300);
   }, ctrlC.signal);
   assert.ok(abortedAt > 0, res.out);
-  assert.ok(Date.now() - abortedAt < 30_000, 'stopped promptly');
+  // far below the reset 600 s away, not a tight bound: the pool's shutdown takes seconds on a loaded machine (#298)
+  assert.ok(Date.now() - abortedAt < 60_000, 'stopped promptly, not after the reset');
   assert.equal(res.code, 0, res.out);
   assert.equal(res.lines.filter((l) => /github rate limited — waiting until/.test(l.text)).length, 1, res.out);
   assert.equal(calls(r.ghLog, 'issue list'), 1, 'not retried');
@@ -249,6 +250,7 @@ test('hx status: a limited issue list fails at once, with the exit code a failin
   assert.notEqual(b.code, 0, b.out);
   assert.equal(a.code, b.code, a.out);
   assert.match(a.out, /API rate limit exceeded/);
-  assert.ok(a.ms < 30_000, `${a.ms} ms`);
+  // a node start and one gh call: a bound far above that, far below the reset 600 s away (#298)
+  assert.ok(a.ms < 60_000, `${a.ms} ms`);
   assert.equal(calls(limited.ghLog, 'issue list'), 1);
 });

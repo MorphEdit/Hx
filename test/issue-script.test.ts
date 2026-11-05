@@ -89,7 +89,7 @@ const limited = (file: string, state: object) => writeFileSync(file, JSON.string
 const withEnv = (file: string, extra: Record<string, string | undefined>) => {
   const env: Record<string, string | undefined> = { ...process.env, HX_FAKE_STATE: file, HX_GH_BIN: FAKE_GH, HX_TRUSTED: 'owner', ...extra };
   for (const k of Object.keys(env)) if (env[k] === undefined) delete env[k];
-  return spawnSync(process.execPath, [SCRIPT, '--repo', 'me/app', '--issue', '5'], { encoding: 'utf8', env, timeout: 60_000 });
+  return spawnSync(process.execPath, [SCRIPT, '--repo', 'me/app', '--issue', '5'], { encoding: 'utf8', env, timeout: 180_000 });
 };
 
 test('issue.mjs: limited once (secondary, Retry-After: 1) waits, retries and prints the issue; limited past the cap exits 1', E2E, () => {
@@ -104,12 +104,14 @@ test('issue.mjs: limited once (secondary, Retry-After: 1) waits, retries and pri
 
   const f2 = board([]);
   limited(f2, { limitNext: { match: 'issue view', kind: 'secondary', times: 50, retryAfter: 1 } });
-  const t1 = Date.now();
   const p = withEnv(f2, { HX_GH_WAIT_MAX_SECONDS: '2' });
   assert.equal(p.status, 1);
   assert.equal(p.stdout, '');
-  assert.ok(Date.now() - t1 < 20_000);
-  assert.equal(p.stderr.split('\n').filter((l) => l.includes('waiting')).length, 1);
+  const waits = p.stderr.split('\n').filter((l) => l.includes('waiting'));
+  assert.equal(waits.length, 1);
+  // the waits slept, not the time (#298): each sleep is announced before it starts, and they add up to no more than the cap
+  const slept = waits.reduce((n, l) => n + Number(/waiting (\d+)s/.exec(l)![1]), 0);
+  assert.ok(slept <= 2, `waited ${slept} s in all, past the 2 s cap`);
   assert.match(p.stderr, /issue: github secondary rate limit — rate limited until \d\d:\d\d/);
   assert.match(p.stderr, /issue: gh issue view failed: HTTP 403/);
 });
@@ -121,7 +123,8 @@ test('issue.mjs: a primary limit whose reset is past the cap fails at once (exit
   const t0 = Date.now();
   const r = withEnv(file, { HX_GH_WAIT_MAX_SECONDS: undefined });
   assert.equal(r.status, 1, r.stderr);
-  assert.ok(Date.now() - t0 < 20_000);
+  // a node start and one gh call: a bound far above that, far below the reset an hour away (#298)
+  assert.ok(Date.now() - t0 < 120_000, `${Date.now() - t0} ms, not a wait for the reset`);
   assert.doesNotMatch(r.stderr, /waiting/);
   assert.ok(r.stderr.includes(`issue: github primary rate limit — rate limited until ${hhmm(reset)}`), r.stderr);
   // no budget read: 60 s, past a 30 s cap → not waited either

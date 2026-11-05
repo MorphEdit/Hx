@@ -41,7 +41,7 @@ test('gateMinutes defaults to 45, above the old hard-coded 20 a loaded machine r
 test('a gate run past gateMinutes is killed with its tree: red, timed out after gateMinutes', E2E, async () => {
   writeFileSync(stateFile, JSON.stringify({ comments: [], prs: [], issues: [] }));
   const pidFile = path.join(tmp, 'gate.pid').replace(/\\/g, '/');
-  const sleeper = `node -e "require('fs').writeFileSync('${pidFile}', String(process.pid)); setTimeout(() => {}, 120e3)"`;
+  const sleeper = `node -e "require('fs').writeFileSync('${pidFile}', String(process.pid)); setTimeout(() => {}, 1200e3)"`;
   const lines: string[] = [];
   const orig = console.log;
   console.log = (m: string) => { lines.push(m); orig(m); };
@@ -54,7 +54,8 @@ test('a gate run past gateMinutes is killed with its tree: red, timed out after 
   const started = Date.now();
   await pooled((signal) => runPool(p, { workers: 1, watch: true, dryRun: false, signal }), ac.signal)
     .finally(() => { console.log = orig; clearInterval(poll); });
-  assert.ok(Date.now() - started < 100_000, 'the gate did not wait for the 120 s command');
+  // 3 s, the kill and a fix issue filed: a bound far above that and 10× below the 1200 s command (#298)
+  assert.ok(Date.now() - started < 120_000, 'the gate did not wait for the 1200 s command');
   const g = readGate(stateDir).last;
   assert.ok(g, lines.join('\n'));
   assert.equal(g.ok, false);
