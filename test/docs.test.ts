@@ -452,7 +452,8 @@ test('self-update watch window: a paragraph in Stopping and resuming, its two co
   const r = read('README.md');
   const stop = r.slice(r.indexOf('## Stopping and resuming'), r.indexOf('\n## ', r.indexOf('## Stopping and resuming') + 1));
   for (const w of ['**The watch window:**', 'selfUpdateWatchMinutes', 'selfUpdateFailLimit', 'hx supervise', 'hx pause --now',
-    'self-update: rolled back 9b8e7d6 → 3f2a1c0', 'is good', 'watching 9b8e7d6 for 12 more min']) assert.ok(stop.includes(w), `Stopping and resuming: ${w}`);
+    'self-update: rolled back 9b8e7d6 → 3f2a1c0', 'is good', 'watching 9b8e7d6 for 12 more min',
+    'it exits non-zero', 'rolls itself back', '.hx/exit.json']) assert.ok(stop.includes(w), `Stopping and resuming: ${w}`);
   assert.ok(hasRow(r, 'selfUpdateWatchMinutes', String(DEFAULTS.selfUpdateWatchMinutes)), 'selfUpdateWatchMinutes row');
   assert.ok(hasRow(r, 'selfUpdateFailLimit', String(DEFAULTS.selfUpdateFailLimit)), 'selfUpdateFailLimit row');
 });

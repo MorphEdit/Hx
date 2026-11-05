@@ -22,7 +22,7 @@ mkdirSync(process.env.HX_FAKE_DIR);
 
 const { runPool } = await import('../src/pool.ts');
 const { DEFAULTS, saveConfig } = await import('../src/config.ts');
-const { pidAlive, readLive, setPause, clearPause, writeLive } = await import('../src/runstate.ts');
+const { pidAlive, readExit, readLive, setPause, clearPause, writeLive } = await import('../src/runstate.ts');
 const { readSelfUpdate, writeSelfUpdate, isCode, newerTag, selfUpdateConfigError, sessionOutcome, watchEvent, watchVerdict, gateAtOld, watchStatus } = await import('../src/selfupdate.ts');
 const { killTree } = await import('../src/exec.ts');
 const { loadJson } = await import('./fakes/lock.mjs');
@@ -352,6 +352,54 @@ test('watch: a crash inside the window → back on G, N marked bad, one log line
     assert.ok(await until(() => head() === M && tookOver(stateDir), 120_000), runLog());
     assert.equal(git(inst, 'symbolic-ref', '--short', 'HEAD'), 'main');
     assert.equal(readSelfUpdate(stateDir).watch?.to, M, 'M is watched in turn');
+  } finally {
+    await r.stop();
+    await stopNew();
+  }
+});
+
+test('watch: the runner on N exits 2 inside the window (a rejected setup) after clearing its run lock → it rolls itself back to G; the runner on G records its exit', E2E, async () => {
+  const { G, N } = updated({ 'src/fatal.ts': 'export const f = 1;\n' }, 'fatal');
+  const r = start(true, [{ number: 1, body: 'IMPLFATALONCE' }], { before: () => recordWatch(stateDir, G, N) });
+  let pid = 0;
+  try {
+    assert.ok(await until(() => r.rc() !== undefined, 120_000), r.text());
+    assert.equal(r.rc(), 0, 'a runner on G took over');
+    assert.ok(r.has(/STOPPED: Claude rejected the setup/), r.text());
+    assert.equal(r.count(/self-update: rolled back/), 1, r.text());
+    assert.ok(r.has(rolledBack(N, G, 'the runner exited 2: Claude rejected the setup\\)$')), r.text());
+    assert.equal(head(), G, 'back on G');
+    const su = readSelfUpdate(stateDir);
+    assert.deepEqual(su.bad, [N]);
+    assert.equal(su.watch, undefined);
+    pid = readLive(stateDir)?.pid ?? 0;
+    assert.ok(pid && pid !== process.pid && pidAlive(pid), 'the runner on G owns the run lock');
+    assert.ok(await until(() => loadJson(stateFile).issues.find((i: any) => i.number === 1)?.state === 'CLOSED', 120_000), runLog());
+  } finally {
+    await r.stop();
+    await stopNew();
+  }
+  // a supervisor that is not its parent reads how it ended
+  assert.equal(readExit(stateDir, pid), 0);
+});
+
+test('watch: the runner on N throws in its main loop inside the window → it rolls itself back to G and a runner on G takes over', E2E, async () => {
+  const { G, N } = updated({ 'src/throws.ts': 'export const t = 1;\n' }, 'throws');
+  const r = start(true, [], { before: () => recordWatch(stateDir, G, N) });
+  // the throw: the main loop's idle line, once (the runner's log writes to console.log). start() restores console.log.
+  const inner = console.log;
+  let thrown = false;
+  console.log = (m: string) => { inner(m); if (!thrown && /board empty/.test(m)) { thrown = true; throw new Error('boom in the main loop'); } };
+  try {
+    assert.ok(await until(() => r.rc() !== undefined, 120_000), r.text());
+    assert.equal(r.rc(), 0, 'a runner on G took over');
+    assert.ok(r.has(/crashed: boom in the main loop$/), r.text());
+    assert.equal(r.count(/self-update: rolled back/), 1, r.text());
+    assert.ok(r.has(rolledBack(N, G, 'the runner exited 1: boom in the main loop\\)$')), r.text());
+    assert.equal(head(), G);
+    assert.deepEqual(readSelfUpdate(stateDir).bad, [N]);
+    const pid = readLive(stateDir)?.pid ?? 0;
+    assert.ok(pid && pid !== process.pid && pidAlive(pid), 'the runner on G owns the run lock');
   } finally {
     await r.stop();
     await stopNew();

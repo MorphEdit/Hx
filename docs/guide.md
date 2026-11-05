@@ -334,8 +334,11 @@ Ctrl+C there no longer reaches it, so stop it with `hx pause`. It is off under `
 
 **The watch window:** new code that starts fine can still misbehave, so for `selfUpdateWatchMinutes` (default 30) after a
 self-update from G to N the new runner is watched (`{ from, to, until }` in `.hx/selfupdate.json`). It is rolled back
-to G when, inside the window, the runner crashes (it exits non-zero, or leaves its run lock behind: `hx supervise` or
-the next `hx run --watch` rolls back first and then starts G), `selfUpdateFailLimit` (default 3) sessions in a row end
+to G when, inside the window, the runner crashes: it exits non-zero (an error in its loop, or a setup Claude rejects:
+it rolls itself back and starts G), or it dies leaving its run lock behind (`hx supervise` or the next `hx run --watch`
+rolls back first and then starts G). `hx supervise` follows a runner a self-update started, though it is not its parent,
+through `.hx/exit.json`, where every `hx run --watch` records its exit code; a runner stopped by `hx pause` is never
+rolled back. `selfUpdateFailLimit` (default 3) sessions in a row end
 with an agent or hx error (a FAIL verdict, a timeout or a usage limit does not count; a success ends the streak), or the
 first gate run at N itself is red while the same command is green at G (it is re-run there; red at both means the
 default branch was red already, and its gate-fix issue handles it). The running sessions checkpoint first, as with
@@ -968,6 +971,7 @@ it reads. So Hx only works on text from **trusted accounts**: your `gh` login pl
 - `.hx/logs/setup-<name>.log` / `.json` — a worktree's last setup output / result (see [Worktree setup](#worktree-setup))
 - `.hx/live.json` — the running `hx run`: its pid and live sessions (read by `hx status`)
 - `.hx/pause` — present while paused (`drain` or `now`)
+- `.hx/exit.json` — how the last `hx run --watch` ended: `{ pid, code, at }` (read by `hx supervise` for a runner a self-update started)
 - `.hx/held.json` — audited PRs held while the default branch is red: `{ "<issue>": { pr, round, at } }`, cleared when the merge is retried
 - `.hx/gate-runs.jsonl` — one line per pool gate run whose test command finished or timed out: `{ ts, sha, ok, durationMs, timedOut }`
   (`durationMs` is the test command only; the release gate is not recorded). `hx run` logs `gate is slow: …` once when the median of the last 5 is above 70% of `gateMinutes`

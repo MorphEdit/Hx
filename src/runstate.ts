@@ -3,6 +3,8 @@
 //                   run, and its sessions are claims to hand back
 //   .hx/pause     — "drain" (finish running sessions, claim nothing) or "now" (checkpoint and stop)
 //   .hx/wake      — the ISO time a filing command (hx prd, hx bug, hx grill, hx issue) last filed an issue
+//   .hx/exit.json — how the last `hx run --watch` ended: its pid and exit code (hx supervise reads it for a runner it
+//                   is not the parent of, one a self-update started: #316)
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import type { RateLimit } from './agent.ts';
@@ -79,6 +81,23 @@ export function setPause(stateDir: string, mode: PauseMode): void {
 
 export function clearPause(stateDir: string): void {
   rmSync(pauseFile(stateDir), { force: true });
+}
+
+export interface RunExit { pid: number; code: number; at: string }
+
+const exitFile = (stateDir: string) => path.join(stateDir, 'exit.json');
+
+/** Records how the `hx run --watch` with `pid` ended; never throws. */
+export function writeExit(stateDir: string, code: number, pid = process.pid): void {
+  try { writeFileSync(exitFile(stateDir), JSON.stringify({ pid, code, at: new Date().toISOString() } satisfies RunExit)); } catch {}
+}
+
+/** The exit code `pid` recorded, or null when the record is another runner's (or there is none). */
+export function readExit(stateDir: string, pid: number): number | null {
+  try {
+    const e: RunExit = JSON.parse(readFileSync(exitFile(stateDir), 'utf8'));
+    return e.pid === pid && typeof e.code === 'number' ? e.code : null;
+  } catch { return null; }
 }
 
 /** Marks that a filing command just filed an issue: <stateDir>/wake holds the current ISO time. */

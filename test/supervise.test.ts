@@ -34,6 +34,11 @@ function repo(codes: number[] = [], upMs = 0) {
   return { root, stateDir, lines, opts, runs };
 }
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const until = async (ok: () => boolean, ms: number) => {
+  const end = Date.now() + ms;
+  while (Date.now() < end) { if (ok()) return true; await sleep(50); }
+  return ok();
+};
 
 test('backoff: 10 s, 30 s, 60 s, then 5 min; 5 crashes inside the window give up', E2E, () => {
   const ms = BACKOFF_SECONDS.map((s) => s * 1000);
@@ -70,6 +75,74 @@ test('a crash: the self-update rollback hook runs before the restart, with the e
   assert.equal(await supervise(r.opts({ rollback: async (reason) => { calls.push({ reason, runs: r.runs().length }); return true; } })), 0);
   assert.equal(r.runs().length, 2);
   assert.deepEqual(calls, [{ reason: 'the runner exited 2', runs: 1 }], 'once, after the first run and before the second');
+});
+
+// a self-update: the child hands the run lock to a detached new runner and exits 0; the supervisor is not that runner's parent
+const handover = (r: ReturnType<typeof repo>, spec: object) => writeFileSync(path.join(r.root, 'handover.json'), JSON.stringify(spec));
+const newPids = (r: ReturnType<typeof repo>) => { try { return readFileSync(path.join(r.root, 'new.log'), 'utf8').trim().split('\n').filter(Boolean).map(Number); } catch { return []; } };
+const hook = (r: ReturnType<typeof repo>, calls: { reason: string; runs: number }[]) => async (reason: string) => { calls.push({ reason, runs: r.runs().length }); return true; };
+
+test('a self-update\'s runner that clears its run lock and exits 1: a crash — the rollback hook runs, then the restart (#316)', E2E, async () => {
+  const r = repo([0, 0]);
+  handover(r, { code: 1 });
+  const calls: { reason: string; runs: number }[] = [];
+  assert.equal(await supervise(r.opts({ rollback: hook(r, calls) })), 0);
+  const [pid] = newPids(r);
+  assert.ok(r.lines.includes(`supervise: runner exited 0 and handed over to pid ${pid} — watching it`), r.lines.join('\n'));
+  assert.ok(r.lines.includes(`supervise: runner pid ${pid} exited 1`), r.lines.join('\n'));
+  assert.deepEqual(calls, [{ reason: 'the runner exited 1', runs: 1 }], 'rolled back before the restart');
+  assert.equal(r.runs().length, 2, 'restarted');
+  assert.ok(r.lines.includes('supervise: runner exited 1, restart in 0s'), r.lines.join('\n'));
+});
+
+test('a self-update\'s runner that clears its run lock with no exit record and no pause: a crash too (#316)', E2E, async () => {
+  const r = repo([0, 0]);
+  handover(r, { code: 1, record: false });
+  const calls: { reason: string; runs: number }[] = [];
+  assert.equal(await supervise(r.opts({ rollback: hook(r, calls) })), 0);
+  assert.ok(r.lines.includes(`supervise: runner pid ${newPids(r)[0]} exited without recording its exit code`), r.lines.join('\n'));
+  assert.deepEqual(calls, [{ reason: 'the runner exited 1', runs: 1 }]);
+  assert.equal(r.runs().length, 2);
+});
+
+test('a self-update\'s runner that hands over again (a rollback\'s runner) is followed; that one exiting 0 stops the supervisor, no rollback (#316)', E2E, async () => {
+  const r = repo([0]);
+  handover(r, { again: { code: 0 } });
+  const calls: { reason: string; runs: number }[] = [];
+  assert.equal(await supervise(r.opts({ rollback: hook(r, calls) })), 0);
+  const [a, b] = newPids(r);
+  assert.ok(b, 'two new runners');
+  assert.ok(r.lines.includes(`supervise: runner pid ${a} handed over to pid ${b} — watching it`), r.lines.join('\n'));
+  assert.equal(r.lines.at(-1), 'supervise: runner stopped (exit 0) — not restarting');
+  assert.deepEqual(calls, []);
+  assert.equal(r.runs().length, 1, 'not restarted');
+});
+
+test('a self-update\'s runner stopped by hx pause (no exit record): not a crash, no rollback (#316)', E2E, async () => {
+  const r = repo([0]);
+  handover(r, { code: 1, record: false, upMs: 600 });
+  const calls: { reason: string; runs: number }[] = [];
+  const done = supervise(r.opts({ rollback: hook(r, calls) }));
+  assert.ok(await until(() => newPids(r).length === 1, 20_000));
+  setPause(r.stateDir, 'now');
+  try {
+    assert.equal(await done, 0);
+    assert.equal(r.lines.at(-1), 'supervise: runner stopped (exit 0) — not restarting');
+    assert.deepEqual(calls, []);
+  } finally { clearPause(r.stateDir); }
+});
+
+test('a crash after a pause: no rollback (a person stopped it), the supervisor waits for hx resume (#316)', E2E, async () => {
+  const r = repo([1, 0], 300);
+  const calls: { reason: string; runs: number }[] = [];
+  const done = supervise(r.opts({ rollback: hook(r, calls) }));
+  assert.ok(await until(() => r.runs().length === 1, 20_000));
+  setPause(r.stateDir, 'now');
+  assert.ok(await until(() => r.lines.some((l) => l.startsWith('supervise: stopped: paused')), 20_000), r.lines.join('\n'));
+  assert.deepEqual(calls, []);
+  clearPause(r.stateDir);
+  assert.equal(await done, 0);
+  assert.equal(r.runs().length, 2);
 });
 
 test('exit 0 → no restart, the supervisor exits', E2E, async () => {

@@ -8,7 +8,7 @@ import * as gh from './github.ts';
 import { resolveCmd, run, runOk } from './exec.ts';
 import { log, lookupTrusted, printPlan, readBar, readPlan, runLogFile, runPool, setRunLog, trustedEnv } from './pool.ts';
 import { killAllSessions } from './agent.ts';
-import { clearPause, nextLine, otherRunner, pidAlive, readLive, readPause, setPause, writeWake } from './runstate.ts';
+import { clearPause, nextLine, otherRunner, pidAlive, readLive, readPause, setPause, writeExit, writeWake } from './runstate.ts';
 import { fmtDuration, readGate, readGateRuns } from './gate.ts';
 import { testSeries, timeWindow, type TimeSummary } from './timing.ts';
 import { release, releaseGate, type BumpKind } from './release.ts';
@@ -407,7 +407,12 @@ async function runCmd(args: string[]): Promise<number> {
     process.on('disconnect', () => {});
     (process.channel as any)?.unref?.();
   }
-  return runPool(p, { workers, only, watch: args.includes('--watch'), dryRun, signal: ac.signal });
+  const watch = args.includes('--watch') && !dryRun;
+  // a watching runner's exit code, for a supervisor that is not its parent (a self-update started it, #316)
+  const code = await runPool(p, { workers, only, watch: args.includes('--watch'), dryRun, signal: ac.signal })
+    .catch((e) => { if (watch) writeExit(p.stateDir, 1); throw e; });
+  if (watch) writeExit(p.stateDir, code);
+  return code;
 }
 
 function workersArgs(args: string[]): string[] {

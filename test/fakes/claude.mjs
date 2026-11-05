@@ -33,6 +33,7 @@
 // and posts the handoff note, as a real one does. IMPLTIMEOUTCPFAIL: that checkpoint turn fails instead (exit 6,
 // nothing committed, pushed or posted). IMPLTIMEOUTCLOSE: the turn first closes the issue (as ship.mjs merging it
 // before the kill would). IMPLCRASH: an implement turn writes wip-<n>.txt and exits 3 with no result (no timeout).
+// IMPLFATALONCE: the issue's first implement turn ends as FAKE_CLAUDE_MODE=fatal does (a rejected setup); later ones work.
 // FAKE_CLAUDE_TEXT=<text>: every turn replies exactly that text, nothing else.
 // FAKE_CLAUDE_PAUSE=<file>: an implement session writes `drain` there as it closes its issue
 // FAKE_CLAUDE_PAUSE_START=<file>: an implement session writes `drain` there as its first turn starts (mid-session)
@@ -197,6 +198,12 @@ function reply(text, narrate = []) {
 function finish(st, checkpoint, prompt) {
   const done = () => `<promise>${st.role === 'implement' ? 'ISSUE' : st.role.toUpperCase()} ${st.n} DONE</promise>`;
   const mine = st.role === 'implement' ? loadBoard().issues.find((i) => i.number === st.n)?.body ?? '' : '';
+  if (/IMPLFATALONCE/.test(mine) && !checkpoint && !existsSync(path.join(process.env.HX_FAKE_DIR, `fatal-${st.n}`))) {
+    writeFileSync(path.join(process.env.HX_FAKE_DIR, `fatal-${st.n}`), '');
+    out({ type: 'result', subtype: 'success', is_error: true, api_error_status: 400, num_turns: 1, usage, total_cost_usd: 0,
+      result: 'API Error: 400 Claude Code 2.1.150 does not support this model' });
+    return;
+  }
   if (/IMPLCRASH/.test(mine) && !checkpoint) {
     writeFileSync(path.join(process.cwd(), `wip-${st.n}.txt`), 'half done\n');
     process.stderr.write('crashed'); process.exit(3);

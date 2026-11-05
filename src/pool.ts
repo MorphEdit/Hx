@@ -429,6 +429,8 @@ async function pool(p: Project, o: PoolOptions): Promise<number> {
   const myVersion = o.watch && !fleetChild ? await currentVersion(hxRoot()).catch(() => '') : '';
   let rollbackWhy = '';
   const myWatch = () => { const w = readSelfUpdate(p.stateDir).watch; return myVersion && w?.to === myVersion ? w : undefined; };
+  const watchedNow = () => watchOpen(myWatch(), Date.now());
+  let crash: any; // what the main loop threw
   const watchCheck = () => {
     const w = myWatch();
     if (!w || rollbackWhy) return;
@@ -878,11 +880,28 @@ async function pool(p: Project, o: PoolOptions): Promise<number> {
     }
     if (inFlight.size) { log(`stopping — waiting for ${inFlight.size} session(s) to hand back their issues…`); await Promise.allSettled(inFlight.values()); }
     if (releasing) await releasing; // never leave a release half pushed
+  } catch (e: any) {
+    crash = e;
+    // inside this runner's own watch window a crash rolls it back (below): its sessions checkpoint first, as on hx pause --now
+    if (watchedNow()) {
+      log(`crashed: ${e?.message ?? e}`);
+      stop.abort();
+      if (inFlight.size) { log(`stopping — waiting for ${inFlight.size} session(s) to hand back their issues…`); await Promise.allSettled(inFlight.values()); }
+      if (releasing) await releasing.catch(() => {});
+    }
   } finally {
     clearInterval(watcher);
     unwatchFile(wakeFile, onWake);
     clearLive(p.stateDir, process.pid);
   }
+  if (fatal) {
+    log(`STOPPED: Claude rejected the setup — ${fatal.slice(0, 300)}`);
+    log(`check config.model ('${c.model}'), claude --version, and that claude is logged in; no issue was labelled.`);
+  }
+  // a runner a self-update started exits non-zero inside its watch window (#316): it rolls itself back, since no
+  // supervisor sees a run lock it cleared
+  if (!rollbackWhy && (crash || fatal) && watchedNow())
+    rollbackWhy = crash ? `the runner exited 1: ${String(crash?.message ?? crash).split(/\r?\n/)[0].slice(0, 160)}` : 'the runner exited 2: Claude rejected the setup';
   if (rollbackWhy) {
     // the running sessions have checkpointed and handed back: the install goes back, a runner on it takes over
     if (gateRunning) await gateRunning;
@@ -893,12 +912,9 @@ async function pool(p: Project, o: PoolOptions): Promise<number> {
     log(`self-update: the runner on the old version did not start (${r.reason})`);
     return 1;
   }
+  if (crash) throw crash;
   if (restarted) return 0;
-  if (fatal) {
-    log(`STOPPED: Claude rejected the setup — ${fatal.slice(0, 300)}`);
-    log(`check config.model ('${c.model}'), claude --version, and that claude is logged in; no issue was labelled.`);
-    return 2;
-  }
+  if (fatal) return 2;
   return failures ? 1 : 0;
 }
 

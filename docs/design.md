@@ -460,7 +460,9 @@ Hx builds itself, so a watching runner would otherwise run the morning's code al
   records what it sees in `.hx/selfupdate.json` and a pure verdict over those events and the clock decides. A crash,
   a streak of agent or hx errors, or a red first gate at its own sha that is green at the old one rolls it back; a
   red gate at both is the default branch's problem, not the update's. The rollback waits for a checkpoint, never cuts
-  a session's work, and the old version restarts through the same ready marker.
+  a session's work, and the old version restarts through the same ready marker. A runner that exits non-zero clears its
+  run lock first, so it rolls itself back: nothing else would see the crash. A supervisor is not the parent of a
+  runner a self-update started, so that runner's exit code reaches it through `.hx/exit.json`.
 
 ## Quality bar (PRD #254)
 
