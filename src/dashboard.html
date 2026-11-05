@@ -120,6 +120,7 @@ function renderNow(s) {
     const state = r.paused ? badge('warn', 'paused (' + r.paused + ')') : r.draining ? badge('warn', 'draining') : badge('ok', 'running');
     const kv = [el('span', {}, state), el('span', {}, 'pid ', el('b', {}, String(r.pid))), el('span', {}, 'uptime ', el('b', { 'data-since': r.startedAt }, dur(r.uptimeMs))),
       el('span', {}, 'workers ', el('b', {}, String(r.workers)))];
+    if (r.workersLine) kv.push(el('span', {}, String(r.workersLine)));
     if (r.pausedUntil) kv.push(el('span', {}, 'paused until ', el('b', {}, when(r.pausedUntil)), r.pauseReason ? ' (' + r.pauseReason + ')' : ''));
     const rl = r.rateLimit;
     if (rl) {

@@ -12,6 +12,7 @@ import { loadProject, type Project, STATE_DIR } from './config.ts';
 import { DEFAULT_FLEET_WORKERS, type Fleet, fleetDir, fleetWorkers, type ListedRepo, listRepos, readFleet, readHold, readRepos, slotsInUse } from './fleet.ts';
 import { githubLine } from './ghlimit.ts';
 import { readHealth } from './health.ts';
+import { workersLine } from './load.ts';
 import { readSupervise } from './supervise.ts';
 import { autoStartText, readAutoStart } from './service.ts';
 import { type GateRun, readGate, readGateRuns } from './gate.ts';
@@ -117,6 +118,7 @@ export function dashboardState(p: Project, board: () => BoardSeen): object {
     // like rateLimit, only from a live runner; each window carries the line hx status prints
     budget: live.budget ? { windows: live.budget.windows.map((w) => ({ ...w, line: budgetLine(w, p.config.budgetMinPairs) })) } : null,
     github: live.github ? { ...live.github, line: githubLine(live.github) } : null, // the GitHub API budget, with the hx status line
+    workersLine: workersLine(live), // the auto-scaled target (`workers 2/3 (auto: cpu 88%)`), null with autoWorkers off
   } : { running: false };
   const sessions = running ? live.sessions.map((s) => ({ number: s.number, kind: s.kind, title: s.title, turn: s.turn, tokens: s.tokens,
     since: s.since, elapsedMs: now - Date.parse(s.since) })) : [];

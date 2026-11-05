@@ -1,6 +1,7 @@
 // Machine load for auto-scaled workers (PRD #315): CPU busy % from os.cpus() snapshots, the 60 s reading, the
 // target decision with its hysteresis, and the claim rule. Pure but for sampleLoad: no timers, the caller's clock.
 import os from 'node:os';
+import type { LiveState } from './runstate.ts';
 
 /** One sample: when it was taken (ms), every core's times summed, and the free memory (bytes). */
 export interface LoadSnapshot { at: number; total: number; idle: number; freeMem: number }
@@ -92,4 +93,12 @@ export function startSampler(snapshots: LoadSnapshot[], clock: () => number = Da
   const t = setInterval(take, everyMs);
   t.unref();
   return t;
+}
+
+/** `workers 2/3 (auto: cpu 88%)`: the running runner's target over its ceiling and the latest reading's CPU %;
+ *  `(auto: no reading yet)` before the first reading; null without the autoWorkers field (off, or an older runner). */
+export function workersLine(live: LiveState): string | null {
+  const a = live.autoWorkers;
+  if (!a) return null;
+  return `workers ${a.target}/${live.workers} (auto: ${a.cpuPct === undefined ? 'no reading yet' : `cpu ${Math.round(a.cpuPct)}%`})`;
 }
