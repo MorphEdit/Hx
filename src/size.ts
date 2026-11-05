@@ -1,5 +1,6 @@
 // The size session (PRD #300): its reply parsed into a shape (fits / split / narrow), and the hx-size marker
 // comments that record the result so an issue is sized once. Pure: no I/O.
+import { parseBlockedBy, parseParent } from './state.ts';
 
 /** Marker comments, matched as a comment's first line (`firstLineIs` in pool.ts). */
 export const SIZE_FITS = '<!-- hx-size fits -->';
@@ -131,4 +132,23 @@ export function addBlockers(body: string, refs: number[]): string {
   if (!add.length) return body;
   const lines = add.map((r) => `#${r}`).join(eol);
   return body.slice(0, start) + (none ? eol + lines : content + eol + lines) + trailing + body.slice(end);
+}
+
+const refText = (r: { repo: string; number: number }, repo: string) => r.repo.toLowerCase() === repo.toLowerCase() ? `#${r.number}` : `${r.repo}#${r.number}`;
+
+/** #n's body after the split after a timeout (PRD #300 §2): the `## Scope (narrowed after a timeout)` heading and its
+ *  line naming the rest issues, the SCOPE text, then the old body's `## Blocked by` refs (or `None`) and, when it had
+ *  a parent, its `## Parent`. `repo` is this repo: its refs are written `#n`, other repos' `owner/name#n`. */
+export function narrowedBody(oldBody: string, scope: string, rest: number[], minutes: number, repo: string): string {
+  const blockers = parseBlockedBy(oldBody ?? '', repo);
+  const parent = parseParent(oldBody ?? '', repo);
+  return `## Scope (narrowed after a timeout)\nNarrowed by hx after a ${minutes}-min timeout; the rest is ${rest.length ? rest.map((k) => `#${k}`).join(', ') : 'none'}.\n\n`
+    + `${(scope ?? '').trim()}\n\n## Blocked by\n${blockers.length ? blockers.map((r) => refText(r, repo)).join('\n') : 'None'}`
+    + (parent ? `\n\n## Parent\n${refText(parent, repo)}` : '');
+}
+
+/** The comment on #n once it is narrowed: the marker first, the rest issues, then its previous body in a `<details>` block. */
+export function narrowedComment(rest: number[], oldBody: string): string {
+  return `${SIZE_NARROWED}\n**hx:** narrowed after a timeout to what its WIP has nearly done; ${rest.length ? `the rest is filed as:\n${rest.map((k) => `- #${k}`).join('\n')}` : 'nothing else was filed.'}`
+    + `\n\n<details><summary>The issue before it was narrowed</summary>\n\n${(oldBody ?? '').trim()}\n\n</details>`;
 }

@@ -299,7 +299,7 @@ one interface, `AgentCli`, in `src/agents/`. The `agentCli` config key picks the
 |---|---|
 | `hx pause` | claims nothing new; running sessions finish their issue, then `hx run` exits |
 | `hx pause --now`, or Ctrl+C in `hx run` | stops every running session, then resumes each one for a **checkpoint**: commit and push its WIP, and post a `<!-- hx-handoff -->` comment (done / left / next step). The issue is handed back. |
-| nothing: an impl turn times out (`turnTimeoutMinutes`) | while the issue is still open, the session gets the same **checkpoint**; then hx commits what is left (`wip: checkpoint (#n)`), and the WIP is pushed to `issue/<n>` (never a force push), with a handoff note of hx's own when the checkpoint posted none. The issue is labelled `agent-blocked`, the worktree kept. If the push fails, the comment says so: the WIP is then only in the kept worktree. |
+| nothing: an impl turn times out (`turnTimeoutMinutes`) | while the issue is still open, the session gets the same **checkpoint**; then hx commits what is left (`wip: checkpoint (#n)`), and the WIP is pushed to `issue/<n>` (never a force push), with a handoff note of hx's own when the checkpoint posted none. Then the issue is narrowed to what its WIP has nearly done and the rest filed, and it is `ready-for-agent` again, the worktree kept (see [the split after a timeout](#single-issues)). If the push fails, the issue is labelled `agent-blocked` and the comment says so: the WIP is then only in the kept worktree. |
 | `hx resume`, then `hx run` | picks the issues up again: the worktree and branch still hold the work, and the new session's prompt includes the handoff note |
 | Ctrl+C twice | force-quits and kills every session; the worktrees keep whatever was written |
 
@@ -539,6 +539,31 @@ The markers are comments whose first line is `<!-- hx-size fits -->`, `<!-- hx-s
   worktree is removed, so the next claim sizes it again.
 
 `sizeCheck: false` turns the up-front check off.
+
+**The split after a timeout.** When an impl turn times out (`turnTimeoutMinutes`, plain or audited) while the issue
+is still open, its WIP is checkpointed and pushed to `issue/<n>` (see [Stopping and resuming](#stopping-and-resuming)).
+Then one `size` session in mode `after-timeout` runs in the kept impl worktree: it reads the issue, the handoff note
+and `git diff origin/<base>...HEAD`, and answers `SIZE: narrow` with one `=== SCOPE` block (what the WIP has nearly
+done) and zero or more `=== CHILD k: <title>` blocks (the rest). This is always on, whatever `sizeCheck` says.
+- **narrow:** hx reads the open issues `Blocked by` #n, files the rest `ready-for-agent` with `## Blocked by` #n first
+  (then the earlier rest issues the reply names) and `## Parent` #n's own parent when it has one in this repo (the rest
+  of a PRD child stays that PRD's child), otherwise #n; adds them to those dependents' `## Blocked by`; rewrites #n's
+  body to a `## Scope (narrowed after a timeout)` heading, the line `Narrowed by hx after a <turnTimeoutMinutes>-min
+  timeout; the rest is #a, #b.`, the SCOPE text, #n's old `## Blocked by` and its `## Parent`; comments
+  `<!-- hx-size narrowed -->` with the rest issues and the previous body in a `<details>` block; removes
+  `agent-working` and `agent-blocked`, keeps `ready-for-agent` and the worktree, and logs
+  `split #n → #a, #b (narrowed after a timeout)` (`split #n → none (narrowed after a timeout)` when nothing was filed).
+  The next impl claim resumes the kept branch with the latest handoff note.
+- **once only:** a second timeout on an issue that already has a `<!-- hx-size narrowed -->` marker by hx's login
+  ends in `agent-blocked` (`the turn timed out again; this issue was already split once after a timeout`). An up-front
+  `fits` does not count.
+- **the session fails** (an agent error, no promise, a reply in no valid shape, or the dependents cannot be read):
+  `agent-blocked`, with no narrowed marker; the comment says the WIP is on `issue/<n>`, and run.log has
+  `not narrowed after the timeout: <reason>`.
+- **a GitHub write fails partway:** hx writes nothing more and labels #n `agent-blocked` (worktree kept); the fail
+  comment starts with `<!-- hx-size narrowed -->` and says where it stopped and what was filed, so a later timeout
+  is not narrowed again. Finish or undo the split by hand.
+- **stopped** (`hx pause --now`, a usage limit, a setup error): the issue is handed back, the worktree kept.
 
 ## When a task needs you
 
@@ -811,6 +836,8 @@ review / security / triage round caps, an audit that kept failing and a failed m
 | Outcome | Hx does |
 |---|---|
 | split up front (the size check answered `split`) | files the children `ready-for-agent` (each `## Parent #n`), adds them to the `Blocked by` of the open issues waiting on #n, comments `<!-- hx-size split -->` with the list, closes #n as not planned and removes its worktree; no impl session runs (see [Single issues](#single-issues)) |
+| the impl turn timed out (and the issue is still open) | checkpoint and push: the WIP goes to `issue/<n>` with a handoff note; then the issue is narrowed to what the WIP has nearly done, the rest filed `ready-for-agent` (each `Blocked by` #n), the narrowed marker posted, and the issue is `ready-for-agent` again with its worktree kept; the next session resumes the branch (see [Single issues](#single-issues)) |
+| a second timeout (the issue was already narrowed once) | checkpoint and push as above, then `agent-blocked`: `the turn timed out again; this issue was already split once after a timeout` |
 | the audit passes and the merge goes through | hx merges the PR, closes the issue, removes `agent-working` and the worktree |
 | the audit passes but the merge's tests fail only where the red default branch fails too | held: no round counted, one `<!-- hx-merge-held -->` comment, `held (main red)` in `hx status`; the merge is retried once the gate is green (see [CI gate](#ci-gate)) |
 | the audit fails | the findings go to a fresh implementer session on the same branch; after `auditRounds` FAILs: `agent-blocked` |
