@@ -119,8 +119,9 @@ hx grill "dark mode"    # an interactive claude session interviews you into a PR
 hx issue "fix typo"     # a shorter session grills one small task into one issue, filed ready-for-agent on
                         # confirm (--bug: label bug, triaged first; --yes; --title T); kept in .hx/issues/
 hx issue --file x.md    # file an issue file the same way, without a session (--bug, --title T)
-hx status               # the runner, live sessions, usage window, and the board (issues opened by an
-                        # untrusted account show as `untrusted` and are never claimed)
+hx status               # first `waiting on you: N question(s)` (each open needs-human issue: number, title,
+                        # URL), then the runner, live sessions, usage window, and the board (issues opened by
+                        # an untrusted account show as `untrusted` and are never claimed)
 hx run --dry-run        # the board and what would run next, without changing anything
 hx run                  # work the board until nothing is left, then exit
 hx run --watch          # keep running and pick up new or unblocked work
@@ -189,6 +190,8 @@ A read-only page over `.hx/` and the board. It works with or without an `hx run`
 `/api/state` every 5 s and the board every 30 s (one `gh issue list` per 30 s however many tabs are
 open), and keeps the last data with an "offline / last updated" note when a fetch fails.
 
+- **Waiting on you** — the open `needs-human` questions (number linked to the issue, title), from the last
+  board read; "nothing waiting on you" when there are none.
 - **Now** — the runner ("not running", or its pid, uptime, workers, paused/draining and the rate-limit
   window), the live sessions (issue, kind, title, turn, tokens, elapsed) and the CI gate (green/red,
   sha, when, the fix issue).

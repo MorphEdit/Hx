@@ -104,7 +104,7 @@ export function testTime(recs: UsageRecord[], gates: GateRun[], now = Date.now()
   };
 }
 
-/** Reads .hx/ only and never calls gh: usage by PRD comes from the last board /api/board fetched, null before one. */
+/** Reads .hx/ only and never calls gh: usage by PRD and the waiting list come from the last board /api/board fetched, null before one. */
 export function dashboardState(p: Project, board: () => BoardSeen): object {
   const dir = p.stateDir, now = Date.now();
   const live = readLive(dir);
@@ -131,6 +131,7 @@ export function dashboardState(p: Project, board: () => BoardSeen): object {
   const recs = readUsage(dir);
   const b = board();
   const parents = b.plan?.parents;
+  const waiting = b.plan ? b.plan.questions ?? [] : null; // open needs-human issues from the last board, null before one
   const usage = {
     total: rows(recs, () => 'total')[0] ?? null,
     byRole: rows(recs, (r) => r.role ?? 'impl'),
@@ -144,7 +145,7 @@ export function dashboardState(p: Project, board: () => BoardSeen): object {
   const read = (f: string) => (existsSync(f) ? readFileSync(f, 'utf8') : '');
   // run.log.1 (the one rotated file, when there is one) then run.log, as one line sequence
   const outcomes = parseOutcomes([...read(`${logFile}.1`).split(/\r?\n/), ...read(logFile).split(/\r?\n/)]);
-  return { repo: p.config.repo, runner, sessions, gate, health, supervised, usage, time: testTime(recs, readGateRuns(dir), now), log: tailLines(logFile, LOG_LINES), outcomes };
+  return { repo: p.config.repo, waiting, runner, sessions, gate, health, supervised, usage, time: testTime(recs, readGateRuns(dir), now), log: tailLines(logFile, LOG_LINES), outcomes };
 }
 
 function send(res: ServerResponse, status: number, type: string, body: string, headers: Record<string, string> = {}): void {
@@ -172,6 +173,7 @@ async function repoRoute(p: Project, board: BoardCache, html: string, route: str
   if (route === '/api/board') {
     const b = await board.fetch();
     json(res, 200, { at: new Date(b.at).toISOString(), repo: p.config.repo, prds: b.plan?.prds ?? [], board: b.plan?.board ?? [],
+      questions: b.plan?.questions ?? [],
       ...(b.error !== undefined ? { error: b.error } : {}) });
     return true;
   }

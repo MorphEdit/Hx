@@ -25,6 +25,7 @@ import { hxRoot, installKind, readSelfUpdate } from './selfupdate.ts';
 import { addRepo, type Fleet, fleetDir, fleetFile, fleetWorkers, readFleet, readGithubHold, readHold, readRepos, registerRepo, removeRepo, sameRoot, slotsInUse, startFleetRun, writeFleet, writeRepos } from './fleet.ts';
 import { readSupervise, supervise } from './supervise.ts';
 import { service } from './service.ts';
+import type { Question } from './state.ts';
 import { change, compare, parseTime, SMALL_SAMPLE, type Period } from './compare.ts';
 import { fmt, localDay, mismatchedSessions, readUsage, summarize, totalTokens, type UsageRow } from './usage.ts';
 
@@ -558,8 +559,20 @@ const ago = (iso: string) => {
 };
 
 /** o.github false: no github line (hx fleet status prints it once for every repo). */
+/** hx status's first lines: how many open needs-human questions wait on the owner, then one line each. */
+function waitingLines(questions: Question[]): string[] {
+  return [`waiting on you: ${questions.length} question(s)`, ...questions.map((q) => `  #${q.number} ${q.title} — ${q.url}`)];
+}
+
 async function status(p = loadProject(), o: { github?: boolean } = {}): Promise<number> {
   const c = p.config;
+
+  // the board first (only issues and PRDs opened by a trusted account are worked on): what waits on the owner leads
+  let trusted: Set<string>;
+  try { trusted = await lookupTrusted(c); } catch (e: any) { console.error(`hx: ${e.message}`); return 2; }
+  const pl = await readBar(p, await readPlan(p, trusted), trusted);
+  for (const l of waitingLines(pl.questions)) console.log(l);
+  console.log('');
 
   // the runner
   const live = readLive(p.stateDir);
@@ -601,10 +614,7 @@ async function status(p = loadProject(), o: { github?: boolean } = {}): Promise<
   if (ghb) console.log(githubLine(ghb));
   console.log(`model    ${c.model}${c.effort ? ` (${c.effort} effort)` : ''}\n`);
 
-  // the board (only issues and PRDs opened by a trusted account are worked on)
-  let trusted: Set<string>;
-  try { trusted = await lookupTrusted(c); } catch (e: any) { console.error(`hx: ${e.message}`); return 2; }
-  const pl = await readBar(p, await readPlan(p, trusted), trusted);
+  // the board
   console.log(`${c.repo} — ${pl.prds.length} open PRD(s), ${pl.board.length} open '${c.labels.ready}' issue(s)\n`);
   printPlan(pl, c.repo);
   const recs = readUsage(p.stateDir);
