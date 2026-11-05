@@ -52,13 +52,14 @@ const gateRuns = (r: Repo) => { try { return readFileSync(path.join(r.stateDir, 
 const writeRuns = (r: Repo, runs: { sha: string; ok: boolean }[]) => writeFileSync(path.join(r.stateDir, 'gate-runs.jsonl'),
   runs.map((x, i) => JSON.stringify({ ts: new Date(Date.parse('2026-11-01T00:00:00Z') + i * 60_000).toISOString(), ...x, durationMs: 1000, timedOut: false }) + '\n').join(''));
 
-async function until(cond: () => boolean, ms = 60_000) {
+// 5 min: only a hang fails here (#285, option 3); one impl session ran past 60 s beside busy workers (#313)
+async function until(cond: () => boolean, ms = 300_000) {
   const end = Date.now() + ms;
   while (!cond()) { if (Date.now() > end) throw new Error('timed out waiting'); await new Promise((r) => setTimeout(r, 100)); }
 }
 const plain = (r: Repo) => pooled((signal) => runPool(r, { workers: 1, watch: false, dryRun: false, signal }));
 /** hx run --watch until `stopWhen` holds (then stopped), returning the run log. */
-async function watch(r: Repo, stopWhen: () => boolean, ms = 60_000) {
+async function watch(r: Repo, stopWhen: () => boolean, ms = 300_000) {
   const ac = new AbortController();
   const run = pooled((signal) => runPool(r, { workers: 1, watch: true, dryRun: false, signal }), ac.signal);
   try { await until(stopWhen, ms); } finally { ac.abort(); await run; }
