@@ -241,6 +241,32 @@ script (e.g. `node scripts/check.mjs`) are not counted unless the repo adds a pa
   `gate is slow: median … of a … timeout — tests may time out under load` once when the median of the last 5
   gate runs is above 70% of `gateMinutes`.
 
+## Auto-scaled workers
+
+With `autoWorkers` on (the default), `workers` is a ceiling, not a fixed count: hx claims a new session only while
+the machine has room, so tests stay fast and the gate stays green under load. Running sessions are never stopped
+for load.
+
+- **Ceiling and floor.** The ceiling is `--workers N` when given (`hx run`, `start`, `supervise`, `service`, and the
+  cap `hx fleet run` passes to each child), else `workers`. The floor is `minWorkers` (default 1): hx always keeps
+  claiming up to that many sessions. `--workers N` below `minWorkers` clamps the floor to N for that run.
+- **Measuring.** `hx run` samples the CPU (`os.cpus()` times over every core) and the free memory at start and
+  every 5 s after. A reading is the mean CPU busy % of the last 60 s and the latest free memory; the first one
+  exists about 5 s after start.
+- **The target** starts at the ceiling and is decided once per board read, before that pass's claims:
+  - **down** by one, never below the floor, on high load (CPU ≥ `loadHighPct` or free memory < `minFreeMemGB`);
+    the first step may come at the first reading, each further one waits 60 s after the last change;
+  - **up** by one, never above the ceiling, once every reading has been low load (CPU ≤ `loadLowPct` and free
+    memory ≥ `minFreeMemGB`) for `scaleUpMinutes` since the last change; a reading that is not low restarts the wait.
+- **The gate counts as one.** A new session is claimed while sessions + 1 for a running gate run (from its
+  worktree setup to its result) is below the target, or while sessions are below the floor. With the default
+  `workers: 2` that leaves one session slot while the gate runs, even on an idle machine.
+- **The log.** Each change logs one line: `workers: 3 → 2 (cpu 91%, free 7.9 GB)`,
+  `workers: 2 → 3 (cpu 52% for 5 min)`; no change logs nothing. `.hx/live.json` carries
+  `autoWorkers: { target, cpuPct, freeMemGB }` (the reading's fields once there is one); `workers` there stays the ceiling.
+- **A fixed count.** `"autoWorkers": false` keeps `workers` sessions whatever the load: no sampling, the gate not
+  counted, no `workers:` lines. `HX_AUTO_WORKERS=0` in the environment does the same for one run (the tests set it).
+
 ## Several repos
 
 One `hx fleet run` works several repos at once, under one shared worker cap. The fleet is a list of

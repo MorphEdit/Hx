@@ -516,3 +516,18 @@ test('split after a timeout: the guide documents it in Single issues and the two
   const run = h.stdout.slice(h.stdout.indexOf('  run [options]'), h.stdout.indexOf('  supervise'));
   assert.match(run, /timed-out impl turn is pushed, its issue narrowed and the rest filed/);
 });
+
+test('guide: the Auto-scaled workers section; hx help: --workers is the most sessions at once, fewer while busy (#320)', () => {
+  const g = read('docs/guide.md');
+  const start = g.indexOf('## Auto-scaled workers');
+  assert.ok(start >= 0, 'the section');
+  const sec = g.slice(start, g.indexOf('\n## ', start + 1));
+  for (const w of ['ceiling', '`minWorkers`', '--workers N', 'every 5 s', '60 s', '`loadHighPct`', '`loadLowPct`', '`minFreeMemGB`',
+    '`scaleUpMinutes`', 'The gate counts as one', 'workers: 3 → 2 (cpu 91%, free 7.9 GB)', 'workers: 2 → 3', '"autoWorkers": false',
+    'never stopped', 'clamps the floor', 'HX_AUTO_WORKERS=0', 'autoWorkers: { target, cpuPct, freeMemGB }'])
+    assert.ok(sec.includes(w), w);
+  const h = spawnSync(process.execPath, [path.join(root, 'bin', 'hx.mjs'), 'help'], { encoding: 'utf8' }).stdout;
+  assert.match(h, /--workers N +the most sessions at once \(default: config\.workers\); fewer while the machine is\s+busy when autoWorkers is on/);
+  assert.match(h, /--workers N: passed on, the most\s+sessions at once as for hx run/);
+  assert.match(h, /fewer while the machine is busy\s+when autoWorkers is on/);
+});

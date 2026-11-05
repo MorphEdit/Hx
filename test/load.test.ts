@@ -16,7 +16,7 @@ process.env.HX_GH_BIN = path.join(here, 'fakes', 'gh.mjs');
 process.env.HX_FAKE_STATE = stateFile;
 process.env.HX_FAKE_GH_LOG = ghLog;
 
-const { cpuBusyPct, decideTarget, initialTarget, loadReading, mayClaim, snapshotOf } = await import('../src/load.ts');
+const { cpuBusyPct, decideTarget, initialTarget, keepWindow, loadReading, mayClaim, snapshotOf, startSampler } = await import('../src/load.ts');
 const { autoWorkersConfigError, DEFAULTS } = await import('../src/config.ts');
 const { runPool } = await import('../src/pool.ts');
 
@@ -64,6 +64,30 @@ test('loadReading: null with 0 or 1 snapshot, a partial window averages what is 
 const SET = { ceiling: 3, minWorkers: 1, loadHighPct: 85, loadLowPct: 60, minFreeMemGB: 2, scaleUpMinutes: 5 };
 const R = (cpuPct: number, freeMemGB = 8) => ({ cpuPct, freeMemGB });
 const MIN = 60_000;
+
+test('keepWindow: drops snapshots a reading no longer needs, keeping the one before the 60 s window', E2E, () => {
+  const s = series(0, 5000, Array(20).fill(50)); // 0 … 100 s
+  keepWindow(s, 100_000);
+  assert.deepEqual(s.map((x) => x.at), [35_000, 40_000, 45_000, 50_000, 55_000, 60_000, 65_000, 70_000, 75_000, 80_000, 85_000, 90_000, 95_000, 100_000]);
+  assert.equal(loadReading(s, 100_000)!.cpuPct, 50, 'the reading is the same after the drop');
+  const one = series(0, 5000, []);
+  keepWindow(one, 10 * 60_000);
+  assert.equal(one.length, 1, 'the latest snapshot is always kept');
+});
+
+test('startSampler: one snapshot at once, every everyMs after, on an unrefed timer; stores only, old ones dropped', E2E, async () => {
+  const s: ReturnType<typeof snap>[] = [];
+  let now = 0, taken = 0;
+  const t = startSampler(s, () => now, 1, (at) => { taken++; return snap(at, s[s.length - 1] ?? null, 10); });
+  try {
+    assert.equal(t.hasRef(), false, 'never keeps the process alive');
+    assert.equal(s.length, 1, 'a snapshot at start');
+    now = 120_000;
+    await new Promise((r) => setTimeout(r, 20));
+    assert.ok(taken >= 2, 'sampled again');
+    assert.ok(s.every((x, i) => i === 0 || x.at >= now - 60_000), 'older snapshots dropped');
+  } finally { clearInterval(t); }
+});
 
 test('decideTarget: starts at the ceiling; down at CPU ≥ high at the first reading, with the line', E2E, () => {
   const s0 = initialTarget(3, 0);

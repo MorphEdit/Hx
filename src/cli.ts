@@ -56,13 +56,15 @@ const HELP = `usage: hx <command> [options]
                            a timed-out impl turn is pushed, its issue narrowed and the rest filed)
       --watch              keep running and pick up new / unblocked work; hx issue, prd, bug and
                            grill wake it within seconds (.hx/wake)
-      --workers N          parallel sessions (default: config.workers)
+      --workers N          the most sessions at once (default: config.workers); fewer while the machine is
+                           busy when autoWorkers is on (a running gate counts as one)
       --issue N[,N...]     only these issues / PRDs
       --dry-run            show the board and what would run next, change nothing
   supervise [--workers N]  run hx run --watch as a child and restart it after a crash (backoff 10 s, 30 s, 60 s,
                            then 5 min; reset after 30 min up); exits when the runner exits 0 (hx pause, Ctrl+C),
                            waits while .hx/pause is present or another runner holds the run lock, gives up after
-                           5 crashes in 10 min. Logs supervise: lines to .hx/run.log
+                           5 crashes in 10 min. Logs supervise: lines to .hx/run.log (--workers N: passed on, the most
+                           sessions at once as for hx run; also for service install and start)
   service install [--workers N] | uninstall | status
                            Windows: a Task Scheduler task (hx\\<repo>-<hash>) that runs hx supervise in this repo
                            at your logon, as you, without elevation; status: the task, its last result, the
@@ -97,7 +99,8 @@ const HELP = `usage: hx <command> [options]
   fleet dashboard [--port N] [--open]   the same as hx dashboard --fleet
   fleet run [--workers N] [--watch]
                            one hx run per fleet repo (output prefixed [owner/name]), sharing one worker
-                           cap (--workers, else fleet workers); Ctrl+C asks every repo to checkpoint
+                           cap (--workers, else fleet workers; each repo runs fewer while the machine is busy
+                           when autoWorkers is on); Ctrl+C asks every repo to checkpoint
   install-skill            write the /hx Claude Code skill to ~/.claude/skills/hx/SKILL.md (HX_SKILLS_HOME
                            instead of ~), replacing any copy there: ask Claude Code to build with hx
   doctor                   check the prerequisites (node, git, gh and its login, the agent CLI, the repo's

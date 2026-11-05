@@ -37,6 +37,9 @@ export interface LiveState {
   budget?: { windows: BudgetWindow[] }; // per usage window: utilization, resetsAt, pairs, usdPerPct once calibrated
   github?: GhBudget; // the GitHub API budget, read at start and at most once a minute
   githubLow?: { until: number; reason: string }; // ms epoch: budget-low (below ghReservePct), no claims before this
+  // only while autoWorkers is on: the target session count (workers stays the ceiling), and the latest per-pass reading's
+  // CPU busy % (whole number) and free memory (GB, one decimal); both absent before the first reading
+  autoWorkers?: { target: number; cpuPct?: number; freeMemGB?: number };
 }
 
 export type PauseMode = 'drain' | 'now';
