@@ -7,7 +7,7 @@ import { DEFAULTS, effectiveRtddBin, formatRoleModels, ghReservePctError, health
 import * as gh from './github.ts';
 import type { Issue } from './github.ts';
 import { hhmm, reserveState, type GhBudget } from './ghlimit.ts';
-import { claimable, externalRefs, fenceFindings, isTrusted, issueKey, openQuestions, parseParent, plan, prdKey, PROMISE_RE, refKey, render, TRIAGE_MARKER, triageVerdict, trustedSet, type Action, type Plan } from './state.ts';
+import { claimable, externalRefs, fenceFindings, isTrusted, issueKey, openQuestions, parseBlockedBy, parseParent, plan, prdKey, PROMISE_RE, refKey, render, TRIAGE_MARKER, triageVerdict, trustedSet, type Action, type Plan } from './state.ts';
 import { addWorktree, auditWorktree, cleanStaleWorktrees, implWorktree, prdWorktree, removeWorktree, repairBrokenRefs, selfReviewWorktree, triageWorktree, type AddedWorktree } from './worktree.ts';
 import { emptyUsage, runGoal, runTurn, type GoalResult, type RateLimit } from './agent.ts';
 import { clearSetupRecord, readSetupRecord, setupLine, setupNote, setupWorktree, writeSetupRecord, type SetupResult } from './setup.ts';
@@ -27,6 +27,7 @@ import { BAR_JUDGE_PROMISE, BAR_PROMISE, barCapComment, barLine, barMarker, barR
 import { parseQualityBar } from './prd.ts';
 import { ownerAnswer, ownerAnswerNote, questionFromReply } from './question.ts';
 import { HELD_STATUS, heldComment, mergeFailure, readHeld, setHeld } from './held.ts';
+import { addBlockers, withTrailers, type SizeChild } from './size.ts';
 import { appendSkills, resolveSkills, rtddCheck, rtddEnv, SKILL_CHECKS, skillNames, skillsLogLine, type Skill } from './skills.ts';
 
 const PROMPTS = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'prompts');
@@ -1384,6 +1385,39 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
     await gh.comment(c.repo, n, `${RETRY_MARKER}\n**hx:** ${back} (PR #${pr})`).catch(() => {});
     extra = { RESUMED: `NOTE: this branch already has your earlier work (PR #${pr} is open).\n${feedback}\n` };
   }
+}
+
+/** The dependents of a split issue #n (PRD #300 §4): every open issue opened by a trusted account whose
+ *  `## Blocked by` names #n in this repo. Never #n itself; refs to other repos are not followed. */
+export async function readDependents(repo: string, n: number, trusted: Set<string>): Promise<{ number: number; body: string }[]> {
+  return (await gh.listIssues(repo))
+    .filter((i) => i.state === 'OPEN' && i.number !== n && isTrusted(i, trusted)
+      && parseBlockedBy(i.body, repo).some((r) => r.repo.toLowerCase() === repo.toLowerCase() && r.number === n))
+    .map((i) => ({ number: i.number, body: i.body }));
+}
+
+/**
+ * The writes both size-split paths share: file the children in order (labelled `readyLabel` only, each blocked by
+ * `o.first` and then its filed `blockedBy` siblings, parent `o.parent`), then add every filed number to each of
+ * `o.dependents` (read by the caller before any filing). The first write that throws stops it: `failed` names it.
+ */
+export async function fileSplit(repo: string, readyLabel: string, children: SizeChild[],
+  o: { parent: number; first: number[]; dependents: { number: number; body: string }[] }): Promise<{ filed: number[]; failed?: { step: string; error: string } }> {
+  const filed: number[] = [];
+  const stop = (step: string, e: unknown) => ({ filed, failed: { step, error: (e as Error)?.message ?? String(e) } });
+  for (const [i, ch] of children.entries()) {
+    try {
+      const blockers = [...o.first, ...ch.blockedBy.map((k) => filed[k - 1]).filter((x) => x !== undefined)];
+      const url = await gh.createIssue(repo, ch.title, withTrailers(ch.body, blockers, o.parent), [readyLabel]);
+      const num = Number(/(\d+)\s*$/.exec(url)?.[1]);
+      if (!num) throw new Error(`no issue number in "${url}"`);
+      filed.push(num);
+    } catch (e) { return stop(`filing child ${i + 1}`, e); }
+  }
+  for (const d of o.dependents) {
+    try { await gh.editBody(repo, d.number, addBlockers(d.body, filed)); } catch (e) { return stop(`updating #${d.number}`, e); }
+  }
+  return { filed };
 }
 
 /** {{QUESTIONS_LEFT}} in the decompose prompt: how many `needs-human` issues it may still file. */
