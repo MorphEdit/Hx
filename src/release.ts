@@ -187,8 +187,10 @@ export function releaseGate(paths: ReleasePaths, c: Config, log: (m: string) => 
     const cmd = c.gateCommand || gs.command;
     if (!cmd) return null;
     log(`gate: running \`${cmd}\` on ${c.defaultBranch}`);
-    return runGate(paths.root, c.worktreeRoot, c.defaultBranch, cmd, c.gateMinutes * 60_000, signal,
+    const r = await runGate(paths.root, c.worktreeRoot, c.defaultBranch, cmd, c.gateMinutes * 60_000, signal,
       { stateDir: paths.stateDir, config: c, log: (m) => log(`gate: ${m}`) });
+    await r.killed;
+    return r;
   };
 }
 

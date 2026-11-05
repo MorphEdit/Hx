@@ -137,6 +137,23 @@ test('Ctrl+C while the gate runs: runGate does not wait on a worktree Windows st
   }
 });
 
+test('Ctrl+C while the gate runs: runGate returns without waiting on taskkill; its killed settles once the tree is gone (#283)', E2E, async () => {
+  const { runGate } = await import('../src/gate.ts');
+  const pidFile = path.join(tmp, 'gate-kill.pid').replace(/\\/g, '/');
+  const sleeper = `node -e "require('fs').writeFileSync('${pidFile}', String(process.pid)); setTimeout(() => {}, 60e3)"`;
+  const ac = new AbortController();
+  const poll = setInterval(() => {
+    try { readFileSync(pidFile, 'utf8'); } catch { return; }
+    clearInterval(poll); ac.abort();
+  }, 50);
+  const r = await runGate(root, path.join(tmp, 'wt'), 'main', sleeper, 60_000, ac.signal).finally(() => clearInterval(poll));
+  assert.equal(r.aborted, true);
+  assert.ok(r.killed instanceof Promise, 'the aborted result hands back the kill');
+  await r.killed;
+  const pid = Number(readFileSync(pidFile, 'utf8'));
+  assert.ok(pid > 0 && !alive(pid), `the gate's process ${pid} is not left running`);
+});
+
 test('main moves while the fix session is still finishing: the gate waits for that session, not the next poll (#106)', E2E, async () => {
   // main is red again
   git(root, 'pull', '-q', 'origin', 'main');

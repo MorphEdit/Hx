@@ -405,7 +405,7 @@ async function pool(p: Project, o: PoolOptions): Promise<number> {
         if (o.signal.aborted) break;
         // Ctrl+C (o.signal) aborts the gate; `hx pause --now` (stop) does not
         const r = await runGate(p.root, c.worktreeRoot, c.defaultBranch, cmd, c.gateMinutes * 60_000, o.signal, setup).catch((e) => ({ sha: '', ok: true, command: cmd, output: String(e.message), at: new Date().toISOString(), error: true }));
-        if ('aborted' in r && r.aborted) break; // discarded: no log, no gate.json, no fix issue
+        if ('aborted' in r && r.aborted) { await r.killed; break; } // discarded: no log, no gate.json, no fix issue; the tree is gone first
         if ('error' in r) { log(`gate: could not run (${r.output.slice(0, 160)}) — retried after the next merge`); continue; }
         if ('setupFailed' in r && r.setupFailed) {
           setupTries = r.sha === setupSha ? setupTries + 1 : 1;
