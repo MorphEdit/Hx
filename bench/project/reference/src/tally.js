@@ -123,7 +123,7 @@ export function findOverlaps(entries, now) {
   return out.sort((x, y) => x[0] - y[0] || x[1] - y[1]);
 }
 
-const csvField = (s) => (/[",]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s);
+const csvField = (s) => (/[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s);
 
 export function toCsv(entries) {
   const rows = entries.filter((e) => e.end).map((e) =>

@@ -20,7 +20,7 @@ const walk = (dir: string, rel = ''): string[] => readdirSync(path.join(dir, rel
 
 test('grading the reference: every hidden case passes', E2E, () => {
   const r = grade(path.join(project, 'reference'));
-  assert.ok(r.total > 0);
+  assert.ok(r.total >= 80, `${r.total} hidden cases`);
   assert.deepEqual(r.failures, []);
   assert.equal(r.failed, 0);
   assert.equal(r.passed, r.total);
@@ -28,6 +28,29 @@ test('grading the reference: every hidden case passes', E2E, () => {
   assert.equal(r.total, cases().length);
   assert.equal(new Set(cases()).size, cases().length, 'no duplicate names');
   assert.ok(cases().every((n: string) => / > /.test(n)));
+});
+
+test('the hidden suite has at least 80 cases, with cases in every area the brief covers', () => {
+  const names: string[] = cases();
+  assert.ok(names.length >= 80, `${names.length} hidden cases`);
+  const areas: Record<string, RegExp> = {
+    start: /^cli-track\.test\.mjs > start /,
+    stop: /^cli-track\.test\.mjs > stop /,
+    status: /^cli-track\.test\.mjs > status /,
+    add: /^cli-track\.test\.mjs > add /,
+    'day report': /^reports\.test\.mjs > day report: /,
+    'week report': /^reports\.test\.mjs > week report: /,
+    'project report': /^reports\.test\.mjs > project report: /,
+    rounding: /^rounding\.test\.mjs > rounding: /,
+    overlaps: /^overlaps\.test\.mjs > overlaps: /,
+    CSV: /^csv\.test\.mjs > csv: /,
+    'parse errors': /^parse-errors\.test\.mjs > /,
+  };
+  for (const [area, re] of Object.entries(areas)) assert.ok(names.some((n) => re.test(n)), `no hidden case for ${area}`);
+  // the library side of reports, overlaps and CSV is covered too, not only the CLI
+  for (const fn of ['dayReport', 'weekReport', 'projectReport', 'roundMinutes', 'findOverlaps', 'toCsv']) {
+    assert.ok(hiddenFiles.some((f) => readFileSync(path.join(HIDDEN, f), 'utf8').includes(`lib.${fn}(`)), `no hidden case calls ${fn}`);
+  }
 });
 
 /** The reference copied to a temp dir, with `files` overwritten; removed after `fn`. */
