@@ -484,3 +484,9 @@ test('size check: the guide documents it in Single issues, the split-up-front ro
   const run = h.stdout.slice(h.stdout.indexOf('  run [options]'), h.stdout.indexOf('  supervise'));
   assert.match(run, /sized first and split into children when too big: sizeCheck/);
 });
+
+test('guide: a Config table row for each autoWorkers key with its default (#319)', () => {
+  const g = read('docs/guide.md');
+  assert.ok(hasRow(g, 'autoWorkers', `\`${DEFAULTS.autoWorkers}\``), 'autoWorkers');
+  for (const k of ['minWorkers', 'loadHighPct', 'loadLowPct', 'minFreeMemGB', 'scaleUpMinutes'] as const) assert.ok(hasRow(g, k, String(DEFAULTS[k])), k);
+});

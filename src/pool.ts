@@ -3,7 +3,7 @@ import { appendFileSync, cpSync, mkdirSync, mkdtempSync, readFileSync, renameSyn
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { DEFAULTS, effectiveRtddBin, formatRoleModels, ghReservePctError, healthConfigError, labelSpecs, modelMatches, roleModel, roleModelMap, roleModelsError, testPatternsError, workerArgs, worktreeCopyError, type Config, type LabelSpec, type Project } from './config.ts';
+import { autoWorkersConfigError, DEFAULTS, effectiveRtddBin, formatRoleModels, ghReservePctError, healthConfigError, labelSpecs, modelMatches, roleModel, roleModelMap, roleModelsError, testPatternsError, workerArgs, worktreeCopyError, type Config, type LabelSpec, type Project } from './config.ts';
 import * as gh from './github.ts';
 import type { Issue } from './github.ts';
 import { hhmm, reserveState, type GhBudget } from './ghlimit.ts';
@@ -306,6 +306,8 @@ async function pool(p: Project, o: PoolOptions): Promise<number> {
   if (badHealth) { log(`STOPPED: ${badHealth}`); return 2; }
   const badSelfUpdate = selfUpdateConfigError(c);
   if (badSelfUpdate) { log(`STOPPED: ${badSelfUpdate}`); return 2; }
+  const badAuto = autoWorkersConfigError(c);
+  if (badAuto) { log(`STOPPED: ${badAuto}`); return 2; }
   // who may put work on the board: looked up once per run; without it nothing is read or claimed
   let trusted: Set<string>, login: string;
   try { login = await gh.ghLogin(); trusted = trustedSet(login, c.trustedAuthors ?? []); } catch (e: any) { log(`STOPPED: ${e.message}`); return 2; }

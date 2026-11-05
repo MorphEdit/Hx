@@ -873,6 +873,12 @@ and the dashboard's per-model numbers use it). To spot one:
 | `skillMaxChars` | `12000` | a skill whose `SKILL.md` body (front matter and HTML comments stripped) is longer is skipped |
 | `rtddBin` | `"rtdd"` | the `rtdd` command (`HX_RTDD_BIN` overrides it) |
 | `workers` | 2 | sessions running in parallel |
+| `minWorkers` | 1 | the floor: hx always keeps claiming up to this many sessions (unless a pause, a red gate, a usage hold, the GitHub budget or a fleet slot holds claims); a whole number from 1 to `workers`, clamped to `--workers N` when that is lower |
+| `autoWorkers` | `true` | `workers` is a ceiling and the session count follows machine load; `false` = a fixed count of `workers` sessions |
+| `loadHighPct` | 85 | CPU busy % at or above which the target steps down (0 to 100, above `loadLowPct`) |
+| `loadLowPct` | 60 | CPU busy % at or below which, with at least `minFreeMemGB` free, the target may step back up |
+| `minFreeMemGB` | 2 | free memory below this (GB = bytes / 1024³) counts as high load; `0` turns the memory check off |
+| `scaleUpMinutes` | 5 | minutes of low load before one step up |
 | `model` | `claude-opus-5-5` | model for every session; prefer a full id — the `opus` alias may resolve to an older Opus |
 | `effort` | `medium` | `claude --effort`: `low`, `medium`, `high`, `xhigh`, `max`, or `""` for the CLI default |
 | `agentCli` | `"claude"` | the agent CLI that workers, `hx grill` and `hx issue` run (an adapter in `src/agents/`); `claude` is the only one |
