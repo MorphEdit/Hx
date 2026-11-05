@@ -69,7 +69,7 @@ test('the two notes are the exact texts the issue asks for', E2E, () => {
 
 test('bugTriage false: a bug runs impl without triage, both prompts carry their note, it merges; a feature gets none', E2E, async () => {
   writeFileSync(stateFile, JSON.stringify({ comments: [], prs: [], issues: [issue(1, [L.bug, L.ready]), issue(2, [L.ready])] }));
-  const { rc, prompts } = await run([1, 2], { bugTriage: false });
+  const { rc, prompts } = await run([1, 2], { bugTriage: false, sizeCheck: false });
   assert.equal(rc, 0);
   assert.deepEqual([...new Set(prompts.map((p) => p.role))].sort(), ['audit', 'implement'], 'no triage session');
   const s = read();

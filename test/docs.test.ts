@@ -469,3 +469,18 @@ test('needs-human: README has a "When hx needs you" section for the owner; hx he
   assert.match(help, /needs-human/);
   assert.match(help, /comment on its issue/);
 });
+
+test('size check: the guide documents it in Single issues, the split-up-front row and the sizeCheck row; hx help names sizeCheck', () => {
+  const r = read('README.md');
+  const start = r.indexOf('## Single issues');
+  assert.ok(start >= 0, 'a Single issues section');
+  const sec = r.slice(start, r.indexOf('\n## When a task needs you', start)); // its markdown example holds a `## Blocked by` line
+  for (const w of ['size check', '`size`', '`decompose`', 'SIZE: fits', 'SIZE: split', '30–45 min', '<!-- hx-size fits -->',
+    '<!-- hx-size split -->', '`size #n: fits`', '`split #n → #a, #b`', 'not planned', 'treated\n  as fits', 'trustedAuthors',
+    '`bug`', '`hx-gate-fix`', 'sizeCheck: false']) assert.ok(sec.includes(w), w);
+  assert.ok(r.split('\n').some((l) => l.startsWith('| split up front')), 'What happens to an issue: split up front');
+  assert.ok(hasRow(r, 'sizeCheck', `\`${DEFAULTS.sizeCheck}\``), 'sizeCheck row');
+  const h = spawnSync(process.execPath, [path.join(root, 'bin', 'hx.mjs'), 'help'], { encoding: 'utf8' });
+  const run = h.stdout.slice(h.stdout.indexOf('  run [options]'), h.stdout.indexOf('  supervise'));
+  assert.match(run, /sized first and split into children when too big: sizeCheck/);
+});

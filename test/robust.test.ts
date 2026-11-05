@@ -34,22 +34,22 @@ git(root, '-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '--allow-
 git(root, 'push', '-q', 'origin', 'HEAD:main');
 const stateDir = path.join(root, '.hx');
 mkdirSync(stateDir);
-const project = () => ({ root, stateDir, config: { ...DEFAULTS, repo: 'me/app', defaultBranch: 'main', worktreeRoot: path.join(tmp, 'wt'),
-  claudeBin: path.join(here, 'fakes', 'claude.mjs'), maxIterations: 3, pollSeconds: 1, audit: false } });
+const project = (extra = {}) => ({ root, stateDir, config: { ...DEFAULTS, repo: 'me/app', defaultBranch: 'main', worktreeRoot: path.join(tmp, 'wt'),
+  claudeBin: path.join(here, 'fakes', 'claude.mjs'), maxIterations: 3, pollSeconds: 1, audit: false, ...extra } });
 
 const issue = (number: number, labels: string[] = [L.ready], body = '') => ({ number, title: `task ${number}`, body, state: 'OPEN', labels });
 const board = (issues: any[]) => writeFileSync(stateFile, JSON.stringify({ comments: [], issues }));
 const read = () => JSON.parse(readFileSync(stateFile, 'utf8'));
 const byNum = (n: number) => read().issues.find((i: any) => i.number === n);
 
-async function run(opts: { workers?: number; signal?: AbortSignal; env?: Record<string, string> } = {}) {
+async function run(opts: { workers?: number; signal?: AbortSignal; env?: Record<string, string>; config?: object } = {}) {
   const lines: string[] = [];
   const orig = console.log;
   console.log = (m: string) => { lines.push(m); orig(m); };
   const saved: Record<string, string | undefined> = {};
   for (const [k, v] of Object.entries(opts.env ?? {})) { saved[k] = process.env[k]; process.env[k] = v; }
   try {
-    const rc = await pooled((signal) => runPool(project(), { workers: opts.workers ?? 1, watch: false, dryRun: false, signal }), opts.signal);
+    const rc = await pooled((signal) => runPool(project(opts.config), { workers: opts.workers ?? 1, watch: false, dryRun: false, signal }), opts.signal);
     return { rc, lines };
   } finally {
     console.log = orig;
@@ -123,7 +123,7 @@ test('stop mid-session (Ctrl+C / pause --now): checkpoint, hand back, the next s
   board([issue(5)]);
   const ac = new AbortController();
   whenSessionStarts(() => ac.abort());
-  const { rc, lines } = await run({ signal: ac.signal, env: { FAKE_CLAUDE_DELAY_MS: '5000' } });
+  const { rc, lines } = await run({ signal: ac.signal, env: { FAKE_CLAUDE_DELAY_MS: '5000' }, config: { sizeCheck: false } });
   assert.equal(rc, 0);
   assert.ok(lines.some((l) => /checkpoint saved/.test(l)), 'checkpoint turn ran');
   const s = read();
@@ -149,7 +149,7 @@ test('stop mid-session (Ctrl+C / pause --now): checkpoint, hand back, the next s
 test('pause --now from another terminal stops a running session the same way', E2E, async () => {
   board([issue(6)]);
   whenSessionStarts(() => setPause(stateDir, 'now'));
-  const { lines } = await run({ env: { FAKE_CLAUDE_DELAY_MS: '5000' } });
+  const { lines } = await run({ env: { FAKE_CLAUDE_DELAY_MS: '5000' }, config: { sizeCheck: false } });
   assert.ok(lines.some((l) => /checkpoint saved/.test(l)));
   assert.deepEqual(byNum(6).labels, [L.ready]);
   clearPause(stateDir);
@@ -173,7 +173,7 @@ test('usage-window readings: one line per change, none for a repeat or an event 
   const { readReadings, readingsFile } = await import('../src/budget.ts');
   rmSync(readingsFile(stateDir), { recursive: true, force: true });
   board([issue(9)]);
-  const { rc } = await run({ env: { FAKE_CLAUDE_RATES: '0.1,0.1,:five_hour,0.2,0.3:seven_day,0.2,0.2:five_hour:4102448400' } });
+  const { rc } = await run({ env: { FAKE_CLAUDE_RATES: '0.1,0.1,:five_hour,0.2,0.3:seven_day,0.2,0.2:five_hour:4102448400' }, config: { sizeCheck: false } });
   assert.equal(rc, 0);
   assert.equal(byNum(9).state, 'CLOSED');
   assert.deepEqual(readReadings(stateDir).map((r) => [r.window, r.utilization, r.resetsAt]),

@@ -206,7 +206,7 @@ test('impl NEEDS_HUMAN: only the final message is posted, never the narration be
 
 test('impl NEEDS_HUMAN on the audited path: the same, and no audit runs', E2E, async () => {
   board([ready(22, 'Save scores. IMPLQUESTION')]);
-  const { rc, lines } = await run({ audit: true });
+  const { rc, lines } = await run({ audit: true, sizeCheck: false });
   assert.equal(rc, 0, lines.join('\n'));
   assertAsked(22, lines);
   assert.ok(!lines.some((l) => /\[#22\] audit/.test(l)), lines.join('\n'));
@@ -229,7 +229,7 @@ test('impl NEEDS_HUMAN at the cap: no question, no needs-human, the too-many com
   board([ready(23, 'Save scores. IMPLQUESTIONFIRST'),
     { number: 24, title: '[needs you] colour?', body: `${QUESTION_MARKER}\nwhich colour?`, state: 'OPEN', labels: [L.needsHuman] }]);
   const since = Date.now();
-  const { rc, lines } = await run({ maxOpenQuestions: 1 });
+  const { rc, lines } = await run({ maxOpenQuestions: 1, sizeCheck: false });
   assert.equal(rc, 0, lines.join('\n'));
   assert.ok(!commentsOn(23).some((b) => b.includes(QUESTION_MARKER)), 'no question posted');
   assert.deepEqual(commentsOn(23), [IMPL_TOO_MANY_QUESTIONS]);

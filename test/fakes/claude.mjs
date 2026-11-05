@@ -15,6 +15,8 @@
 //              its prompt names; the judge (Role: bar judge) reads them and answers. In the PRD body: BARNOPROV = the run
 //              prints PROVISION FAILED, BARLOSE<n> = round n is lost, BARLOSEALL = every round is lost (else won),
 //              BARBAD1 = the judge's first reply of a round is in a bad shape, BARBAD2 = every reply is
+//   size:      the size session (Role: size) replies by tokens in the issue body: SIZESPLIT = `SIZE: split` with two
+//              children (the second `Blocked by: child 1`), SIZEBAD = a reply in no valid shape, otherwise `SIZE: fits`
 //   selfreview: prints FAKE_CLAUDE_FINDINGS (default 0) `## Finding` blocks and its promise
 //   grill:     interactive (prompt as the last argument, not stdin): writes a PRD to the output path the prompt
 //              names (FAKE_GRILL_NOWRITE=1: writes nothing, =blank: whitespace only) and exits
@@ -256,6 +258,27 @@ function finish(st, checkpoint, prompt) {
     if (/SHIPNOSTATE/.test(loadBoard().issues.find((i) => i.number === st.n)?.body ?? ''))
       rmSync(path.join(spawnSync('git', ['rev-parse', '--absolute-git-dir'], { encoding: 'utf8' }).stdout.trim(), 'hx-ship.json'), { force: true });
     return reply(r.status === 0 ? `${r.stdout.trim()}\n${done()}` : `ship failed ${r.status}: ${r.stderr}`);
+  }
+  // the size session: SIZESPLIT / SIZEBAD in the issue body, otherwise it fits
+  if (st.role === 'size' && !checkpoint) {
+    const body = loadBoard().issues.find((i) => i.number === st.n)?.body ?? '';
+    if (/SIZEBAD/.test(body)) return reply(`It is big, I think.
+=== CHILD 1: half
+
+${done()}`);
+    if (/SIZESPLIT/.test(body)) return reply(`SIZE: split
+=== CHILD 1: first half of #${st.n}
+Blocked by: none
+do the first half
+=== CHILD 2: second half of #${st.n}
+Blocked by: child 1
+do the second half
+
+${done()}`);
+    return reply(`Read it: one session.
+SIZE: fits
+
+${done()}`);
   }
   // gauntlet critic and reviser
   if (st.role === 'critic') {

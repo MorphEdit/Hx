@@ -52,6 +52,7 @@ const HELP = `usage: hx <command> [options]
   issue --file <file.md> [--bug] [--title T]
                            file an existing issue file the same way, without a session
   run [options]            work the board until nothing is left, then exit
+                           (a single issue is sized first and split into children when too big: sizeCheck)
       --watch              keep running and pick up new / unblocked work; hx issue, prd, bug and
                            grill wake it within seconds (.hx/wake)
       --workers N          parallel sessions (default: config.workers)

@@ -102,7 +102,7 @@ test('hx run builds only trusted work; each untrusted issue / PRD is logged once
 
   // every session got the trusted set as HX_TRUSTED (the gh login + trustedAuthors, lower-cased) ...
   const envs = sessionEnvs(process.env.HX_FAKE_DIR!);
-  assert.deepEqual([...new Set(envs.map((e) => e.role))].sort(), ['decompose', 'implement', 'review']);
+  assert.deepEqual([...new Set(envs.map((e) => e.role))].sort(), ['decompose', 'implement', 'review', 'size']);
   for (const e of envs) assert.equal(e.trusted, 'hx-bot,alice', JSON.stringify(e));
   // ... and a prompt that reads its issue through scripts/issue.mjs, by absolute path, with nothing left unrendered
   const script = path.join(here, '..', 'scripts', 'issue.mjs').replace(/\\/g, '/');

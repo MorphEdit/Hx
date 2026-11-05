@@ -19,7 +19,7 @@ let n = 0;
 
 const git = (cwd: string, ...a: string[]) => execFileSync('git', a, { cwd, encoding: 'utf8', stdio: 'pipe' }).trim();
 /** A repo with its own origin, board (one ready issue per number) and fake session dir. */
-function repo(name: string, issues: number[] = []) {
+function repo(name: string, issues: number[] = [], extra = {}) {
   const base = path.join(tmp, `${name}${n++}`);
   mkdirSync(base);
   const origin = path.join(base, 'origin.git');
@@ -29,7 +29,7 @@ function repo(name: string, issues: number[] = []) {
   git(root, '-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '--allow-empty', '-m', 'init');
   git(root, 'push', '-q', 'origin', 'HEAD:main');
   saveConfig(path.join(root, '.hx'), { ...DEFAULTS, repo: `me/${name}`, defaultBranch: 'main', worktreeRoot: path.join(base, 'wt'),
-    claudeBin: CLAUDE, maxIterations: 3, pollSeconds: 1, audit: false });
+    claudeBin: CLAUDE, maxIterations: 3, pollSeconds: 1, audit: false, ...extra });
   const board = path.join(base, 'board.json');
   writeFileSync(board, JSON.stringify({ comments: [], prs: [], issues: issues.map((number) => ({ number, title: `task ${number}`, body: '', state: 'OPEN', labels: [DEFAULTS.labels.ready] })) }));
   const fake = path.join(base, 'sessions');
@@ -84,7 +84,8 @@ test('hx fleet run: every output line carries the [owner/name] prefix of its rep
 });
 
 test('interrupt(): both children checkpoint their running sessions and exit; done resolves to the highest exit code', E2E, async () => {
-  const a = repo('a', [1]), b = repo('b', [2]);
+  // the impl session is the first: its checkpoint is what this test checks
+  const a = repo('a', [1], { sizeCheck: false }), b = repo('b', [2], { sizeCheck: false });
   home({ repos: [{ root: a.root }, { root: b.root }] });
   const lines: string[] = [];
   // a turn that outlasts the test, so the first session still runs however late the second starts (#298)

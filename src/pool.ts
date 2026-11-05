@@ -27,7 +27,7 @@ import { BAR_JUDGE_PROMISE, BAR_PROMISE, barCapComment, barLine, barMarker, barR
 import { parseQualityBar } from './prd.ts';
 import { ownerAnswer, ownerAnswerNote, questionFromReply } from './question.ts';
 import { HELD_STATUS, heldComment, mergeFailure, readHeld, setHeld } from './held.ts';
-import { addBlockers, withTrailers, type SizeChild } from './size.ts';
+import { addBlockers, parseSizeReply, SIZE_FITS, SIZE_NARROWED, SIZE_SPLIT, withTrailers, type SizeChild } from './size.ts';
 import { appendSkills, resolveSkills, rtddCheck, rtddEnv, SKILL_CHECKS, skillNames, skillsLogLine, type Skill } from './skills.ts';
 
 const PROMPTS = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'prompts');
@@ -184,6 +184,7 @@ interface WorkContext {
   merged?: (testCommand?: string) => void; // a PR reached the default branch: the CI gate re-tests it
   mainGate?: () => Promise<{ last?: GateResult; fixIssue?: number }>; // the gate's result for the default branch as it is now (gate off: none)
   trusted: Set<string>; // this run's trusted set: only their comments count in hx's own logic; passed to every session as HX_TRUSTED
+  login?: string; // hx's own gh login: only its comments count as size markers (no login: no size check)
   skills?: Record<string, Skill[]>; // role → the skills appended to its prompt, resolved once per run
   agent?: AgentCli; // the agent CLI sessions run on (config.agentCli), resolved once per run
 }
@@ -306,8 +307,8 @@ async function pool(p: Project, o: PoolOptions): Promise<number> {
   const badSelfUpdate = selfUpdateConfigError(c);
   if (badSelfUpdate) { log(`STOPPED: ${badSelfUpdate}`); return 2; }
   // who may put work on the board: looked up once per run; without it nothing is read or claimed
-  let trusted: Set<string>;
-  try { trusted = await lookupTrusted(c); } catch (e: any) { log(`STOPPED: ${e.message}`); return 2; }
+  let trusted: Set<string>, login: string;
+  try { login = await gh.ghLogin(); trusted = trustedSet(login, c.trustedAuthors ?? []); } catch (e: any) { log(`STOPPED: ${e.message}`); return 2; }
   if (o.dryRun) {
     const pl = await readPlan(p, trusted);
     printPlan(pl, c.repo);
@@ -663,6 +664,7 @@ async function pool(p: Project, o: PoolOptions): Promise<number> {
   const ctx: WorkContext = {
     signal: stop.signal,
     trusted,
+    login,
     skills: skills.byRole,
     agent,
     started: (s) => { live.sessions.push(s); save(); },
@@ -985,7 +987,8 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
   const L = c.labels;
   const audited = a.kind === 'impl' && c.audit;
   // a bug issue (triaged or not, a PRD child too) gets a reproduce-first note in its impl and audit prompts
-  const bug = a.kind === 'impl' && (await gh.issueLabels(c.repo, n).catch(() => [] as string[])).includes(L.bug);
+  const implLabels = a.kind === 'impl' ? await gh.issueLabels(c.repo, n).catch(() => [] as string[]) : [];
+  const bug = implLabels.includes(L.bug);
   const vars: Record<string, string | number> = {
     REPO: c.repo, BASE: c.defaultBranch, TITLE: title, SHIP, ISSUE_SCRIPT,
     LABEL_READY: L.ready, LABEL_REVIEWED: L.reviewed, LABEL_SECURED: L.secured, LABEL_SECURITY: L.security, ROUND: round,
@@ -1056,17 +1059,20 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
   log(`working in ${wt.dir}${wt.resumed ? ' (resuming earlier work)' : ''}`, n);
 
   const keepOnStop = a.kind === 'impl'; // only an implementation worktree can hold unpushed work
-  const handBack = async (r: GoalResult, summary: string) => {
+  const handBack = async (r: GoalResult, summary: string, keep = keepOnStop) => {
     // not a failure of the issue: hand it back untouched
     await relabel(c.repo, n, [], [L.working]);
-    if (!keepOnStop) await removeWorktree(p.root, wt.dir);
+    if (!keep) await removeWorktree(p.root, wt.dir);
     const what = { aborted: 'stopped', limited: 'paused by usage limit', fatal: `stopped by a setup error (${r.last?.error?.slice(0, 200)})` }[r.stopReason as 'aborted'];
-    log(`${what} — released (${summary})${keepOnStop ? '; worktree kept' : ''}`, n);
+    log(`${what} — released (${summary})${keep ? '; worktree kept' : ''}`, n);
     return r;
   };
-  /** where: the comment's line on where an impl's work is (default: on its branch if it was pushed) */
-  const fail = async (r: GoalResult, reason: string, summary: string, where?: string) => {
-    await gh.comment(c.repo, n, `**hx:** ${a.kind} stopped — ${reason} (${summary}).\n\nLast reply:\n\n${(r.last?.text ?? '').slice(-1500).replace(/^/gm, '> ')}\n\n${a.kind === 'impl' ? where ?? `Work is on branch \`issue/${n}\` if it was pushed. ` : ''}Remove the \`${L.blocked}\` label to let hx try again.`).catch(() => {});
+  /**
+   * where: the comment's line on where an impl's work is (default: on its branch if it was pushed).
+   * `marker`: the comment's first line (a split that stopped partway: `<!-- hx-size split -->`, never sized again).
+   */
+  const fail = async (r: GoalResult, reason: string, summary: string, where?: string, marker?: string) => {
+    await gh.comment(c.repo, n, `${marker ? `${marker}\n` : ''}**hx:** ${a.kind} stopped — ${reason} (${summary}).\n\nLast reply:\n\n${(r.last?.text ?? '').slice(-1500).replace(/^/gm, '> ')}\n\n${a.kind === 'impl' ? where ?? `Work is on branch \`issue/${n}\` if it was pushed. ` : ''}Remove the \`${L.blocked}\` label to let hx try again.`).catch(() => {});
     const labelled = await relabel(c.repo, n, [L.blocked], [L.working]);
     if (!keepOnStop) await removeWorktree(p.root, wt.dir);
     log(`${a.kind} FAILED ✗ — ${reason} (${summary}); ${labelled ? `labelled ${L.blocked}` : `NOT labelled ${L.blocked}`}${keepOnStop ? ', worktree kept' : ''}`, n);
@@ -1136,6 +1142,55 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
     log(`asked the owner a question — labelled ${L.needsHuman} (${open + 1} of at most ${c.maxOpenQuestions} open; ${summary}); worktree kept`, n);
     return r;
   });
+
+  /**
+   * The up-front size check (PRD #300 §1), in the new impl worktree before the impl session: null = implement the
+   * issue now (it has a parent or a size marker by hx's login, it fits, or the check failed and counts as fits);
+   * otherwise the result of a split, a stop (no marker, the fresh worktree removed) or a split that stopped partway.
+   */
+  const sizeUpFront = async (login: string): Promise<GoalResult | null> => {
+    let body: string, own: string[];
+    try {
+      [body, own] = await Promise.all([gh.issueBody(c.repo, n), gh.commentBodies(c.repo, n, new Set([login.toLowerCase()]))]);
+    } catch (e: any) { log(`size check skipped: could not read the issue (${String(e?.message ?? e).slice(0, 200)})`, n); return null; }
+    if (parseParent(body, c.repo) || own.some((b) => [SIZE_FITS, SIZE_SPLIT, SIZE_NARROWED].some((m) => firstLineIs(m)(b)))) return null;
+    const sizePromise = `SIZE ${n} DONE`;
+    const r = await goal('decompose', wt.dir, 'size.md', sizePromise, { MODE: 'up-front' });
+    const summary = `size check: ${r.iterations} turn(s), ${fmt(totalTokens(r.usage))} tokens`;
+    if (stopped(r)) return handBack(r, summary, false);
+    const fits = async (failed?: string) => {
+      await gh.comment(c.repo, n, `${SIZE_FITS}
+**hx:** ${failed ? `size check failed (${failed}); treated as fits.` : 'sized: fits one session.'}`)
+        .catch((e) => log(`could not post the size marker: ${String(e?.message ?? e).slice(0, 200)}`, n));
+      log(failed ? `size #${n}: check failed (${failed}); treated as fits` : `size #${n}: fits`, n);
+      return null;
+    };
+    const reply = r.done ? parseSizeReply(r.last?.text ?? '', 'up-front', sizePromise) : null;
+    if (!reply) return fits(r.done ? 'the reply has no valid SIZE shape'
+      : r.stopReason === 'max-iterations' ? `no completion after ${r.iterations} turns` : `agent error: ${r.last?.error ?? 'unknown'}`);
+    if (reply.shape !== 'split') return fits();
+    // the dependents are read before anything is filed: failing here writes nothing, so it counts as a failed session
+    let dependents: { number: number; body: string }[];
+    try { dependents = await readDependents(c.repo, n, ctx.trusted); } catch (e: any) {
+      return fits(`reading the dependents failed: ${String(e?.message ?? e).slice(0, 200)}`);
+    }
+    const split = await fileSplit(c.repo, L.ready, reply.children, { parent: n, first: [], dependents });
+    const list = split.filed.map((k) => `#${k}`).join(', ');
+    // a write failed partway: nothing more is written, a person finishes or undoes the split (the marker stops a re-size)
+    const halt = (step: string, e: unknown) => fail(r, `the split stopped at ${step}: ${String((e as Error)?.message ?? e).slice(0, 300)}; filed ${list || 'none'}`, summary, undefined, SIZE_SPLIT);
+    if (split.failed) return halt(split.failed.step, split.failed.error);
+    try { await gh.comment(c.repo, n, `${SIZE_SPLIT}
+**hx:** split into ${list} — each about one session; the work continues there.`); } catch (e) { return halt('the split comment', e); }
+    try { await gh.closeIssue(c.repo, n, undefined, 'not planned'); } catch (e) { return halt(`closing #${n}`, e); }
+    await relabel(c.repo, n, [], [L.working]);
+    await removeWorktree(p.root, wt.dir);
+    log(`split #${n} → ${list}`, n);
+    return { ...r, done: true };
+  };
+  if (a.kind === 'impl' && c.sizeCheck && !wt.resumed && ctx.login && !implLabels.includes(L.bug) && !implLabels.includes(L.gateFix)) {
+    const sized = await sizeUpFront(ctx.login);
+    if (sized) return sized;
+  }
 
   // gauntlet: one round = a critic in a fresh checkout; on FAIL a reviser rewrites the PRD body
   if (a.kind === 'gauntlet') {

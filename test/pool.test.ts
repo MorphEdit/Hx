@@ -55,6 +55,7 @@ function setup() {
 
 test('pool drives the board to completion, respecting Blocked by', E2E, async () => {
   const p = setup();
+  p.config.sizeCheck = false; // exactly one comment: the failure's
   const lines: string[] = [];
   const orig = console.log;
   console.log = (m: string) => { lines.push(m); orig(m); };
