@@ -15,6 +15,7 @@ roadmap and the agreed order of the next features) before changing anything.
   `question.ts` needs-human: the `<!-- hx-question -->` question on an issue and the trusted owner's answer (pure) ·
   `held.ts` a held merge: the failing-test names in a test output, held or not against a red gate, `.hx/held.json` ·
   `bar.ts` the quality bar's pure round helpers: `.hx/bar/<prd>/` paths, the A/B `.mapping`, the judge reply, the `<!-- hx-bar round=N -->` markers, the gap issue body ·
+  `size.ts` the size session's pure helpers: its reply parsed (`SIZE: fits` / `split` / `narrow`, `=== CHILD k:` and `=== SCOPE` blocks), the `<!-- hx-size … -->` markers ·
   `selfupdate.ts` the self-update of `hx run --watch`: `.hx/selfupdate.json`, the code-path filter, the git / release check, the restart with its ready marker and rollback ·
   `outcomes.ts` run.log → outcome numbers · `timing.ts` test time: the test-command matcher, per-turn test time from stream-json events, the stats over usage.jsonl and gate-runs.jsonl · `doctor.ts` `hx doctor`: the prerequisite checks and their ✓ ✗ – ? marks (hx start's first step, hx run's startup gate) ·
   `supervise.ts` `hx supervise`: restarts a crashed `hx run --watch`, `.hx/supervise.json` · `service.ts` `hx service`: the logon task (schtasks XML) or the launchd / systemd unit ·
