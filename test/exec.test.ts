@@ -19,7 +19,8 @@ setTimeout(() => {}, 60e3);
   const poll = setInterval(() => { try { readFileSync(pidFile, 'utf8'); } catch { return; } clearInterval(poll); abortedAt = Date.now(); ac.abort(); }, 50);
   const r = await runShell('node tree.js', { cwd: tmp, timeoutMs: 60_000, signal: ac.signal }).finally(() => clearInterval(poll));
   assert.ok(abortedAt > 0, 'the command started');
-  assert.ok(Date.now() - abortedAt < 5000, `resolved ${Date.now() - abortedAt} ms after the abort`);
+  // a bound far below the 60 s grandchild, not a tight one: taskkill alone takes seconds on a loaded machine (#285)
+  assert.ok(Date.now() - abortedAt < 20_000, `resolved ${Date.now() - abortedAt} ms after the abort`);
   assert.equal(r.aborted, true);
   assert.equal(r.timedOut, false);
   assert.notEqual(r.code, 0);
@@ -50,7 +51,7 @@ test('runShell: a signal already aborted kills the command at once', E2E, async 
   const t0 = Date.now();
   const r = await runShell(`node -e "setTimeout(() => {}, 60e3)"`, { timeoutMs: 60_000, signal: AbortSignal.abort() });
   assert.equal(r.aborted, true);
-  assert.ok(Date.now() - t0 < 5000, `resolved in ${Date.now() - t0} ms`);
+  assert.ok(Date.now() - t0 < 20_000, `resolved in ${Date.now() - t0} ms, not after the 60 s sleeper`);
 });
 
 test('runShell: a signal already aborted starts nothing, so no taskkill is waited on', async () => {

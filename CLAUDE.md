@@ -50,6 +50,14 @@ roadmap and the agreed order of the next features) before changing anything.
   question first. Agents read issues only through `scripts/issue.mjs` (never `gh issue view --comments`);
   only issues opened by trusted accounts (the `gh` login + `trustedAuthors`) are claimed.
 
+## Testing
+- No test asserts a tight wall-clock upper bound: the gate runs `npm test` beside busy workers, and a missed
+  timing bound turns `main` red for nothing (#285). In order of preference: (1) assert the order of events, not
+  the time between them (a fake that records calls, a promise that resolves only if the code waits on it);
+  (2) inject the clock or the delay and check the computed value; (3) where a real-time bound is the point, make
+  it at least 10× the expected time and far below what must not be waited for (`< 20_000` against a 60 s sleeper).
+  Lower bounds (`>= N`) are fine when both ends are measured at the right event.
+
 ## Next up
 The auditor (#1), the CI gate (#4), the grill session (#2, `hx grill`), the gauntlet (#3: a critic →
 reviser loop before decompose, a security pass before a PRD closes), rtdd (#5, #34: skills per role via
