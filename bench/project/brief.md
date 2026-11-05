@@ -56,14 +56,18 @@ Durations are shown as `h:mm`: 75 minutes is `1:15`, 600 is `10:00`, 0 is `0:00`
 - `tally report day [YYYY-MM-DD]` (default: the day of now), `tally report week [YYYY-MM-DD]` (the
   Monday-to-Sunday week holding that day, default now's week) and `tally report project` (all time).
 - `tally overlaps` lists entries whose times overlap, one pair per line by line number, smaller first, pairs
-  in order: `line 3 overlaps line 5`. Touching (one ends when the next starts) is not an overlap. With none
-  it prints `no overlaps`. Exit 0 either way.
+  in order: `line 3 overlaps line 5`. Touching (one ends when the next starts) is not an overlap; an entry
+  inside another one is. A running entry runs up to now here too. With none it prints `no overlaps`. Exit 0
+  either way.
 - `tally csv` prints every finished entry, in log order, as CSV (the running entry is left out).
+- `report`, `overlaps` and `csv` only read: they never change the log.
 
 ## Reports and rounding
 A running entry counts up to now. An entry that crosses midnight counts on each day for the part on that
 day. Each report row is rounded on its own to the nearest quarter hour: 7 minutes past a quarter or less
-rounds down, 8 or more rounds up (1:07 → 1:00, 1:08 → 1:15, 0:05 → 0:00). The total is the sum of the
+rounds down, 8 or more rounds up (1:07 → 1:00, 1:08 → 1:15, 0:05 → 0:00, 0:52 → 0:45, 0:53 → 1:00);
+whole quarter hours stay as they are. A row is the whole time of that project (or day) in the report, rounded
+once: two 4-minute entries of one project make one row of 8 minutes, which rounds to `0:15`. The total is the sum of the
 rounded rows. Projects sort by name, days by date; a row that rounds to `0:00` is still shown; a day or
 project with no time at all is not.
 
@@ -78,8 +82,9 @@ at all a report is just its header (if any) and `total 0:00`.
 
 ## CSV
 Header row `project,start,end,minutes,note`, then one row per entry; `minutes` is the exact, unrounded
-duration. A field that contains a comma or a double quote is wrapped in double quotes, with each double
-quote inside doubled; other fields are written as they are. Every row ends with `\n`.
+duration. A field that contains a comma, a double quote or a line break is wrapped in double quotes, with each
+double quote inside doubled; other fields are written as they are (spaces and other punctuation included).
+Every row ends with `\n`. With no finished entries the CSV is just the header row.
 
     project,start,end,minutes,note
     acme,2024-03-04T09:00,2024-03-04T10:15,75,"fixed login, again"
