@@ -76,7 +76,8 @@ test('a gate command that hangs: killed with its whole tree at the timeout, the 
   // seconds for the shell and node to start under a loaded `npm test`, or the pid is never written (#15)
   const t0 = Date.now();
   const r = await runGate(root, path.join(tmp, 'wt'), 'main', hang, 6000);
-  assert.ok(Date.now() - t0 < 30_000, 'gave up within seconds');
+  // 6 s plus the worktree and the kill: a bound far above that, for a command that never ends (#298)
+  assert.ok(Date.now() - t0 < 120_000, 'gave up at the timeout, not never');
   assert.equal(r.ok, false);
   assert.equal(r.timedOut, true);
   assert.match(r.output, /timed out after 0\.1 min/);

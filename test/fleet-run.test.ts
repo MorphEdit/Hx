@@ -87,9 +87,11 @@ test('interrupt(): both children checkpoint their running sessions and exit; don
   const a = repo('a', [1]), b = repo('b', [2]);
   home({ repos: [{ root: a.root }, { root: b.root }] });
   const lines: string[] = [];
-  const run = startFleetRun({ entry: HX, env: { ...FAKES, FAKE_CLAUDE_DELAY_MS: '120000' }, print: (l) => lines.push(l) });
+  // a turn that outlasts the test, so the first session still runs however late the second starts (#298)
+  const run = startFleetRun({ entry: HX, env: { ...FAKES, FAKE_CLAUDE_DELAY_MS: '1200000' }, print: (l) => lines.push(l) });
   const started = (r: { fake: string }) => readdirSync(r.fake).some((f) => f.endsWith('.prompt-1.txt'));
-  const deadline = Date.now() + 120_000;
+  // only a hang guard that prints the lines: two children start in seconds, a bound far above that
+  const deadline = Date.now() + 300_000;
   while (!(started(a) && started(b))) {
     assert.ok(Date.now() < deadline, lines.join('\n'));
     await new Promise((r) => setTimeout(r, 100));

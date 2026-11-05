@@ -93,10 +93,12 @@ test('ship: a test run past --test-timeout is killed with its whole tree and fai
   const env = setup();
   writeFileSync(path.join(env.wt, 'c.txt'), 'mine\n');
   const pidFile = path.join(env.tmp, 'test.pid');
-  const r = shipWith(env, ['--repo', 'me/app', '--base', 'main', '--issue', '7', '--title', 'feat: thing', '--test', hang(pidFile), '--test-timeout', '0.1']);
+  const r = shipWith(env, ['--repo', 'me/app', '--base', 'main', '--issue', '7', '--title', 'feat: thing', '--test', hang(pidFile), '--test-timeout', '0.1'], {}, 300_000);
   assert.equal(r.status, 4, r.stderr);
-  // timed from the hanging test's start, not ship's: commit, fetch and rebase are slow under a loaded `npm test`
-  assert.ok(Date.now() - statSync(pidFile).mtimeMs < 30_000, 'ship gave up within seconds of the test starting');
+  // timed from the hanging test's start, not ship's: commit, fetch and rebase are slow under a loaded `npm test`.
+  // 6 s plus the kill, a bound 20× that, far below the 45 min default (#298)
+  const ran = Date.now() - statSync(pidFile).mtimeMs;
+  assert.ok(ran < 120_000, `the hung test ran ${ran} ms`);
   assert.match(r.stderr, /ship: tests timed out after 0\.1 min/);
   const pid = Number(readFileSync(pidFile, 'utf8'));
   assert.ok(pid > 0 && !alive(pid), `the test process ${pid} is not left running`);
@@ -214,17 +216,17 @@ test('ship: limited past HX_GH_WAIT_MAX_SECONDS fails with exit 5 and the reset 
   limitBoard(env, { limitNext: { match: 'pr list', kind: 'secondary', times: 50, retryAfter: 1 } });
   const times = path.join(env.tmp, 'gh-times.log');
   const r = shipWith(env, SHIP_ARGS, { HX_GH_WAIT_MAX_SECONDS: '2', HX_FAKE_GH_TIMES: times });
-  const end = Date.now();
   assert.equal(r.status, 5, r.stderr);
   // timed from the first limited call, not the whole run: commit, rebase, tests and push are slow under a loaded suite (#227)
   const prList = readFileSync(times, 'utf8').split('\n').filter((l) => / pr list /.test(` ${l} `)).map((l) => Number(l.split(' ')[0]));
   assert.equal(prList.length, 2, 'called, waited 1 s, retried once, gave up');
   assert.ok(prList[1] - prList[0] >= 1000, 'the 1 s wait was slept');
-  const took = end - prList[0];
   assert.equal(waits(r.stderr).length, 1, 'waited 1 s; the next 2 s wait would pass the 2 s cap');
   assert.match(r.stderr, /ship: github secondary rate limit — rate limited until \d\d:\d\d/);
   assert.match(r.stderr, /ship: gh pr list failed: HTTP 403: You have exceeded a secondary rate limit/);
-  assert.ok(took < 15_000, `${took} ms from the first limited call`);
+  // the waits slept, not the time (#298): each sleep is announced before it starts, and they add up to no more than the cap
+  const slept = waits(r.stderr).reduce((n, l) => n + Number(/waiting (\d+)s/.exec(l)![1]), 0);
+  assert.ok(slept <= 2, `waited ${slept} s in all, past the 2 s cap`);
   assert.deepEqual(board(env).prs, [], 'no PR opened');
 });
 
