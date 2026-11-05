@@ -63,8 +63,17 @@ export function killTree(pid: number | undefined, sync = false, onKilled?: () =>
 
 export interface Proc { pid: number; ppid: number; cmd: string }
 
-/** Every process this user can see, with its parent and command line: Win32_Process on Windows, ps elsewhere. */
-export async function listProcesses(): Promise<Proc[]> {
+/** Every process this user can see, with its parent and command line: Win32_Process on Windows, ps elsewhere. A
+ *  query that fails or lists nothing (WMI busy on a loaded machine) is tried again, up to three times. */
+export async function listProcesses(tries = 3): Promise<Proc[]> {
+  for (let i = 0; i < tries; i++) {
+    const procs = await queryProcesses();
+    if (procs.length) return procs;
+  }
+  return [];
+}
+
+async function queryProcesses(): Promise<Proc[]> {
   if (process.platform === 'win32') {
     const r = await run('powershell', ['-NoProfile', '-NonInteractive', '-Command',
       'Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,CommandLine | ConvertTo-Json -Compress']);
