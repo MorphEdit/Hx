@@ -4,7 +4,7 @@ import { E2E, pooled } from './isolate.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -43,8 +43,10 @@ const issue = (n: number) => read().issues.find((i: any) => i.number === n);
 const commentsOn = (n: number) => read().comments.filter((c: any) => c.issue === n).map((c: any) => c.body);
 const openQuestionCount = () => read().issues.filter((i: any) => i.state === 'OPEN' && i.labels.includes(L.needsHuman)).length;
 const prd = (n: number, body: string) => ({ number: n, title: `feature ${n}`, body, state: 'OPEN', labels: [L.prd] });
-const decomposePrompt = () => readdirSync(fakeDir).filter((f) => /\.prompt-1\.txt$/.test(f))
-  .map((f) => readFileSync(path.join(fakeDir, f), 'utf8')).filter((t) => /^Role: decompose/.test(t)).at(-1) ?? '';
+// the newest decompose prompt (this test's): file names are session ids, so order by time
+const decomposePrompt = () => readdirSync(fakeDir).filter((f) => /\.prompt-1\.txt$/.test(f)).map((f) => path.join(fakeDir, f))
+  .sort((a, b) => statSync(a).mtimeMs - statSync(b).mtimeMs)
+  .map((f) => readFileSync(f, 'utf8')).filter((t) => /^Role: decompose/.test(t)).at(-1) ?? '';
 
 async function run(extra = {}) {
   const lines: string[] = [];
