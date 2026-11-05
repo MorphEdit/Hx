@@ -28,6 +28,7 @@ import { BAR_JUDGE_PROMISE, BAR_PROMISE, barCapComment, barLine, barMarker, barR
 import { parseQualityBar } from './prd.ts';
 import { cappedQuestion, cappedQuestionNote, IMPL_TOO_MANY_QUESTIONS, ownerAnswer, ownerAnswerNote, questionFromReply, TOO_MANY_QUESTIONS } from './question.ts';
 import { HELD_STATUS, heldComment, mergeFailure, readHeld, setHeld } from './held.ts';
+import { decideTarget, initialTarget, loadReading, mayClaim, startSampler, type LoadReading, type LoadSnapshot } from './load.ts';
 import { addBlockers, narrowedBody, narrowedComment, parseSizeReply, SIZE_FITS, SIZE_NARROWED, SIZE_SPLIT, withTrailers, type SizeChild } from './size.ts';
 import { appendSkills, resolveSkills, rtddCheck, rtddEnv, SKILL_CHECKS, skillNames, skillsLogLine, type Skill } from './skills.ts';
 
@@ -72,6 +73,10 @@ export interface PoolOptions {
   dryRun: boolean;
   only?: number[]; // issue or PRD numbers
   signal: AbortSignal;
+  // test-only (autoWorkers): the pass's load reading instead of the os sampler (which is then not started), and the
+  // decision clock (default Date.now)
+  loadReader?: () => LoadReading | null;
+  loadClock?: () => number;
 }
 
 /** Where `hx run` keeps its log: `<stateDir>/run.log` (one old file, `run.log.1`). */
@@ -357,6 +362,26 @@ async function pool(p: Project, o: PoolOptions): Promise<number> {
   const live: LiveState = { pid: process.pid, startedAt: new Date().toISOString(), repo: c.repo, workers: o.workers, sessions: [], skills: skillNames(skills.byRole), models };
   let handedOff = false; // a self-update's new runner may own live.json now: this one writes it no more
   const save = () => { if (!handedOff) try { writeLive(p.stateDir, live); } catch {} };
+  // autoWorkers (PRD #315): o.workers is the ceiling; the target follows the load, decided once per board read.
+  // HX_AUTO_WORKERS=0 forces it off (the tests set it, so the machine's load never changes their claims)
+  const auto = c.autoWorkers && process.env.HX_AUTO_WORKERS !== '0';
+  const loadClock = o.loadClock ?? Date.now;
+  const snapshots: LoadSnapshot[] = [];
+  let targetState = initialTarget(o.workers, loadClock());
+  if (auto) live.autoWorkers = { target: targetState.target };
+  const decideWorkers = () => {
+    const now = loadClock();
+    const r = o.loadReader ? o.loadReader() : loadReading(snapshots, now);
+    const d = decideTarget(targetState, r, now, { ceiling: o.workers, minWorkers: c.minWorkers, loadHighPct: c.loadHighPct,
+      loadLowPct: c.loadLowPct, minFreeMemGB: c.minFreeMemGB, scaleUpMinutes: c.scaleUpMinutes });
+    targetState = d.state;
+    if (d.line) log(d.line);
+    const next = { target: targetState.target, ...(r ? { cpuPct: Math.round(r.cpuPct), freeMemGB: Math.round(r.freeMemGB * 10) / 10 } : {}) };
+    const prev = live.autoWorkers;
+    if (!prev || prev.target !== next.target || (r && (prev.cpuPct !== next.cpuPct || prev.freeMemGB !== next.freeMemGB))) {
+      live.autoWorkers = { ...prev, ...next }; save();
+    }
+  };
   // HX_FLEET_DIR: every session also holds one of HX_FLEET_WORKERS file slots shared with the other runners
   const fleetDir = process.env.HX_FLEET_DIR || undefined;
   const fleetCap = Number(process.env.HX_FLEET_WORKERS) || DEFAULT_FLEET_WORKERS;
@@ -775,6 +800,8 @@ async function pool(p: Project, o: PoolOptions): Promise<number> {
   };
   try { watchFile(wakeFile, { interval: 2000, persistent: false }, onWake); } catch {}
 
+  // the os sampler: a snapshot now and every 5 s (unref'd), stopped in the finally below
+  const sampler = auto && !o.loadReader ? startSampler(snapshots, loadClock) : null;
   log(`hx pool up — ${c.repo} · ${o.workers} worker(s) · model ${c.model}${c.effort ? ` (${c.effort} effort)` : ''} · max ${c.maxIterations} iterations/session`);
   try {
     while (!stop.signal.aborted && !fatal) {
@@ -793,6 +820,7 @@ async function pool(p: Project, o: PoolOptions): Promise<number> {
       let slotBlocked = false; // no fleet slot free: no more sessions this pass, look again within 5 s
       let budgetBlocked = false; // the budget gate skipped an action: wait for a reading or a reset instead of finishing
       if (!held && !live.draining) {
+        if (auto) decideWorkers(); // one reading per board read, before this pass's claims
         try {
           let pl = await readPlan(p, trusted, new Set(inFlight.keys()));
           // an owner's answer turns a needs-human issue ready: read the board again so it can be claimed now
@@ -822,7 +850,10 @@ async function pool(p: Project, o: PoolOptions): Promise<number> {
         sharedGithubHold();
         if (stop.signal.aborted || fatal || live.draining || Date.now() < (live.pausedUntil ?? 0) || githubLowNow()) break; // fatal may land during readPlan
         if (a.kind === 'close-prd' || a.kind === 'label-ready') { await engineStep(p, a).then(() => { if (a.kind === 'close-prd') void releaseCheck(); }).catch((e) => log(`${a.kind} failed: ${e.message}`, target(a))); continue; }
-        if (inFlight.size >= o.workers || slotBlocked) continue; // engine steps further down still run
+        // autoWorkers: below the target counting a running gate as one, or below the floor; else a fixed count
+        const full = auto ? !mayClaim({ sessions: inFlight.size, gateRunning: gateRunning !== null, target: targetState.target, minWorkers: c.minWorkers, ceiling: o.workers })
+          : inFlight.size >= o.workers;
+        if (full || slotBlocked) continue; // engine steps further down still run
         const slot = fleetDir ? acquireSlot(fleetDir, fleetCap, { pid: process.pid, repo: c.repo, issue: target(a) }) : null;
         if (fleetDir && slot === null) { slotBlocked = true; continue; }
         idleLogged = false;
@@ -891,6 +922,7 @@ async function pool(p: Project, o: PoolOptions): Promise<number> {
     }
   } finally {
     clearInterval(watcher);
+    if (sampler) clearInterval(sampler);
     unwatchFile(wakeFile, onWake);
     clearLive(p.stateDir, process.pid);
   }

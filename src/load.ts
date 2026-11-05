@@ -77,3 +77,19 @@ export function decideTarget(s: TargetState, r: LoadReading | null, now: number,
 export function mayClaim(o: { sessions: number; gateRunning: boolean; target: number; minWorkers: number; ceiling: number }): boolean {
   return o.sessions + (o.gateRunning ? 1 : 0) < o.target || o.sessions < Math.min(o.minWorkers, o.ceiling);
 }
+
+/** The snapshots a reading at `now` still needs: those in the last 60 s, and the one before them (the start of the first
+ *  interval in the window). Older ones are dropped in place. */
+export function keepWindow(snapshots: LoadSnapshot[], now: number): void {
+  while (snapshots.length > 1 && snapshots[1].at < now - WINDOW_MS) snapshots.shift();
+}
+
+/** Samples this machine into `snapshots` now and every `everyMs` after, on an unref'd timer (it never keeps the process
+ *  alive). Only stores: no threshold, no target. The caller stops it with clearInterval. */
+export function startSampler(snapshots: LoadSnapshot[], clock: () => number = Date.now, everyMs = 5000, sample = sampleLoad): ReturnType<typeof setInterval> {
+  const take = () => { const now = clock(); snapshots.push(sample(now)); keepWindow(snapshots, now); };
+  take();
+  const t = setInterval(take, everyMs);
+  t.unref();
+  return t;
+}

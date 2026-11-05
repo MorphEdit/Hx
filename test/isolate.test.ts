@@ -16,11 +16,12 @@ test('isolate: HX_* / FAKE_* / GIT_DIR from the caller are dropped, HX_HOME is a
     env: { ...process.env, HX_GH_BIN: 'real-gh', HX_SHIP_TEST_TIMEOUT_MS: '1', FAKE_CLAUDE_DELAY_MS: '99999', HX_HOME: 'C:/real-home', GIT_DIR: 'C:/elsewhere/.git' } });
   assert.equal(r.status, 0, r.stderr);
   const env = JSON.parse(r.stdout);
-  assert.deepEqual(Object.keys(env).filter((k) => /^(HX_|FAKE_)/.test(k)), ['FAKE_SCHTASKS_LOG', 'HX_GH_INPROC', 'HX_HOME', 'HX_SCHTASKS_BIN', 'HX_SHARE_CONSOLE']);
+  assert.deepEqual(Object.keys(env).filter((k) => /^(HX_|FAKE_)/.test(k)), ['FAKE_SCHTASKS_LOG', 'HX_AUTO_WORKERS', 'HX_GH_INPROC', 'HX_HOME', 'HX_SCHTASKS_BIN', 'HX_SHARE_CONSOLE']);
   assert.equal(env.HX_SCHTASKS_BIN, path.join(here, 'fakes', 'schtasks.mjs'), 'no test reaches the real Task Scheduler');
   assert.ok(env.FAKE_SCHTASKS_LOG.startsWith(os.tmpdir()), env.FAKE_SCHTASKS_LOG);
   assert.equal(env.HX_GH_INPROC, path.join(here, 'fakes', 'gh.mjs'), 'the fake gh answers in-process');
   assert.equal(env.HX_SHARE_CONSOLE, '1');
+  assert.equal(env.HX_AUTO_WORKERS, '0', 'autoWorkers off: the real load never changes the claims of a test');
   assert.ok(env.NODE_COMPILE_CACHE);
   assert.ok(env.HX_HOME.startsWith(os.tmpdir()) && readdirSync(env.HX_HOME).length === 0, env.HX_HOME);
   assert.equal(env.GIT_DIR, undefined);

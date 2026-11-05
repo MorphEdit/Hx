@@ -50,6 +50,8 @@
 // FAKE_CLAUDE_TESTS=1: every reply first runs two timestamped test commands (`npm test` passes, `node --test` ends `Exit code 1`)
 // and one non-test command (`cat test/x.ts`).
 // FAKE_CLAUDE_ORPHAN=<file>: an implement session's first turn leaves an orphaned 60 s sleeper (its pid in <file>).
+// FAKE_CLAUDE_HOLD=<file>: an implement turn (not a checkpoint) of an issue whose body says HOLD writes HX_FAKE_DIR/held-<n>,
+// then waits (polling every 50 ms) until <file> exists: the session runs until the test releases it.
 // FAKE_CLAUDE_START_MS delays the stall mode's start, as a slow node startup on a loaded machine does.
 import { spawn, spawnSync } from 'node:child_process';
 import { appendFileSync, existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -171,7 +173,12 @@ process.stdin.on('data', (d) => (prompt += d)).on('end', () => {
         resetsAt: Number(r || 4102444800), rateLimitType: w || 'five_hour' } });
     }
   // FAKE_CLAUDE_DELAY_MS: a slow turn, so a test can pause or stop the run mid-session
-  setTimeout(() => finish(st, checkpoint, prompt), checkpoint ? 0 : Number(process.env.FAKE_CLAUDE_DELAY_MS ?? 0));
+  const go = () => setTimeout(() => finish(st, checkpoint, prompt), checkpoint ? 0 : Number(process.env.FAKE_CLAUDE_DELAY_MS ?? 0));
+  const hold = process.env.FAKE_CLAUDE_HOLD;
+  if (hold && st.role === 'implement' && !checkpoint && /HOLD/.test(loadBoard().issues.find((i) => i.number === st.n)?.body ?? '')) {
+    writeFileSync(path.join(process.env.HX_FAKE_DIR, `held-${st.n}`), '');
+    const t = setInterval(() => { if (existsSync(hold)) { clearInterval(t); go(); } }, 50);
+  } else go();
 });
 
 /** narrate: text blocks (each with a Bash call) before the final message, as a real turn has them */
