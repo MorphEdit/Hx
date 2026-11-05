@@ -1,0 +1,12 @@
+{
+  "name": "tally",
+  "version": "0.0.1",
+  "description": "Track time on projects from the command line",
+  "type": "module",
+  "main": "src/tally.js",
+  "bin": { "tally": "bin/tally.js" },
+  "scripts": {
+    "test": "node --test"
+  },
+  "license": "MIT"
+}
