@@ -25,7 +25,7 @@ test at a.test.mjs:2:1
 ✖ X works (0.5886ms)
   Error: a`;
 
-test('failingTests: node spec and TAP, jest, pytest and go; no duplicates, the summary heading and TODO / SKIP left out', () => {
+test('failingTests: node spec and TAP, jest, pytest and go; no duplicates, the summary heading and TODO / SKIP left out', E2E, () => {
   assert.deepEqual(failingTests(SPEC), ['X works']);
   assert.deepEqual(failingTests('TAP version 13\n# Subtest: a\nnot ok 1 - a\n    not ok 1 - inner one\nok 2 - b\nnot ok 3 - c # TODO later\nnot ok 4 - d # SKIP'), ['a', 'inner one']);
   assert.deepEqual(failingTests('  ✕ adds (5 ms)\n  ✓ subtracts (1 ms)'), ['adds']);
@@ -36,7 +36,7 @@ test('failingTests: node spec and TAP, jest, pytest and go; no duplicates, the s
 
 const red = (output: string) => ({ sha: 'abc', ok: false, command: 'npm test', output, at: '2026-11-05T00:00:00Z' });
 
-test('mergeFailure: held only when the gate is red and every failing test also fails on main', () => {
+test('mergeFailure: held only when the gate is red and every failing test also fails on main', E2E, () => {
   assert.deepEqual(mergeFailure('ship: tests failed\n✖ X works (1ms)', red(SPEC)), { held: true });
   assert.deepEqual(mergeFailure('not ok 1 - X works\nnot ok 2 - Y', red(SPEC)), { held: false, notOnMain: ['Y'] });
   assert.deepEqual(mergeFailure('not ok 1 - Y', red(SPEC)), { held: false, notOnMain: ['Y'] });
@@ -47,7 +47,7 @@ test('mergeFailure: held only when the gate is red and every failing test also f
   assert.deepEqual(mergeFailure('✖ X works (1ms)', { ...red(SPEC), setupFailed: true }), { held: false, notOnMain: [] }, 'a setup failure names no test');
 });
 
-test('.hx/held.json: set, read and cleared; an unreadable file reads as none', () => {
+test('.hx/held.json: set, read and cleared; an unreadable file reads as none', E2E, () => {
   const dir = path.join(tmp, 'state');
   mkdirSync(dir);
   assert.deepEqual(readHeld(dir), {});
@@ -60,7 +60,7 @@ test('.hx/held.json: set, read and cleared; an unreadable file reads as none', (
   assert.deepEqual(readHeld(dir), {});
 });
 
-test('the held comment starts with its marker and names the gate-fix issue', () => {
+test('the held comment starts with its marker and names the gate-fix issue', E2E, () => {
   const b = heldComment('main', 288, 277);
   assert.ok(b.startsWith(`${HELD_MARKER}\n`));
   assert.match(b, /held: main is red \(#288\); merges once main is green/);
