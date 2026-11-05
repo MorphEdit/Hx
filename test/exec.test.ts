@@ -53,6 +53,14 @@ test('runShell: a signal already aborted kills the command at once', E2E, async 
   assert.ok(Date.now() - t0 < 5000, `resolved in ${Date.now() - t0} ms`);
 });
 
+test('runShell: a signal already aborted starts nothing, so no taskkill is waited on', async () => {
+  const r = await runShell(`node -e "setTimeout(() => {}, 60e3)"`, { timeoutMs: 60_000, signal: AbortSignal.abort() });
+  assert.equal(r.aborted, true);
+  assert.equal(r.code, 130);
+  assert.equal(r.pid, undefined, 'no process was spawned');
+  await r.killed;
+});
+
 test('runShell: without an abort the result has no aborted flag', E2E, async () => {
   const r = await runShell(`node -e "process.exit(3)"`, { timeoutMs: 60_000, signal: new AbortController().signal });
   assert.equal(r.code, 3);

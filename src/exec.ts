@@ -74,6 +74,8 @@ export interface ShellResult {
  *  and `timedOut` / `aborted` is set. An abort settles once the tree is gone; with `killLater` it settles at
  *  once and `killed` is that wait (taskkill alone takes seconds on a loaded Windows machine). */
 export function runShell(command: string, opts: { cwd?: string; timeoutMs: number; signal?: AbortSignal; killLater?: boolean }): Promise<ShellResult> {
+  // already aborted: nothing to start, so nothing to kill (a taskkill under load would take seconds)
+  if (opts.signal?.aborted) return Promise.resolve({ code: 130, output: '', timedOut: false, aborted: true, killed: Promise.resolve() });
   return new Promise((resolve) => {
     const child = spawn(command, [], { cwd: opts.cwd, shell: true, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'],
       detached: process.platform !== 'win32' }); // its own process group, so the tree can be killed elsewhere
@@ -103,8 +105,7 @@ export function runShell(command: string, opts: { cwd?: string; timeoutMs: numbe
       });
       if (opts.killLater) done(130); else killed.then(() => done(130));
     };
-    if (opts.signal?.aborted) onAbort();
-    else opts.signal?.addEventListener('abort', onAbort, { once: true });
+    opts.signal?.addEventListener('abort', onAbort, { once: true });
     child.on('error', (e) => { err += String(e.message); done(1); });
     child.on('close', (code) => done(code ?? 1));
   });
