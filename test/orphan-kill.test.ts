@@ -47,7 +47,7 @@ const sleeper = (arg: string): number => {
 };
 const reap = (pid: number) => { try { process.kill(pid); } catch {} };
 
-test('namesDir: a path inside the directory, in either slash form; never a sibling with the same prefix', () => {
+test('namesDir: a path inside the directory, in either slash form; never a sibling with the same prefix', E2E, () => {
   const d = path.join(tmp, 'wt', 'i28');
   assert.ok(namesDir(`node ${path.join(d, 'bin', 'hx.mjs')} run`, d));
   assert.ok(namesDir(`node --test "${d.replace(/\\/g, '/')}/test/a.test.ts"`, d));
@@ -58,7 +58,7 @@ test('namesDir: a path inside the directory, in either slash form; never a sibli
   if (process.platform === 'win32') assert.ok(namesDir(`node ${d.toUpperCase()}\\x.js`, d), 'case-insensitive on Windows');
 });
 
-test('procsInDir: never the runner itself or one of its ancestors', () => {
+test('procsInDir: never the runner itself or one of its ancestors', E2E, () => {
   const d = path.join(tmp, 'wt', 'i1');
   const cmd = `node ${path.join(d, 'x.js')}`;
   const procs = [
