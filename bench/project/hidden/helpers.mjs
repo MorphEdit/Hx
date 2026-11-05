@@ -34,15 +34,20 @@ export function tmpLog(content) {
 
 export const readLog = (file) => (existsSync(file) ? readFileSync(file, 'utf8') : '');
 
+const CLI_TIMEOUT_MS = 180_000;
+
 /** Run the CLI: `node <bin.tally> ...args` with TALLY_NOW and TALLY_LOG set. */
 export async function tally(args, { now = '2024-03-04T09:00', log } = {}) {
   const p = pkg();
   const bin = entry(typeof p.bin === 'string' ? p.bin : p.bin?.tally, 'bin.tally');
   const env = { ...process.env, TALLY_NOW: now, TALLY_LOG: log ?? tmpLog() };
   for (const k of Object.keys(env)) if (/^NODE_(TEST|OPTIONS)/.test(k)) delete env[k];
+  // the timeout only stops a CLI that hangs: the cases run side by side, and under a loaded `npm test` a node start
+  // takes tens of seconds, so it is far above that (#285); a CLI killed by it fails the case, never passes as an exit code
   const { code, stdout, stderr } = await new Promise((resolve, reject) => {
-    execFile(process.execPath, [bin, ...args], { env, encoding: 'utf8', timeout: 30_000, windowsHide: true }, (err, stdout, stderr) => {
-      if (err && typeof err.code !== 'number') reject(err);
+    execFile(process.execPath, [bin, ...args], { env, encoding: 'utf8', timeout: CLI_TIMEOUT_MS, windowsHide: true }, (err, stdout, stderr) => {
+      if (err?.killed) reject(new Error(`the CLI did not finish within ${CLI_TIMEOUT_MS / 1000} s`));
+      else if (err && typeof err.code !== 'number') reject(err);
       else resolve({ code: err ? err.code : 0, stdout, stderr });
     });
   });

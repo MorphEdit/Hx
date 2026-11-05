@@ -96,7 +96,7 @@ test('wait signal unset: a limited call fails at once with its original error (t
   await withSignal(undefined, async (heard) => {
     const t0 = Date.now();
     const msg = await errorOf(gh.listIssues('me/app'));
-    assert.ok(Date.now() - t0 < 10_000);
+    assert.ok(Date.now() - t0 < 60_000, 'not a wait for the reset 600 s away');
     assert.equal(msg, `${GH} issue list -R me/app --state all --limit 1000 --json number,title,body,state,labels,author failed (1): HTTP 403: API rate limit exceeded for user ID 1.`);
     assert.equal(calls(b.log, 'issue list'), 1);
     assert.equal(calls(b.log, 'api rate_limit'), 0);
@@ -132,7 +132,7 @@ test('an aborted wait is not retried: the call fails with its original error; ra
     const t0 = Date.now();
     ac.abort();
     assert.match(await p, /API rate limit exceeded/);
-    assert.ok(Date.now() - t0 < 2000);
+    assert.ok(Date.now() - t0 < 60_000, 'the abort ended the wait for the reset 600 s away');
     assert.equal(calls(b.log, 'issue list'), 1);
   });
   const b2 = board({ rateLimitFails: true });

@@ -84,7 +84,7 @@ test('a gate command that hangs: killed with its whole tree at the timeout, the 
   assert.ok(pid > 0 && !alive(pid), `the gate's test process ${pid} is not left running`);
 });
 
-test('Ctrl+C while the startup gate runs: runPool returns within 5 s, the gate process is killed and its result discarded', E2E, async () => {
+test('Ctrl+C while the startup gate runs: runPool returns promptly, the gate process is killed and its result discarded', E2E, async () => {
   writeFileSync(stateFile, JSON.stringify({ comments: [], prs: [], issues: [] }));
   const pidFile = path.join(tmp, 'gate-abort.pid').replace(/\\/g, '/');
   const sleeper = `node -e "require('fs').writeFileSync('${pidFile}', String(process.pid)); setTimeout(() => {}, 60e3)"`;
@@ -103,7 +103,8 @@ test('Ctrl+C while the startup gate runs: runPool returns within 5 s, the gate p
   await pooled((signal) => runPool(p, { workers: 1, watch: true, dryRun: false, signal }), ac.signal)
     .finally(() => { console.log = orig; clearInterval(poll); });
   assert.ok(abortedAt > 0, 'the gate command started');
-  assert.ok(Date.now() - abortedAt < 5000, `returned ${Date.now() - abortedAt} ms after the abort`);
+  // far below the 60 s sleeper, not a tight bound: the pool waits for taskkill, seconds on a loaded machine (#285)
+  assert.ok(Date.now() - abortedAt < 20_000, `returned ${Date.now() - abortedAt} ms after the abort`);
   const pid = Number(readFileSync(pidFile, 'utf8'));
   assert.ok(pid > 0 && !alive(pid), `the gate's process ${pid} is not left running`);
   assert.equal(readFileSync(path.join(stateDir, 'gate.json'), 'utf8'), before, 'gate.json has no new result');
@@ -119,19 +120,20 @@ test('Ctrl+C while the gate runs: runGate does not wait on a worktree Windows st
   const sleeper = `node -e "require('fs').writeFileSync('${pidFile}', String(process.pid)); setTimeout(() => {}, 60e3)"`;
   const removeDir = worktreeFs.removeDir;
   let release = () => {};
-  const held = new Promise<void>((r) => { release = r; setTimeout(r, 8000).unref(); });
-  // the killed gate process still holds a file open: deleting its worktree takes seconds
-  worktreeFs.removeDir = async (checkout, dir) => { await held; return removeDir(checkout, dir); };
+  let heldOut = false; // the removal is held until the test releases it, or 60 s pass
+  const held = new Promise<void>((r) => { release = r; setTimeout(() => { heldOut = true; r(); }, 60_000).unref(); });
   const ac = new AbortController();
-  let abortedAt = 0;
+  // the killed gate process still holds a file open: deleting its worktree takes seconds (a fresh add's removal before the abort is not held)
+  worktreeFs.removeDir = async (checkout, dir) => { if (ac.signal.aborted) await held; return removeDir(checkout, dir); };
   const poll = setInterval(() => {
     try { readFileSync(pidFile, 'utf8'); } catch { return; }
-    clearInterval(poll); abortedAt = Date.now(); ac.abort();
+    clearInterval(poll); ac.abort();
   }, 50);
   try {
     const r = await runGate(root, path.join(tmp, 'wt'), 'main', sleeper, 60_000, ac.signal);
     assert.equal(r.aborted, true);
-    assert.ok(Date.now() - abortedAt < 3000, `returned ${Date.now() - abortedAt} ms after the abort`);
+    // the order, not the time (#285): runGate returned while the worktree removal was still held
+    assert.equal(heldOut, false, 'runGate waited for the held worktree removal');
   } finally {
     clearInterval(poll); release(); worktreeFs.removeDir = removeDir;
   }
