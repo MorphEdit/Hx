@@ -204,17 +204,27 @@ test('fleet: repo A going budget-low writes github-hold.json; repo B, with a ful
   const fleet = path.join(tmp, 'fleet');
   const timesB = path.join(tmp, 'times-b.jsonl');
   const env = { HX_FLEET_DIR: fleet, HX_HOME: path.join(tmp, 'home') };
-  // a 20 s reset: B's start (spawn, trusted lookup, labels) must read the hold while it is still in force
   const a = repo([], [{ for: 20, core: full, graphql: { limit: 5000, remaining: 812 } }, {}]);
   const b = repo([1], undefined); // B's own view: 5000/5000
+  // ordered by events, not by B's start time (#342: B spawned once the hold was there, and a loaded machine's start
+  // outlasted the reset): A's first budget read, which starts the 20 s, waits until B's first board read is waiting;
+  // that read waits until A has written the hold, and B's next step reads it
+  const waiting = path.join(tmp, 'b-waiting');
+  const withWait = (board: string, waitFor: object) => writeFileSync(board, JSON.stringify({ ...JSON.parse(readFileSync(board, 'utf8')), waitFor }));
+  withWait(a.board, { match: 'api rate_limit', file: waiting });
+  withWait(b.board, { match: 'issue list', file: githubHoldFile(fleet), mark: waiting });
   const ra = hxRun(a, env);
-  while (!existsSync(githubHoldFile(fleet))) { if (!ra.running()) assert.fail((await ra.done).out); await tick(); }
+  const rb = hxRun(b, { ...env, FAKE_CLAUDE_TIMES: timesB });
+  while (!existsSync(githubHoldFile(fleet))) {
+    if (!ra.running()) assert.fail((await ra.done).out);
+    if (!rb.running()) assert.fail((await rb.done).out);
+    await tick();
+  }
   await tick();
   const hold = JSON.parse(readFileSync(githubHoldFile(fleet), 'utf8'));
   const reset = started(a.board) + 20;
   assert.deepEqual(hold, { until: reset * 1000, reason: 'graphql 812/5000', repo: a.project.config.repo });
 
-  const rb = hxRun(b, { ...env, FAKE_CLAUDE_TIMES: timesB });
   const [resA, resB] = await Promise.all([ra.done, rb.done]);
   assert.equal(resA.code, 0, resA.out); assert.equal(resB.code, 0, resB.out);
   assert.match(resB.out, new RegExp(`github budget low: shared hold from ${a.project.config.repo}: graphql 812/5000 — no new claims until ${hhmm(reset)}`));

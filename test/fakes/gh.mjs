@@ -2,7 +2,7 @@
 // A program (node gh.mjs …), or in-process: gh(args, { input, cwd, inProcess: true }) → { code, stdout, stderr }, the
 // same answers and recorded calls without a node start per call. hx (src/exec.ts) and the scripts (ghwait.mjs) call it
 // that way when HX_GH_INPROC names this file, as test/isolate.ts sets it; null = run it as a program.
-import { appendFileSync, readFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { loadJson, locked, saveJson } from './lock.mjs';
@@ -31,8 +31,13 @@ export function gh(a, { input = () => '', cwd = process.cwd(), inProcess = false
     const ghLabels = (i) => i.labels.map((name) => ({ name }));
 
     const s = load();
+    // state.waitFor = { match, file, mark? }: every call whose arguments contain `match` waits until `file` exists (an
+    // event in another process, not a time: the call goes on as soon as it happens); one that waits first writes `mark`
+    const waitFor = s.waitFor && a.join(' ').includes(s.waitFor.match) && !existsSync(s.waitFor.file) ? s.waitFor : null;
     // a slow read blocks: in-process it would stop the caller's event loop, so the caller runs it as a program
-    if (inProcess && (s.slowList || s.slowClosedState || (s.slowNext && a.join(' ').includes(s.slowNext.match)))) return null;
+    if (inProcess && (s.slowList || s.slowClosedState || waitFor || (s.slowNext && a.join(' ').includes(s.slowNext.match)))) return null;
+    if (waitFor?.mark) writeFileSync(waitFor.mark, '');
+    if (waitFor) while (!existsSync(waitFor.file)) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50);
     // state.slowNext = { match, ms }: the next call whose arguments contain `match` takes ms (once)
     const slowNext = s.slowNext && a.join(' ').includes(s.slowNext.match)
       && mutate((cur) => { const x = cur.slowNext; if (!x || !a.join(' ').includes(x.match)) return null; delete cur.slowNext; return x; });
