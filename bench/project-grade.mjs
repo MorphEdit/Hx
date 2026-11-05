@@ -2,7 +2,7 @@
 // Runs the hidden suite of the project benchmark (bench/project/hidden/) against a checkout, from where it
 // is: nothing is copied into the checkout. Prints { passed, failed, total, failures } as JSON.
 import { spawnSync } from 'node:child_process';
-import { readdirSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -10,7 +10,13 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 export const HIDDEN = path.join(here, 'project', 'hidden');
 const REPORTER = path.join(here, 'project-reporter.mjs');
 
-/** Grade `checkout`: one result per hidden case, named "<file> > <test>". */
+/** The hidden suite's case names (what the reference reports): every grade is out of these. */
+export const cases = (hidden = HIDDEN) => JSON.parse(readFileSync(path.join(hidden, 'cases.json'), 'utf8'));
+
+/**
+ * Grade `checkout`: one result per hidden case, named "<file> > <test>". The total is always the number of
+ * cases in cases.json: a case that never reported (its test file's process ended early) is a failure.
+ */
 export function grade(checkout, { hidden = HIDDEN } = {}) {
   const files = readdirSync(hidden).filter((f) => f.endsWith('.test.mjs')).sort().map((f) => path.join(hidden, f));
   const env = { ...process.env, TALLY_CHECKOUT: path.resolve(checkout) };
@@ -20,10 +26,11 @@ export function grade(checkout, { hidden = HIDDEN } = {}) {
     `--test-reporter=${pathToFileURL(REPORTER).href}`, '--test-reporter-destination=stdout', ...files],
   { cwd: hidden, env, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, windowsHide: true });
   if (r.error) throw r.error;
-  const results = r.stdout.split('\n').filter((l) => l.startsWith('{')).map((l) => JSON.parse(l));
-  if (!results.length) throw new Error(`the hidden suite reported no cases (exit ${r.status}): ${r.stderr}`);
-  const failures = results.filter((x) => !x.ok).map((x) => x.name);
-  return { passed: results.length - failures.length, failed: failures.length, total: results.length, failures };
+  const passed = new Set(r.stdout.split('\n').filter((l) => l.startsWith('{')).map((l) => JSON.parse(l))
+    .filter((x) => x.ok).map((x) => x.name));
+  const expected = cases(hidden);
+  const failures = expected.filter((name) => !passed.has(name));
+  return { passed: expected.length - failures.length, failed: failures.length, total: expected.length, failures };
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

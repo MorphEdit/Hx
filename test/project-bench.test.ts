@@ -3,11 +3,12 @@
 import { E2E } from './isolate.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { cpSync, existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 // @ts-ignore: a plain .mjs bench script
-import { grade, HIDDEN } from '../bench/project-grade.mjs';
+import { cases, grade, HIDDEN } from '../bench/project-grade.mjs';
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const project = path.join(root, 'bench', 'project');
@@ -23,6 +24,47 @@ test('grading the reference: every hidden case passes', E2E, () => {
   assert.deepEqual(r.failures, []);
   assert.equal(r.failed, 0);
   assert.equal(r.passed, r.total);
+  // cases.json lists the reference's cases, each once
+  assert.equal(r.total, cases().length);
+  assert.equal(new Set(cases()).size, cases().length, 'no duplicate names');
+  assert.ok(cases().every((n: string) => / > /.test(n)));
+});
+
+/** The reference copied to a temp dir, with `files` overwritten; removed after `fn`. */
+const brokenReference = (files: Record<string, string>, fn: (dir: string) => void) => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'tally-broken-'));
+  try {
+    cpSync(path.join(project, 'reference'), dir, { recursive: true });
+    for (const [rel, text] of Object.entries(files)) writeFileSync(path.join(dir, rel), text);
+    fn(dir);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+};
+
+for (const [what, files] of Object.entries({
+  'a bin with a syntax error': { 'bin/tally.js': 'this is not js(' },
+  'a library with a syntax error (the bin imports it)': { 'src/tally.js': 'this is not js(' },
+})) {
+  test(`grading ${what}: no CLI case passes, not even the error paths`, E2E, () => {
+    brokenReference(files, (dir) => {
+      const r = grade(dir);
+      assert.equal(r.total, cases().length);
+      const cli = cases().filter((n: string) => n.startsWith('cli-track.test.mjs > '));
+      assert.ok(cli.length > 0);
+      for (const n of cli) assert.ok(r.failures.includes(n), `${n} passed with a CLI that cannot load`);
+    });
+  });
+}
+
+test('grading a library that ends the process on import: the total is still every case, the unreported ones failed', E2E, () => {
+  brokenReference({ 'src/tally.js': 'process.exit(0);\n' }, (dir) => {
+    const r = grade(dir);
+    assert.equal(r.total, cases().length);
+    assert.equal(r.passed + r.failed, r.total);
+    assert.equal(r.failures.length, r.failed);
+    assert.ok(r.passed < r.total / 2, `${r.passed} of ${r.total} passed`);
+  });
 });
 
 test('grading the empty template: every hidden case fails, and the grader does not throw', E2E, () => {

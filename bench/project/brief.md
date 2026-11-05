@@ -39,7 +39,8 @@ first one is reported.
 ## Commands
 Output goes to stdout. Errors go to stderr only, never stdout. Exit codes: `0` success; `1` a usage or
 state error (unknown command, missing or bad argument, bad `TALLY_NOW`, already running, not running);
-`2` the log cannot be read (the message names the line). On any error the log is left untouched.
+`2` the log cannot be read (the message names the line). On any error the log is left untouched. An error
+is a message the CLI prints and exits with, never an uncaught exception.
 Durations are shown as `h:mm`: 75 minutes is `1:15`, 600 is `10:00`, 0 is `0:00`.
 
 - `tally start <project> [note]` starts an entry at now. Every word after the project is the note

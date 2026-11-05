@@ -46,5 +46,8 @@ export async function tally(args, { now = '2024-03-04T09:00', log } = {}) {
       else resolve({ code: err ? err.code : 0, stdout, stderr });
     });
   });
+  // Node ends an uncaught error (a syntax error, a missing import, a throw) with its version line: that is a
+  // CLI that crashed, never the error message a case expects, so every case that runs it fails
+  if (/^Node\.js v\d/m.test(stderr)) throw new Error(`the CLI crashed (exit ${code}):\n${stderr}`);
   return { code, stdout, stderr, out: stdout.replace(/\r?\n$/, '') };
 }
