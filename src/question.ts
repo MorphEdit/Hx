@@ -9,11 +9,13 @@ const startsWith = (body: string, marker: string) => body.trimStart().startsWith
 const time = (iso: string) => { const t = Date.parse(iso); return Number.isNaN(t) ? -Infinity : t; };
 
 /**
- * The open question: the latest comment starting with QUESTION_MARKER (the impl path), else the issue body
- * (the decompose path, created with the issue). `text` has the marker removed and is trimmed.
+ * The open question: the latest comment starting with QUESTION_MARKER (the impl path), else the issue body when it
+ * starts with QUESTION_MARKER (the decompose path, created with the issue), else null: a plain issue has no question.
+ * `text` has the marker removed and is trimmed.
  */
-export function findQuestion(body: string, comments: ThreadComment[], issueCreatedAt = ''): FoundQuestion {
+export function findQuestion(body: string, comments: ThreadComment[], issueCreatedAt = ''): FoundQuestion | null {
   const q = comments.filter((c) => startsWith(c.body, QUESTION_MARKER)).pop();
+  if (!q && !startsWith(body, QUESTION_MARKER)) return null;
   const raw = q ? q.body : body;
   return { text: raw.replace(QUESTION_MARKER, '').trim(), createdAt: q ? q.createdAt : issueCreatedAt };
 }
@@ -35,6 +37,7 @@ export function findAnswer(question: FoundQuestion, comments: ThreadComment[], t
 export function ownerAnswer(t: { body: string; createdAt: string; comments: ThreadComment[] }, trusted: Set<string>): { question: string; answer: string } | null {
   const own = t.comments.filter((c) => !!c.author && trusted.has(c.author.toLowerCase()));
   const q = findQuestion(t.body, own, t.createdAt);
+  if (!q) return null;
   const a = findAnswer(q, own, trusted);
   return a ? { question: q.text, answer: a.body.trim() } : null;
 }

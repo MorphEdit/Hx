@@ -65,6 +65,16 @@ test('ownerAnswer: a stranger\'s question comment neither moves the question nor
   assert.match(ownerAnswerNote({ question: 'local or cloud?', answer: 'A' }), /## Owner decisions[\s\S]*local or cloud\?[\s\S]*answer:\s+A\n/);
 });
 
+test('a plain issue (body without the marker, no question comment) has no question: the hx stop comment or an owner comment is no answer', E2E, () => {
+  const plain = 'Add a dark mode toggle to settings.';
+  assert.equal(findQuestion(plain, [c('hx-bot', 'unrelated', '2026-01-02T00:00:00Z')], '2026-01-01T00:00:00Z'), null);
+  assert.equal(findQuestion(`text then ${QUESTION_MARKER}`, [], '2026-01-01T00:00:00Z'), null, 'the marker must start the body');
+  const comments = [c('Hx-Bot', '**hx:** impl stopped — no completion after 3 turns.', '2026-01-02T00:00:00Z'),
+    c('alice', 'Use the system theme by default.', '2026-01-03T00:00:00Z')];
+  assert.equal(ownerAnswer({ body: plain, createdAt: '2026-01-01T00:00:00Z', comments }, T), null);
+  assert.equal(ownerAnswer({ body: plain, createdAt: '', comments }, T), null);
+});
+
 test('prompts/impl.md: {{OWNER_ANSWER}} and the `## Owner decisions` instruction', E2E, () => {
   const impl = readFileSync(path.join(here, '..', 'prompts', 'impl.md'), 'utf8');
   assert.match(impl, /\{\{OWNER_ANSWER\}\}/);
@@ -140,6 +150,17 @@ test('only an untrusted answer: the issue stays needs-human and is never claimed
   assert.equal(i.state, 'OPEN');
   assert.ok(!lines.some((l) => /owner answered/.test(l)), lines.join('\n'));
   assert.equal(newPrompts(before).length, 0, 'no session started');
+});
+
+test('a plain ready issue with a trusted comment (the hx stop note) gets no owner note in its impl prompt', E2E, async () => {
+  board([{ number: 12, title: 'dark mode', body: 'Add a dark mode toggle.', state: 'OPEN', labels: [L.ready], createdAt: '2026-01-01T00:00:00Z' }],
+    [{ issue: 12, body: '**hx:** impl stopped — no completion after 3 turns.', author: 'Hx-Bot', createdAt: '2026-01-02T00:00:00Z' }]);
+  const before = new Set(readdirSync(fakeDir));
+  const { rc, lines } = await run();
+  assert.equal(rc, 0, lines.join('\n'));
+  const prompts = newPrompts(before);
+  assert.equal(prompts.length, 1, lines.join('\n'));
+  assert.doesNotMatch(prompts[0], /The owner answered|impl stopped|Add a dark mode toggle/);
 });
 
 test('audited: an implementer that closes its issue and prints its promise with no PR is done, not failed', E2E, async () => {
