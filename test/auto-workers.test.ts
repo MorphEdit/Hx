@@ -41,6 +41,7 @@ const MIN = 60_000;
 const tick = () => new Promise((r) => setTimeout(r, 50));
 /** Wait for a condition (no time bound of its own: E2E.timeout is the backstop). */
 async function until(what: () => boolean) { while (!what()) await tick(); }
+// each wait also ends on a wrong claim, so a broken claim rule fails at once instead of at the timeout
 const held = () => readdirSync(fakeDir).filter((f) => /^held-\d+$/.test(f)).length;
 const workerLines = (lines: string[]) => lines.filter((l) => /workers: \d+ → \d+/.test(l));
 
@@ -74,11 +75,12 @@ test('autoWorkers: a high reading steps 3 → 2 and holds the third claim; a low
   const done = pooled((signal) => runPool(p, { workers: 3, watch: false, dryRun: false, signal,
     loadReader: () => { reads++; return reading; }, loadClock: () => now })).finally(restore);
   try {
-    await until(() => held() === 2);
+    await until(() => held() >= 2);
+    assert.ok(reads > 0, 'the reader is called once per board read');
     // further passes (each takes one reading) with the clock not moving: still two claims, one step down
     const r0 = reads;
     writeFileSync(path.join(stateDir, 'wake'), new Date().toISOString());
-    await until(() => reads >= r0 + 2);
+    await until(() => reads >= r0 + 2 || held() > 2);
     assert.equal(held(), 2, 'no third claim under high load');
     assert.equal(lines.filter((l) => /\] impl: /.test(l)).length, 2, lines.join('\n'));
     assert.deepEqual(workerLines(lines).map((l) => l.replace(/^\S+ /, '')), ['workers: 3 → 2 (cpu 95%, free 32.0 GB)']);
@@ -153,10 +155,11 @@ for (const workers of [2, 1]) test(`autoWorkers: a running gate counts as one se
   const done = pooled((signal) => runPool(p, { workers, watch: false, dryRun: false, signal,
     loadReader: () => { reads++; return { cpuPct: 5, freeMemGB: 32 }; }, loadClock: () => 0 })).finally(restore);
   try {
-    await until(() => existsSync(gateHeld) && held() === 1);
+    await until(() => existsSync(gateHeld) && held() >= 1);
+    assert.ok(reads > 0, 'the reader is called once per board read');
     const r0 = reads;
     writeFileSync(path.join(stateDir, 'wake'), new Date().toISOString());
-    await until(() => reads >= r0 + 2);
+    await until(() => reads >= r0 + 2 || held() > 1);
     assert.equal(held(), 1, `the gate takes the second slot: ${lines.join('\n')}`);
     assert.equal(readLive(stateDir)!.sessions.length, 1);
   } finally { writeFileSync(gateRelease, ''); release(); }
