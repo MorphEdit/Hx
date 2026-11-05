@@ -20,6 +20,8 @@
 //              names (FAKE_GRILL_NOWRITE=1: writes nothing, =blank: whitespace only) and exits
 //   issue:     the same for `hx issue`: writes a small issue to its output path (same FAKE_GRILL_NOWRITE)
 // NOTHINGTOBUILD in an issue body: an implement session closes it with a comment and prints its promise, no PR.
+// MAINRED in an issue body: its round-1 auditor pushes a BROKEN file to main; FAILSONBROKEN=X,Y: its shipped test command
+// fails X and Y while BROKEN exists.
 // FAKE_CLAUDE_PAUSE=<file>: an implement session writes `drain` there as it closes its issue
 // FAKE_CLAUDE_PAUSE_START=<file>: an implement session writes `drain` there as its first turn starts (mid-session)
 // FAKE_CLAUDE_TIMES=<file>: each turn appends {sid, start, end} (ms) as one line when it exits.
@@ -173,6 +175,14 @@ function finish(st, checkpoint, prompt) {
     locked(boardFile, () => { const b = loadBoard(); b.issues.find((i) => i.number === st.n).state = 'CLOSED'; b.comments.push({ issue: st.n, body: 'nothing left to build' }); saveBoard(b); });
     return reply(`closed, nothing to build. ${done()}`);
   }
+  // the fix for a red default branch: really repair main (remove BROKEN) and push it (audited or not: no PR)
+  if (st.role === 'implement' && !checkpoint && /^Default branch is red/.test(loadBoard().issues.find((i) => i.number === st.n)?.title ?? '')) {
+    const g = (...a) => spawnSync('git', a, { encoding: 'utf8', env: { ...process.env, ...GIT_ID } });
+    g('fetch', '-q', 'origin', 'main'); g('reset', '-q', '--hard', 'origin/main'); g('rm', '-q', 'BROKEN');
+    g('commit', '-q', '-m', `fix: main is green again (closes #${st.n})`); g('push', '-q', 'origin', 'HEAD:main');
+    locked(boardFile, () => { const b = loadBoard(); b.issues.find((i) => i.number === st.n).state = 'CLOSED'; saveBoard(b); });
+    return reply(`fixed main. ${done()}`);
+  }
   // audited implementer: really commit, then really run ship.mjs --no-merge (real git, fake gh)
   if (st.role === 'implement' && / --no-merge/.test(prompt) && !checkpoint) {
     const ship = /node "([^"]+ship\.mjs)"/.exec(prompt)[1];
@@ -183,20 +193,16 @@ function finish(st, checkpoint, prompt) {
       g('fetch', '-q', 'origin', 'main'); g('reset', '-q', '--hard', 'origin/main');
     }
     writeFileSync(path.join(process.cwd(), `impl-${st.n}.txt`), `attempt ${Date.now()}\n`);
+    // FAILSONBROKEN=X,Y in the issue body: the test command prints `not ok` for X and Y and fails while a BROKEN file exists
+    const fails = /FAILSONBROKEN=(\S+)/.exec(loadBoard().issues.find((i) => i.number === st.n)?.body ?? '')?.[1].split(',');
+    const test = fails ? `node -e "if (require('fs').existsSync('BROKEN')) { ${fails.map((t, i) => `console.log('not ok ${i + 1} - ${t}');`).join(' ')} process.exit(1) }"`
+      : 'node -e "process.exit(0)"';
     const r = spawnSync(process.execPath, [ship, '--repo', repo, '--base', 'main', '--issue', String(st.n), '--title', `feat: issue ${st.n}`,
-      '--test', 'node -e "process.exit(0)"', '--no-merge'], { encoding: 'utf8', env: { ...process.env, ...GIT_ID } });
+      '--test', test, '--no-merge'], { encoding: 'utf8', env: { ...process.env, ...GIT_ID } });
     // SHIPNOSTATE in the issue body: the PR is open but hx-ship.json is gone, as after a PR opened outside ship
     if (/SHIPNOSTATE/.test(loadBoard().issues.find((i) => i.number === st.n)?.body ?? ''))
       rmSync(path.join(spawnSync('git', ['rev-parse', '--absolute-git-dir'], { encoding: 'utf8' }).stdout.trim(), 'hx-ship.json'), { force: true });
     return reply(r.status === 0 ? `${r.stdout.trim()}\n${done()}` : `ship failed ${r.status}: ${r.stderr}`);
-  }
-  // the fix for a red default branch: really repair main (remove BROKEN) and push it
-  if (st.role === 'implement' && !checkpoint && /^Default branch is red/.test(loadBoard().issues.find((i) => i.number === st.n)?.title ?? '')) {
-    const g = (...a) => spawnSync('git', a, { encoding: 'utf8', env: { ...process.env, ...GIT_ID } });
-    g('fetch', '-q', 'origin', 'main'); g('reset', '-q', '--hard', 'origin/main'); g('rm', '-q', 'BROKEN');
-    g('commit', '-q', '-m', `fix: main is green again (closes #${st.n})`); g('push', '-q', 'origin', 'HEAD:main');
-    locked(boardFile, () => { const b = loadBoard(); b.issues.find((i) => i.number === st.n).state = 'CLOSED'; saveBoard(b); });
-    return reply(`fixed main. ${done()}`);
   }
   // gauntlet critic and reviser
   if (st.role === 'critic') {
@@ -237,6 +243,13 @@ function finish(st, checkpoint, prompt) {
       g('fetch', '-q', 'origin', 'main'); g('checkout', '-q', '--detach', 'origin/main');
       writeFileSync(path.join(process.cwd(), `impl-${st.n}.txt`), 'someone else\n');
       g('add', '-A'); g('commit', '-q', '-m', 'conflicting work'); g('push', '-q', 'origin', 'HEAD:main');
+    }
+    // MAINRED: round 1 passes, but meanwhile a BROKEN file lands on main (no conflict), so main turns red
+    if (/MAINRED/.test(body) && st.round === 1) {
+      const g = (...a) => spawnSync('git', a, { encoding: 'utf8', env: { ...process.env, ...GIT_ID } });
+      g('fetch', '-q', 'origin', 'main'); g('checkout', '-q', '--detach', 'origin/main');
+      writeFileSync(path.join(process.cwd(), 'BROKEN'), 'x\n');
+      g('add', '-A'); g('commit', '-q', '-m', 'oops'); g('push', '-q', 'origin', 'HEAD:main');
     }
     // AUDITREVERT: a PASS whose evidence lines carry the red result on the reverted code and the green one on the branch (#251)
     if (/AUDITREVERT/.test(body)) return reply(`VERDICT: PASS\nFINDINGS:\n`

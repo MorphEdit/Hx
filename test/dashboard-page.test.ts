@@ -3,7 +3,7 @@
 import { E2E } from './isolate.ts';
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { request } from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
@@ -475,4 +475,24 @@ test('Waiting on you: a section before Now; dashboardState and /api/board carry 
     await pe.flush();
     assert.equal(text(pe.ids.get('waiting-body')!), 'nothing waiting on you', 'the board read fills it at once');
   } finally { writeFileSync(stateFile, before); }
+});
+
+test('a held issue renders as held (main red); /api/board carries held from .hx/held.json (#301)', E2E, async () => {
+  const b = { at: new Date().toISOString(), repo: 'me/app', prds: [], board: [
+    { number: 7, title: 'held one', status: 'claimable', waitingOn: [], held: true },
+    { number: 9, title: 'plain', status: 'claimable', waitingOn: [] },
+  ] };
+  const p = page({ repo: 'me/app', runner: { running: false }, sessions: [], gate: null, health: null, log: [],
+    usage: { total: null, byRole: [], byModel: [], byDay: [], byPrd: null } }, b);
+  await p.flush();
+  const rows = p.ids.get('board-body')!.all().filter((e) => e.tag === 'tr').map((r) => r.all().filter((c) => c.tag === 'td' || c.tag === 'th').map(text));
+  assert.deepEqual(rows.slice(1).map((r) => r.slice(1)), [['held one', 'held (main red)'], ['plain', 'claimable']]);
+
+  writeFileSync(path.join(stateDir, 'held.json'), JSON.stringify({ 7: { pr: 70, round: 1, at: new Date().toISOString() } }));
+  try {
+    const d = await serveDashboard(project as any, { port: 0 });
+    servers.push(d);
+    const board = JSON.parse((await get(d.port, '/api/board')).body);
+    assert.equal(board.board.find((r: any) => r.number === 7)?.held, true);
+  } finally { rmSync(path.join(stateDir, 'held.json'), { force: true }); }
 });

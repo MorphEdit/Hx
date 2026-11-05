@@ -197,7 +197,8 @@ open), and keeps the last data with an "offline / last updated" note when a fetc
 - **Now** — the runner ("not running", or its pid, uptime, workers, paused/draining and the rate-limit
   window), the live sessions (issue, kind, title, turn, tokens, elapsed) and the CI gate (green/red,
   sha, when, the fix issue).
-- **Board** — PRDs with their status and `closed/total done`, and the open issues with their status.
+- **Board** — PRDs with their status and `closed/total done`, and the open issues with their status
+  (`held (main red)` for an audited PR waiting for a green default branch).
   If `gh` fails, the error shows here and the rest of the page keeps working.
 - **Stats** — tokens per day; test time (last 24 h: test share of session time, median test run, gate
   median and p90, and a chart of the median test run and gate duration per UTC day over the last 14 days);
@@ -507,6 +508,17 @@ or the test command the first audited merge used. `hx status` shows the gate.
 A hung test run cannot block anything: `ship.mjs` gives the tests `--test-timeout` minutes (default 45,
 remembered for `--resume`) and the gate `gateMinutes` (default 45); past that the whole process tree is killed and the
 run counts as failed (exit 4 / a red gate marked "timed out").
+
+**A held merge.** When an audited PR's merge fails its tests after the rebase, Hx first takes the gate's
+result for the default branch as it is now (testing it again when it has moved since the last run). If
+the gate is red and every failing test it can name in the PR's run also fails on the default branch, the
+PR is not at fault: its PASS stands, no audit round is counted and no implementer runs. Hx comments once
+(`<!-- hx-merge-held -->`: "held: main is red (#<gate-fix issue>); merges once main is green"), records it
+in `.hx/held.json` and releases the issue; `hx status` and the dashboard show it as `held (main red)`. On
+the first poll after the gate turns green the merge is retried, and only the merge. Any failing test not
+on the default branch's list (or none that can be named, or a green gate) sends the PR back to the
+implementer as before, the message naming the tests the branch broke; so does a rebase conflict on the retry.
+Test names are read from node's spec and TAP reporters, jest, pytest and go test output.
 Claude Code caps one shell command at 10 minutes, so each session gets `BASH_MAX_TIMEOUT_MS` and
 `BASH_DEFAULT_TIMEOUT_MS` of ship's test timeout + 5 min (kept below `turnTimeoutMinutes`; a higher value
 already in the environment is kept), and the stall timer waits as long while a tool call runs. A PR opened
@@ -719,6 +731,7 @@ review / security / triage round caps, an audit that kept failing and a failed m
 | Outcome | Hx does |
 |---|---|
 | the audit passes and the merge goes through | hx merges the PR, closes the issue, removes `agent-working` and the worktree |
+| the audit passes but the merge's tests fail only where the red default branch fails too | held: no round counted, one `<!-- hx-merge-held -->` comment, `held (main red)` in `hx status`; the merge is retried once the gate is green (see [CI gate](#ci-gate)) |
 | the audit fails | the findings go to a fresh implementer session on the same branch; after `auditRounds` FAILs: `agent-blocked` |
 | no promise after `maxIterations` turns, or the agent errors | comments the reason and last reply on the issue, labels it `agent-blocked`, keeps the worktree |
 | the worker needs the owner (a decision, a key, a check by hand) | commits and pushes its work, posts the question as a `<!-- hx-question -->` comment, swaps `ready-for-agent` for `needs-human`, keeps the worktree; the owner's answer (one trusted comment) relabels it `ready-for-agent` and the next worker gets the question and the answer |
@@ -869,6 +882,7 @@ it reads. So Hx only works on text from **trusted accounts**: your `gh` login pl
 - `.hx/logs/setup-<name>.log` / `.json` — a worktree's last setup output / result (see [Worktree setup](#worktree-setup))
 - `.hx/live.json` — the running `hx run`: its pid and live sessions (read by `hx status`)
 - `.hx/pause` — present while paused (`drain` or `now`)
+- `.hx/held.json` — audited PRs held while the default branch is red: `{ "<issue>": { pr, round, at } }`, cleared when the merge is retried
 - `.hx/gate-runs.jsonl` — one line per pool gate run whose test command finished or timed out: `{ ts, sha, ok, durationMs, timedOut }`
   (`durationMs` is the test command only; the release gate is not recorded). `hx run` logs `gate is slow: …` once when the median of the last 5 is above 70% of `gateMinutes`
 - `.hx/health.json` — the health pass: when it first saw each `agent-working` issue with no live session, and the last pass's time and line (see [Self-check](#self-check))

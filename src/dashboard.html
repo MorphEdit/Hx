@@ -178,7 +178,7 @@ function renderBoard(b) {
       : el('p', { class: 'mute' }, 'no open PRDs'),
     el('h3', {}, 'Issues'),
     rows.length ? table(['issue', 'title', 'status'], rows.map((r) => [issueLink(r.number), String(r.title ?? ''),
-      r.status === 'waiting' && (r.waitingOn || []).length ? 'waiting on ' + r.waitingOn.map((w) => String(w.repo ?? '') + '#' + Math.trunc(Number(w.number))).join(', ') : String(r.status ?? '')]))
+      r.held ? 'held (main red)' : r.status === 'waiting' && (r.waitingOn || []).length ? 'waiting on ' + r.waitingOn.map((w) => String(w.repo ?? '') + '#' + Math.trunc(Number(w.number))).join(', ') : String(r.status ?? '')]))
       : el('p', { class: 'mute' }, 'no open issues'),
     el('p', { class: 'note' }, 'board fetched ' + when(b.at)));
 }

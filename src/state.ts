@@ -40,6 +40,7 @@ export interface BoardRow {
   waitingOn: Ref[]; // open blockers, for status === 'waiting'
   author?: string; // status 'untrusted' through its own author ('' = a deleted account)
   untrustedPrd?: { number: number; author: string }; // status 'untrusted' through its PRD's author
+  held?: boolean; // status 'claimable': its audited PR waits for a green default branch (.hx/held.json, added by readPlan)
 }
 
 /** Whether an issue's author is in the trusted set (lowercased logins). No set = no filter (unit tests);
