@@ -88,7 +88,7 @@ test('through the pool: a stalled issue is handed back as after a timed-out turn
   const issue = (number: number) => ({ number, title: `task ${number}`, body: '', state: 'OPEN', labels: [L.ready] });
   writeFileSync(stateFile, JSON.stringify({ comments: [], issues: [issue(1), issue(2)] }));
   const config = { ...DEFAULTS, repo: 'me/app', defaultBranch: 'main', worktreeRoot: path.join(tmp, 'wt'), claudeBin: fakeClaude,
-    maxIterations: 3, pollSeconds: 1, audit: false, gate: false };
+    maxIterations: 3, pollSeconds: 1, audit: false, gate: false, sizeCheck: false }; // the comments compared are the impl's
   const run = async (only: number, over: object) => {
     const lines: string[] = [];
     const orig = console.log;
