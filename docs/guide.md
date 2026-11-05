@@ -120,8 +120,10 @@ hx issue "fix typo"     # a shorter session grills one small task into one issue
                         # confirm (--bug: label bug, triaged first; --yes; --title T); kept in .hx/issues/
 hx issue --file x.md    # file an issue file the same way, without a session (--bug, --title T)
 hx status               # first `waiting on you: N question(s)` (each open needs-human issue: number, title,
-                        # URL), then the runner, live sessions, usage window, and the board (issues opened by
-                        # an untrusted account show as `untrusted` and are never claimed); after the board,
+                        # URL), then the runner (with autoWorkers on, `workers  2/3 (auto: cpu 88%)` under it:
+                        # the target over the ceiling, see Auto-scaled workers), live sessions, usage window,
+                        # and the board (issues opened by an untrusted account show as `untrusted` and are
+                        # never claimed); after the board,
                         # each `split #` line of run.log from the last 24 h, oldest first:
                         # `split    split #4 → #5, #6 (2h10m ago)`
 hx run --dry-run        # the board and what would run next, without changing anything
@@ -196,8 +198,8 @@ open), and keeps the last data with an "offline / last updated" note when a fetc
 
 - **Waiting on you** — the open `needs-human` questions (number linked to the issue, title), from the last
   board read; "nothing waiting on you" when there are none.
-- **Now** — the runner ("not running", or its pid, uptime, workers, paused/draining and the rate-limit
-  window), the live sessions (issue, kind, title, turn, tokens, elapsed) and the CI gate (green/red,
+- **Now** — the runner ("not running", or its pid, uptime, workers, the auto-scaled target line
+  `workers 2/3 (auto: cpu 88%)` when autoWorkers is on, paused/draining and the rate-limit window), the live sessions (issue, kind, title, turn, tokens, elapsed) and the CI gate (green/red,
   sha, when, the fix issue).
 - **Board** — PRDs with their status and `closed/total done`, and the open issues with their status
   (`held (main red)` for an audited PR waiting for a green default branch).
@@ -264,6 +266,10 @@ for load.
 - **The log.** Each change logs one line: `workers: 3 → 2 (cpu 91%, free 7.9 GB)`,
   `workers: 2 → 3 (cpu 52% for 5 min)`; no change logs nothing. `.hx/live.json` carries
   `autoWorkers: { target, cpuPct, freeMemGB }` (the reading's fields once there is one); `workers` there stays the ceiling.
+- **Shown.** `hx status` prints `workers  2/3 (auto: cpu 88%)` under the `runner   running` line (the target, the
+  ceiling, the latest reading's CPU %), or `workers  3/3 (auto: no reading yet)` before the first reading; the
+  dashboard's Now panel shows the same line in the runner row. Both read the running runner's `live.json`, not the
+  config: nothing shows with `autoWorkers` off or no runner up.
 - **A fixed count.** `"autoWorkers": false` keeps `workers` sessions whatever the load: no sampling, the gate not
   counted, no `workers:` lines. `HX_AUTO_WORKERS=0` in the environment does the same for one run (the tests set it).
 

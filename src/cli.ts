@@ -14,6 +14,7 @@ import { testSeries, timeWindow, type TimeSummary } from './timing.ts';
 import { release, releaseGate, type BumpKind } from './release.ts';
 import { budgetLine, readBudgetWindows } from './budget.ts';
 import { githubLine } from './ghlimit.ts';
+import { workersLine } from './load.ts';
 import { DEFAULT_PORT, serveDashboard, serveFleetDashboard } from './dashboard.ts';
 import { fileBug, filePrd } from './prd.ts';
 import { agentFor } from './agents/index.ts';
@@ -605,6 +606,8 @@ async function status(p = loadProject(), o: { github?: boolean } = {}): Promise<
   const paused = readPause(p.stateDir);
   if (live && pidAlive(live.pid)) {
     console.log(`runner   running · pid ${live.pid} · up ${ago(live.startedAt)} · ${live.sessions.length}/${live.workers} worker(s) busy${live.draining ? ' · PAUSING' : ''}`);
+    const wl = workersLine(live); // the running runner's auto-scaled target, from live.json
+    if (wl) console.log(wl.replace(/^workers /, 'workers  '));
     for (const s of live.sessions)
       console.log(`         #${String(s.number).padEnd(5)} ${s.kind.padEnd(9)} ${ago(s.since).padStart(7)}  turn ${s.turn}  ${fmt(s.tokens)} tok  ${s.title.slice(0, 50)}`);
     if (live.skills) console.log(`skills   ${formatSkills(live.skills)}`);
