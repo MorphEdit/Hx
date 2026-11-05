@@ -113,6 +113,29 @@ node bench/security-eval.mjs
 node bench/figures.mjs
 ```
 
+### Project benchmark
+
+Every arm scores 6/6 on the six issues, so they cannot show whether a change makes the result better
+or worse. The project benchmark runs one end-user brief through the whole PRD flow (the gauntlet,
+decompose, `Blocked by`, impl, audit, gate, review, the security pass), against a single session as the
+baseline. The brief is `tally`: a time-tracking library and CLI with `start` / `stop` / `status` /
+`add`, day, week and project reports with rounding, overlap detection, CSV export and a strict parse of
+the log with line-numbered errors. Each run is graded by 80+ hidden tests the agents never see.
+
+Run it (creates a private repo on your GitHub account per arm and spends real usage, up to the caps:
+4 h and $60 per arm by default):
+
+```bash
+node bench/project.mjs chat --max-hours 4 --max-usd 60
+node bench/project.mjs hx3 --max-hours 4 --max-usd 60
+node bench/figures.mjs
+```
+
+`bench/figures.mjs` writes the table below from `bench/results/project-*.json`. It is empty until a
+real run is committed.
+
+<!-- project-bench:start --><!-- project-bench:end -->
+
 ### Real runs: before and after a change
 
 The benchmark above is six small issues. These numbers come from the fleet building Hx itself
