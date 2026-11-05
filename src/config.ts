@@ -41,7 +41,13 @@ export function labelSpecs(L: Labels): LabelSpec[] {
 export interface Config {
   repo: string; // owner/name
   defaultBranch: string;
-  workers: number;
+  workers: number; // the most sessions at once (with autoWorkers: the ceiling)
+  minWorkers: number; // the floor: claims always go up to this many sessions (unless a pause, red gate, usage hold, GitHub budget or fleet slot holds them)
+  autoWorkers: boolean; // workers is a ceiling and the session count follows machine load; false = a fixed count
+  loadHighPct: number; // CPU busy % at or above which the target steps down
+  loadLowPct: number; // CPU busy % at or below which (with enough free memory) the target may step back up
+  minFreeMemGB: number; // free memory below this (GB) counts as high load; 0 = no memory check
+  scaleUpMinutes: number; // minutes of low load before one step up
   model: string;
   effort: string; // claude --effort: low | medium | high | xhigh | max ('' = the CLI's default)
   maxIterations: number; // Ralph-loop turns per issue before giving up
@@ -101,6 +107,12 @@ export interface Config {
 
 export const DEFAULTS: Omit<Config, 'repo' | 'defaultBranch' | 'worktreeRoot'> = {
   workers: 2,
+  minWorkers: 1,
+  autoWorkers: true,
+  loadHighPct: 85,
+  loadLowPct: 60,
+  minFreeMemGB: 2,
+  scaleUpMinutes: 5,
   model: 'claude-opus-5-5', // a full id: the `opus` alias may resolve to an older Opus
   effort: 'medium',
   maxIterations: 8,
@@ -217,6 +229,28 @@ export function healthConfigError(c: { selfHeal?: unknown; healthEveryMinutes?: 
   if (h !== undefined && !(typeof h === 'number' && Number.isFinite(h) && h >= 0)) return `selfReviewEveryHours: ${JSON.stringify(h)} must be a number of hours, 0 or more`;
   const f = c.selfReviewMaxFindings;
   if (f !== undefined && !(typeof f === 'number' && Number.isInteger(f) && f >= 1)) return `selfReviewMaxFindings: ${JSON.stringify(f)} must be a whole number, 1 or more`;
+  return null;
+}
+
+/** What is wrong with config.autoWorkers, minWorkers, loadHighPct, loadLowPct, minFreeMemGB or scaleUpMinutes, or null when all
+ *  are valid. Checked whatever autoWorkers is; a key left unset is fine. */
+export function autoWorkersConfigError(c: { workers?: unknown; autoWorkers?: unknown; minWorkers?: unknown; loadHighPct?: unknown; loadLowPct?: unknown; minFreeMemGB?: unknown; scaleUpMinutes?: unknown }): string | null {
+  const num = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+  if (c.autoWorkers !== undefined && typeof c.autoWorkers !== 'boolean') return `autoWorkers: ${JSON.stringify(c.autoWorkers)} must be true or false`;
+  const m = c.minWorkers;
+  if (m !== undefined) {
+    if (!(typeof m === 'number' && Number.isInteger(m) && m >= 1)) return `minWorkers: ${JSON.stringify(m)} must be a whole number, 1 or more`;
+    if (num(c.workers) && m > c.workers) return `minWorkers: ${m} must not be above workers (${c.workers})`;
+  }
+  for (const k of ['loadHighPct', 'loadLowPct'] as const) {
+    const v = c[k];
+    if (v !== undefined && !(num(v) && v >= 0 && v <= 100)) return `${k}: ${JSON.stringify(v)} must be a number from 0 to 100`;
+  }
+  if (num(c.loadLowPct) && num(c.loadHighPct) && c.loadLowPct >= c.loadHighPct) return `loadLowPct: ${c.loadLowPct} must be below loadHighPct (${c.loadHighPct})`;
+  const g = c.minFreeMemGB;
+  if (g !== undefined && !(num(g) && g >= 0)) return `minFreeMemGB: ${JSON.stringify(g)} must be a number of GB, 0 or more (0 turns the memory check off)`;
+  const u = c.scaleUpMinutes;
+  if (u !== undefined && !(num(u) && u > 0)) return `scaleUpMinutes: ${JSON.stringify(u)} must be a number of minutes above 0`;
   return null;
 }
 
