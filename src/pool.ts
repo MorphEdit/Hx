@@ -25,7 +25,7 @@ import { checkGit, checkRelease, handover, hxRoot, installKind, readSelfUpdate, 
 import { findingBody, parseFindings, readSelfReview, selfReviewDecision, SELFREVIEW_PROMISE, writeSelfReview } from './selfreview.ts';
 import { BAR_JUDGE_PROMISE, BAR_PROMISE, barCapComment, barLine, barMarker, barRound, barStatus, gapIssueBody, parseJudgeReply, pickMapping, readMapping, refDir, roundDir, writeMapping, type Side } from './bar.ts';
 import { parseQualityBar } from './prd.ts';
-import { ownerAnswer, ownerAnswerNote, questionFromReply } from './question.ts';
+import { cappedQuestion, cappedQuestionNote, IMPL_TOO_MANY_QUESTIONS, ownerAnswer, ownerAnswerNote, questionFromReply, TOO_MANY_QUESTIONS } from './question.ts';
 import { HELD_STATUS, heldComment, mergeFailure, readHeld, setHeld } from './held.ts';
 import { addBlockers, parseSizeReply, SIZE_FITS, SIZE_NARROWED, SIZE_SPLIT, withTrailers, type SizeChild } from './size.ts';
 import { appendSkills, resolveSkills, rtddCheck, rtddEnv, SKILL_CHECKS, skillNames, skillsLogLine, type Skill } from './skills.ts';
@@ -983,8 +983,12 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
       + (handoff ? `\nThat session's handoff note:\n\n${handoff.replace(HANDOFF_MARKER, '').trim()}\n` : '');
   }
 
-  // an answered owner question (needs-human): the question and the answer go to every impl session of the issue
-  const owner = a.kind === 'impl' ? ownerAnswerNote(await gh.issueThread(c.repo, n).then((t) => ownerAnswer(t, ctx.trusted), () => null)) : '';
+  // an answered owner question (needs-human): the question and the answer go to every impl session of the issue;
+  // a question hx put back at the cap and the owner never answered: take the recommended choice (#332)
+  const owner = a.kind === 'impl' ? await gh.issueThread(c.repo, n).then((t) => {
+    const qa = ownerAnswer(t, ctx.trusted);
+    return qa ? ownerAnswerNote(qa) : cappedQuestionNote(cappedQuestion(t, ctx.trusted));
+  }, () => '') : '';
 
   const L = c.labels;
   const audited = a.kind === 'impl' && c.audit;
@@ -1515,9 +1519,7 @@ export function questionsLeftLine(open: number, cap: number): string {
     : `The owner already has ${open} open question(s), the most allowed (${cap}): file none. Take the recommended choice instead and tell the implementer to note it under \`## Decisions made for you\`.`;
 }
 
-export const TOO_MANY_QUESTIONS = '**hx:** too many open questions; the agent takes the recommended choice';
-/** On an impl NEEDS_HUMAN stop at the cap: no question is posted, the issue goes back to ready-for-agent. */
-export const IMPL_TOO_MANY_QUESTIONS = '**hx:** too many open questions; the next session takes the recommended choice';
+export { IMPL_TOO_MANY_QUESTIONS, TOO_MANY_QUESTIONS };
 
 /** {{QUESTION_NOTE}} in the impl prompt: '' under the cap; at it, ask nothing and take the recommended choice. */
 export function questionNote(open: number, cap: number): string {

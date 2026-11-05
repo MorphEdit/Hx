@@ -182,6 +182,19 @@ test('compare: needs-human questions asked and answered per period; untrusted qu
   assert.deepEqual([after.questionsAsked, after.questionsAnswered], [1, 2]);
 });
 
+test('compare: a [needs you] question followed only by an hx cap comment is asked, not answered (#332)', E2E, () => {
+  const c = (body: string, at: string, author = 'me') => ({ author, body, createdAt: at });
+  const Q = '<!-- hx-question -->\n**Hx needs your answer:** keep scores?';
+  const issues: CompareIssue[] = [
+    issue(1, { createdAt: A(1), body: Q, comments: [c('**hx:** too many open questions; the agent takes the recommended choice', A(1.5))] }),
+    issue(2, { createdAt: A(1), body: Q, comments: [c('**hx:** too many open questions; the next session takes the recommended choice', A(1.5))] }),
+    // the owner answers after the cap comment: answered
+    issue(3, { createdAt: A(1), body: Q, comments: [c('**hx:** too many open questions; the agent takes the recommended choice', A(1.5)), c('B', A(2))] }),
+  ];
+  const { after } = compare([], issues, OPTS);
+  assert.deepEqual([after.questionsAsked, after.questionsAnswered], [3, 1]);
+});
+
 function app(name: string, recs: any[], board: any) {
   const root = path.join(tmp, name), sd = path.join(root, '.hx');
   mkdirSync(sd, { recursive: true });

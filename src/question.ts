@@ -1,11 +1,19 @@
 // needs-human: the owner's question on an issue and their answer to it (pure; PRD #286).
 
 export const QUESTION_MARKER = '<!-- hx-question -->';
+/** After a decompose session past maxOpenQuestions: the `[needs you]` child goes back to ready-for-agent (capQuestions). */
+export const TOO_MANY_QUESTIONS = '**hx:** too many open questions; the agent takes the recommended choice';
+/** On an impl NEEDS_HUMAN stop at the cap: no question is posted, the issue goes back to ready-for-agent. */
+export const IMPL_TOO_MANY_QUESTIONS = '**hx:** too many open questions; the next session takes the recommended choice';
 
 export interface ThreadComment { author: string; body: string; createdAt: string }
 export interface FoundQuestion { text: string; createdAt: string }
 
 const startsWith = (body: string, marker: string) => body.trimStart().startsWith(marker);
+/** hx's own comments: a `<!-- hx-…` marker or a `**hx:**` line first. Never the owner's answer (#332). */
+const HX_PREFIXES = ['<!-- hx-', '**hx:**'];
+const isHxComment = (body: string) => HX_PREFIXES.some((m) => startsWith(body, m));
+const isCapComment = (body: string) => [TOO_MANY_QUESTIONS, IMPL_TOO_MANY_QUESTIONS].includes(body.trim());
 const time = (iso: string) => { const t = Date.parse(iso); return Number.isNaN(t) ? -Infinity : t; };
 
 /**
@@ -22,11 +30,12 @@ export function findQuestion(body: string, comments: ThreadComment[], issueCreat
 
 /**
  * The owner's answer: the first comment by a trusted login (lowercased: the gh login + trustedAuthors), created
- * after the question, that is not one of hx's own `<!-- hx-` comments. A comment without an author never counts.
+ * after the question, that is not one of hx's own comments (`<!-- hx-…` or `**hx:**` first, the cap comments among
+ * them). A comment without an author never counts.
  */
 export function findAnswer(question: FoundQuestion, comments: ThreadComment[], trusted: Set<string>): ThreadComment | null {
   const after = time(question.createdAt);
-  return comments.find((c) => !!c.author && trusted.has(c.author.toLowerCase()) && !startsWith(c.body, '<!-- hx-')
+  return comments.find((c) => !!c.author && trusted.has(c.author.toLowerCase()) && !isHxComment(c.body)
     && time(c.createdAt) > after) ?? null;
 }
 
@@ -40,6 +49,29 @@ export function ownerAnswer(t: { body: string; createdAt: string; comments: Thre
   if (!q) return null;
   const a = findAnswer(q, own, trusted);
   return a ? { question: q.text, answer: a.body.trim() } : null;
+}
+
+/**
+ * The question on an issue hx put back to ready-for-agent at the cap (a cap comment after it) and that the owner has
+ * not answered, or null. Like ownerAnswer, only trusted comments count.
+ */
+export function cappedQuestion(t: { body: string; createdAt: string; comments: ThreadComment[] }, trusted: Set<string>): string | null {
+  const own = t.comments.filter((c) => !!c.author && trusted.has(c.author.toLowerCase()));
+  const q = findQuestion(t.body, own, t.createdAt);
+  if (!q || findAnswer(q, own, trusted)) return null;
+  const after = time(q.createdAt);
+  return own.some((c) => isCapComment(c.body) && time(c.createdAt) >= after) ? q.text : null;
+}
+
+/** {{OWNER_ANSWER}} for a capped question: the owner was not asked; take the recommended choice and say so. */
+export function cappedQuestionNote(question: string | null): string {
+  if (question === null) return '';
+  return `The owner was not asked this issue's question: too many questions were open. Take the recommended choice yourself and note it in the PR body under \`## Decisions made for you\`.
+
+The question:
+
+${question}
+`;
 }
 
 /** {{OWNER_ANSWER}} in the impl prompt: the question and the owner's answer verbatim, and what to do with them. */
