@@ -17,7 +17,8 @@ The task:
    - the change to make;
    - acceptance criteria a test can check;
    - the edge cases.
-4. If the task is clearly bigger than one issue (several independent parts, or more than about a day of
+4. Sizing: keep one issue to about 30–45 min of work for one session; split anything bigger.
+   If the task is clearly bigger than one issue (several independent parts, or more than one session of
    work), tell the user and recommend `hx grill` instead. If they insist, write the one issue anyway.
 5. Write the issue to `{{OUTPUT}}` in this shape:
      # <title>

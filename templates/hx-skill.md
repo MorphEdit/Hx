@@ -52,6 +52,9 @@ Write the PRD to a markdown file (for example `.hx/prds/<short-name>.md`) in thi
     ## Edge cases
     ## Notes for implementers
 
+Sizing: keep one issue to about 30–45 min of work for one session; split anything bigger. Write the
+PRD so the decomposer can cut it into issues of that size.
+
 To have hx compare the result with a real product after the criteria pass, add an optional
 `## Quality bar` section: `Beat: <named product> — <URL>`, then `Judged on:` with 2–4 dimensions as a list.
 
