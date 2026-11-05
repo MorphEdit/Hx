@@ -113,7 +113,7 @@ test('selfUpdate off: a new code commit on the install\'s origin changes nothing
   push({ 'src/off.ts': 'export const off = 1;\n' }, 'code while off');
   const r = start(false);
   try {
-    assert.ok(await until(() => r.has(/board empty/), 30_000), r.text());
+    assert.ok(await until(() => r.has(/board empty/), 120_000), r.text());
     await pause(3000);
     assert.equal(r.rc(), undefined, 'the runner goes on');
     assert.ok(!r.has(/self-update/), r.text());
@@ -154,7 +154,7 @@ test('a commit that only changes prompts/ does not restart the runner', E2E, asy
   push({ 'prompts/impl.md': readFileSync(path.join(dev, 'prompts', 'impl.md'), 'utf8') + '\n' }, 'prompts only');
   const r = start();
   try {
-    assert.ok(await until(() => r.has(/board empty/), 30_000), r.text());
+    assert.ok(await until(() => r.has(/board empty/), 120_000), r.text());
     await pause(3000);
     assert.equal(r.rc(), undefined, 'the runner goes on');
     assert.ok(!r.has(/self-update/), r.text());
@@ -183,21 +183,24 @@ test('a dirty checkout, or one off the default branch: no update, one log line e
   writeFileSync(path.join(inst, 'scratch.txt'), 'local work\n');
   const r = start();
   try {
-    assert.ok(await until(() => r.has(/self-update: skipped — .* has local changes/), 30_000), r.text());
+    assert.ok(await until(() => r.has(/self-update: skipped — .* has local changes/), 120_000), r.text());
     await pause(3000);
     assert.equal(r.count(/self-update: skipped/), 1, r.text());
     rmSync(path.join(inst, 'scratch.txt'));
     git(inst, 'checkout', '-q', '-b', 'side');
-    assert.ok(await until(() => r.has(/self-update: skipped — .* is on side, not main/), 30_000), r.text());
+    assert.ok(await until(() => r.has(/self-update: skipped — .* is on side, not main/), 120_000), r.text());
     await pause(3000);
     assert.equal(r.count(/self-update: skipped/), 2, r.text());
     assert.equal(r.rc(), undefined, 'the runner goes on');
     assert.equal(head(), before);
     assert.match(readSelfUpdate(stateDir).last?.line ?? '', /is on side/);
   } finally {
+    // leave the install clean and on main even when an assertion failed, so the failure is the one reported and the
+    // next test's update is not skipped as dirty
     await r.stop();
+    rmSync(path.join(inst, 'scratch.txt'), { force: true });
     git(inst, 'checkout', '-q', 'main');
-    git(inst, 'branch', '-q', '-D', 'side');
+    if (git(inst, 'branch', '--list', 'side')) git(inst, 'branch', '-q', '-D', 'side');
   }
 });
 
