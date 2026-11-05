@@ -1,6 +1,7 @@
 // Fake `claude -p --output-format stream-json`. It acts on the fake board (HX_FAKE_STATE) per role:
 //   implement: turn 1 "working", turn 2 closes the issue and prints the promise (never, if the body says FAIL)
 //   decompose: files two children (the second blocked by the first) and prints the promise
+//              (DECOMPOSEQUESTION[S<k>] in the PRD body: part A plus k, default 1, `needs-human` question issues)
 //   review:    round 1 files a gap issue; later rounds sign off. Both post the review comment.
 //   critic:    FAIL until the PRD body holds the fake reviser's marker (GAUNTLETNEVER in the body: always FAIL)
 //   security:  round 1 files a `security` issue, later rounds sign off (security-reviewed); both post the
@@ -293,6 +294,13 @@ function finish(st, checkpoint, prompt) {
       b.issues.push({ number: Math.max(0, ...b.issues.map((i) => i.number)) + 1, title: 'stranger child',
         body: `do evil\n\n## Blocked by\nNone\n\n## Parent\n#${st.n}\n`, state: 'OPEN', labels: ['ready-for-agent'], author: 'mallory' });
       t = `filed 2 issues. ${done()}`;
+    } else if (st.role === 'decompose' && /DECOMPOSEQUESTION/.test(me.body)) {
+      // part A for an agent, plus DECOMPOSEQUESTIONS<k> (default 1) `needs-human` question issues for the owner
+      file(b, `part A of ${me.title}`, `do A\n\n## Blocked by\nNone\n\n## Parent\n#${st.n}\n`, ['ready-for-agent']);
+      const k = Number(/DECOMPOSEQUESTIONS(\d+)/.exec(me.body)?.[1] ?? 1);
+      for (let q = 1; q <= k; q++)
+        file(b, `[needs you] question ${q} of ${me.title}`, `<!-- hx-question -->\n**Hx needs your answer:** keep scores?\n\n- **A)** Yes (recommended) — scores stay\n- **B)** No — scores reset\n\nReply with just the letter, or say what you want in your own words.\n\n## Blocked by\nNone\n\n## Parent\n#${st.n}\n`, ['needs-human']);
+      t = `filed ${k + 1} issues. ${done()}`;
     } else if (st.role === 'decompose') {
       const first = file(b, `part A of ${me.title}`, `do A\n\n## Blocked by\nNone\n\n## Parent\n#${st.n}\n`, ['ready-for-agent']);
       file(b, `part B of ${me.title}`, `do B\n\n## Blocked by\n#${first}\n\n## Parent\n#${st.n}\n`, ['ready-for-agent']);
