@@ -20,7 +20,8 @@ process.env.HX_FAKE_DIR = fakeDir;
 mkdirSync(fakeDir);
 
 const { runTurn } = await import('../src/agent.ts');
-const { namesDir, procsInDir, isInside, killByPath } = await import('../src/exec.ts');
+const exec = await import('../src/exec.ts');
+const { namesDir, procsInDir, isInside, killByPath } = exec;
 const { runPool } = await import('../src/pool.ts');
 const { DEFAULTS } = await import('../src/config.ts');
 const { setPause, clearPause } = await import('../src/runstate.ts');
@@ -205,4 +206,35 @@ test('hx run start: a process left in a worktree with no live session is killed,
     assert.ok(alive(bystander), 'a process with the same name outside the worktree root is not touched');
     assert.ok(!existsSync(left), 'the directory, no longer held open, is removed as a leftover');
   } finally { reap(victim); reap(bystander); }
+});
+
+test('parseProcessJson: a control byte in one command line (a character the code page lacks) never empties the listing', E2E, () => {
+  const { parseProcessJson } = exec;
+  const sub = String.fromCharCode(0x1a); // what code page 437 makes of `→`
+  const text = `[{"ProcessId":4,"ParentProcessId":0,"CommandLine":null},{"ProcessId":7,"ParentProcessId":4,"CommandLine":"bash -c \\"push ${sub} fail()\\""}]\r\n`;
+  assert.deepEqual(parseProcessJson(text), [{ pid: 4, ppid: 0, cmd: '' }, { pid: 7, ppid: 4, cmd: `bash -c "push ${sub} fail()"` }]);
+  assert.deepEqual(parseProcessJson('{"ProcessId":9,"ParentProcessId":1,"CommandLine":"node x.js"}'), [{ pid: 9, ppid: 1, cmd: 'node x.js' }], 'one process: an object, not an array');
+  assert.deepEqual(parseProcessJson('not json'), []);
+  assert.deepEqual(parseProcessJson(''), []);
+});
+
+test('listProcesses / sweepWorktrees: a bystander with non-ASCII in its command line is listed as it is and turns no sweep off', E2E, async () => {
+  const { sweepWorktrees } = await import('../src/worktree.ts');
+  const root = path.join(tmp, 'root-u');
+  mkdirSync(path.join(root, 'i285'), { recursive: true });
+  const arg = 'a → b — \u{1F600}';
+  const bystander = sleeper(arg);
+  const left = sleeper(path.join(root, 'i285', 'x.js'));
+  try {
+    const procs = await exec.listProcesses();
+    const me = procs.find((p) => p.pid === bystander);
+    assert.ok(me, `the bystander ${bystander} is listed (${procs.length} processes)`);
+    assert.ok(me.cmd.includes(arg), me.cmd);
+    let one: { pid: number; cmd: string }[] = [];
+    for (let i = 0; i < 3 && !one.length; i++) one = await exec.queryProcesses(); // WMI busy: an empty answer is tried again
+    assert.ok(one.find((p) => p.pid === bystander)?.cmd.includes(arg), 'one query already lists it, non-ASCII intact');
+    assert.deepEqual(await sweepWorktrees(root), [{ name: 'i285', killed: 1 }]);
+    assert.ok(await gone(left), 'the leftover is killed');
+    assert.ok(alive(bystander), 'the bystander is not touched');
+  } finally { reap(left); reap(bystander); }
 });

@@ -73,15 +73,30 @@ export async function listProcesses(tries = 3): Promise<Proc[]> {
   return [];
 }
 
-async function queryProcesses(): Promise<Proc[]> {
+/** The Win32_Process query. PowerShell writes its output in the console code page, where a character outside it
+ *  (`→` in another worker's Bash call) is a raw 0x1A byte that breaks the JSON; so every non-ASCII UTF-16 unit is
+ *  written as a \uXXXX escape and the output is plain ASCII, whatever the code page (#328). */
+export const WIN_PS_QUERY = 'Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,CommandLine | ConvertTo-Json -Compress'
+  + String.raw` | ForEach-Object { [regex]::Replace($_, '[^\x00-\x7F]', { param($m) '\u{0:x4}' -f [int][char]$m.Value }) }`;
+
+/** The processes in ConvertTo-Json's output (an array, or one object for a single process). A control byte inside a
+ *  string (what a code page makes of a character it lacks) is escaped first, so one odd command line never empties
+ *  the whole listing; output that is still not JSON is []. */
+export function parseProcessJson(text: string): Proc[] {
+  const t = text.trim().replace(/[\u0000-\u001f]/g, (c) => String.raw`\u` + c.charCodeAt(0).toString(16).padStart(4, '0'));
+  if (!t) return [];
+  try {
+    const j = JSON.parse(t);
+    return (Array.isArray(j) ? j : [j]).filter((x: any) => x && typeof x === 'object')
+      .map((x: any) => ({ pid: Number(x.ProcessId), ppid: Number(x.ParentProcessId), cmd: String(x.CommandLine ?? '') }));
+  } catch { return []; }
+}
+
+/** One process query (listProcesses tries it again when it lists nothing). */
+export async function queryProcesses(): Promise<Proc[]> {
   if (process.platform === 'win32') {
-    const r = await run('powershell', ['-NoProfile', '-NonInteractive', '-Command',
-      'Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,CommandLine | ConvertTo-Json -Compress']);
-    if (r.code !== 0) return [];
-    try {
-      const j = JSON.parse(r.stdout);
-      return (Array.isArray(j) ? j : [j]).map((x: any) => ({ pid: Number(x.ProcessId), ppid: Number(x.ParentProcessId), cmd: String(x.CommandLine ?? '') }));
-    } catch { return []; }
+    const r = await run('powershell', ['-NoProfile', '-NonInteractive', '-Command', WIN_PS_QUERY]);
+    return r.code === 0 ? parseProcessJson(r.stdout) : [];
   }
   const r = await run('ps', ['-eo', 'pid=,ppid=,args=']);
   if (r.code !== 0) return [];
