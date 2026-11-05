@@ -34,7 +34,7 @@ function repo(codes: number[] = [], upMs = 0) {
 }
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-test('backoff: 10 s, 30 s, 60 s, then 5 min; 5 crashes inside the window give up', () => {
+test('backoff: 10 s, 30 s, 60 s, then 5 min; 5 crashes inside the window give up', E2E, () => {
   const ms = BACKOFF_SECONDS.map((s) => s * 1000);
   assert.deepEqual([1, 2, 3, 4, 5, 9].map((i) => backoffFor(i, ms)), [10_000, 30_000, 60_000, 300_000, 300_000, 300_000]);
   const W = 600_000;
@@ -148,7 +148,7 @@ test('the dashboard state carries supervised and the last supervise line', E2E, 
 const spec = (o: Partial<ServiceSpec> = {}): ServiceSpec => ({ name: 'Hx-abcd1234', root: 'D:\\code\\Hx', node: 'C:\\Program Files\\nodejs\\node.exe',
   entry: 'C:\\npm\\hx\\bin\\hx.mjs', args: ['--workers', '2'], user: 'PC\\me', ...o });
 
-test('the task: logon trigger for the current user, no SYSTEM, no elevation, no boot trigger, hx supervise in the repo', () => {
+test('the task: logon trigger for the current user, no SYSTEM, no elevation, no boot trigger, hx supervise in the repo', E2E, () => {
   const x = taskXml(spec());
   assert.match(x, /<LogonTrigger><Enabled>true<\/Enabled><UserId>PC\\me<\/UserId><\/LogonTrigger>/);
   assert.match(x, /<Principal id="Author"><UserId>PC\\me<\/UserId><LogonType>InteractiveToken<\/LogonType><RunLevel>LeastPrivilege<\/RunLevel><\/Principal>/);
@@ -163,7 +163,7 @@ test('the task: logon trigger for the current user, no SYSTEM, no elevation, no 
   for (const bad of ['/RU', '/RL', '/RP', 'ONSTART', 'SYSTEM', 'HIGHEST']) assert.ok(!args.join(' ').toUpperCase().includes(bad), bad);
 });
 
-test('the task name: hx\\<repo name>-<hash of the repo path>, one per clone', () => {
+test('the task name: hx\\<repo name>-<hash of the repo path>, one per clone', E2E, () => {
   const a = serviceId('MorphEdit/Hx', 'D:\\code\\Hx'), b = serviceId('MorphEdit/Hx', 'D:\\other\\Hx');
   assert.match(a, /^Hx-[0-9a-f]{8}$/);
   assert.notEqual(a, b, 'two clones, two tasks');
@@ -230,11 +230,11 @@ test('hx service install on Linux and macOS prints the unit and the commands, an
   assert.match(systemdUnit(spec({ root: '/home/me/app', node: '/usr/bin/node', entry: '/opt/hx/bin/hx.mjs', args: [] })), /WorkingDirectory=\/home\/me\/app\nExecStart=\/usr\/bin\/node \/opt\/hx\/bin\/hx.mjs supervise\n/);
 });
 
-test('parseQuery reads the last result and run time', () => {
+test('parseQuery reads the last result and run time', E2E, () => {
   assert.deepEqual(parseQuery('Status:        Ready\r\nLast Run Time: 1/1/2026\r\nLast Result:   267011\r\n'), { status: 'Ready', lastRun: '1/1/2026', lastResult: '267011' });
 });
 
-test('README "Starting at logon" under "Stopping and resuming", and hx help, describe supervise and service', () => {
+test('README "Starting at logon" under "Stopping and resuming", and hx help, describe supervise and service', E2E, () => {
   const r = readFileSync(path.join(here, '..', 'README.md'), 'utf8');
   const start = r.indexOf('## Stopping and resuming');
   const sec = r.slice(start, r.indexOf('\n## ', start + 1));
