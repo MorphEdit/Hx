@@ -136,7 +136,10 @@ test('a trusted answer relabels a needs-human issue ready, and the impl prompt c
   assert.equal(prompts.length, 1);
   assert.ok(prompts[0].includes(QTEXT), prompts[0]);
   assert.ok(prompts[0].includes(answer), prompts[0]);
-  assert.doesNotMatch(prompts[0], /<!-- hx-question -->/);
+  // the question reaches the prompt with its marker stripped (the impl prompt's own question format carries one)
+  const note = prompts[0].slice(prompts[0].indexOf('The owner answered a question'), prompts[0].indexOf(answer));
+  assert.ok(note.includes(QTEXT), note);
+  assert.doesNotMatch(note, /<!-- hx-question -->/);
   assert.match(prompts[0], /quote their answer in the PR body under `## Owner decisions`/);
 });
 
