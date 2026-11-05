@@ -305,6 +305,13 @@ one interface, `AgentCli`, in `src/agents/`. The `agentCli` config key picks the
 
 While paused, `hx run` refuses to start until `hx resume`. Only one `hx run` per repo can run at a time.
 
+**Leftover processes:** a turn that is stopped, times out, stalls or fails kills the agent's whole process tree
+(`taskkill /T /F` on Windows, the process group elsewhere), then every process whose command line names a path in the
+session's worktree: a test run whose parent shell has already exited is no longer in the tree. At `hx run` start, and
+before each health pass, the same sweep runs for every directory under `worktreeRoot` with no live session, one line
+per directory: `health: killed N leftover process(es) in i285`. Nothing outside `worktreeRoot` is touched, nor the
+runner or its parents.
+
 **Self-update:** with `selfUpdate: true` (off by default; `hx init` asks when hx runs from a git checkout), `hx run --watch`
 keeps its own hx install up to date. At most every `selfUpdateMinutes` (default 15), and only while no session runs,
 nothing is claimed and `.hx/pause` is absent, it checks for newer code:

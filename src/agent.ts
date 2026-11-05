@@ -5,7 +5,7 @@ import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { createInterface } from 'node:readline';
 import { PROMISE_RE } from './state.ts';
-import { hideWindow, killTree, resolveCmd } from './exec.ts';
+import { hideWindow, killByPath, killTree, resolveCmd } from './exec.ts';
 import { claude } from './agents/claude.ts';
 import type { AgentCli } from './agents/types.ts';
 
@@ -50,6 +50,9 @@ export interface TurnOptions {
   onRateLimit?: (rl: RateLimit) => void; // the agent reported its usage window
   signal?: AbortSignal;
   env?: Record<string, string>; // added to this process's env for the session (e.g. HX_TRUSTED)
+  // the worktree root holding cwd: a turn that is killed or fails also kills every process whose command line names
+  // a path in cwd (#328), before it resolves. Unset, or cwd outside it: only the agent's own process tree.
+  sweepRoot?: string;
 }
 
 export function emptyUsage(): Usage {
@@ -86,16 +89,20 @@ export function runTurn(o: TurnOptions): Promise<TurnResult> {
     const res: TurnResult = { ok: false, text: '', usage: emptyUsage(), costUsd: 0, durationMs: 0, numTurns: 0 };
     let stderr = '';
 
-    const timer = setTimeout(() => { res.timedOut = true; killTree(child.pid); }, o.timeoutMs);
+    // what the agent started outlives a kill of its tree once the step between them has exited: swept by path after
+    const sweep = () => o.sweepRoot ? killByPath(o.cwd, o.sweepRoot).catch(() => 0) : Promise.resolve(0);
+    let killed: Promise<unknown> | undefined;
+    const kill = () => { killed ??= new Promise<void>((gone) => killTree(child.pid, false, gone)).then(sweep); };
+    const timer = setTimeout(() => { res.timedOut = true; kill(); }, o.timeoutMs);
     // a turn that stops printing (a stuck background command, a poll loop) is killed long before the timeout
     let stall: ReturnType<typeof setTimeout> | undefined;
     const armStall = () => {
       if (!o.stallMs) return;
       clearTimeout(stall);
-      stall = setTimeout(() => { res.stalled = true; killTree(child.pid); }, Math.max(o.stallMs, turn.waitMs?.() ?? 0));
+      stall = setTimeout(() => { res.stalled = true; kill(); }, Math.max(o.stallMs, turn.waitMs?.() ?? 0));
     };
     armStall();
-    const onAbort = () => killTree(child.pid);
+    const onAbort = () => kill();
     o.signal?.addEventListener('abort', onAbort, { once: true });
 
     createInterface({ input: child.stdout! }).on('line', (line) => {
@@ -114,7 +121,9 @@ export function runTurn(o: TurnOptions): Promise<TurnResult> {
       o.signal?.removeEventListener('abort', onAbort);
       res.durationMs = Date.now() - started;
       turn.finish(res, code, stderr);
-      resolve(res);
+      // a turn that failed on its own may have left processes too; the worktree is removed or kept only after
+      const after = killed ?? (res.ok ? null : sweep());
+      if (after) after.then(() => resolve(res)); else resolve(res);
     });
     child.stdin!.end(o.prompt); // prompt via stdin: no Windows command-line length or quoting limits
   });

@@ -41,6 +41,7 @@
 // FAKE_CLAUDE_ENV_OUT=<file>: writes its BASH_MAX_TIMEOUT_MS and BASH_DEFAULT_TIMEOUT_MS there as it starts.
 // FAKE_CLAUDE_TESTS=1: every reply first runs two timestamped test commands (`npm test` passes, `node --test` ends `Exit code 1`)
 // and one non-test command (`cat test/x.ts`).
+// FAKE_CLAUDE_ORPHAN=<file>: an implement session's first turn leaves an orphaned 60 s sleeper (its pid in <file>).
 // FAKE_CLAUDE_START_MS delays the stall mode's start, as a slow node startup on a loaded machine does.
 import { spawn, spawnSync } from 'node:child_process';
 import { appendFileSync, existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -142,6 +143,13 @@ process.stdin.on('data', (d) => (prompt += d)).on('end', () => {
   // FAKE_CLAUDE_PAUSE_START=<.hx/pause>: `hx pause` lands while the session is mid-turn, however slow the machine
   if (process.env.FAKE_CLAUDE_PAUSE_START && st.role === 'implement' && st.turns === 1 && !checkpoint)
     writeFileSync(process.env.FAKE_CLAUDE_PAUSE_START, 'drain');
+  // FAKE_CLAUDE_ORPHAN=<file>: an implement session's first turn starts a 60 s sleeper whose command line names its cwd,
+  // through a step that exits at once (what a timed-out Bash tool call leaves), and writes the sleeper's pid there
+  if (process.env.FAKE_CLAUDE_ORPHAN && st.role === 'implement' && st.turns === 1 && !checkpoint) {
+    const step = `const c = require('child_process').spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60e3)', ${JSON.stringify(process.cwd())}],
+      { stdio: 'ignore', detached: true }); require('fs').writeFileSync(${JSON.stringify(process.env.FAKE_CLAUDE_ORPHAN)}, String(c.pid)); c.unref();`;
+    spawnSync(process.execPath, ['-e', step], { stdio: 'ignore' });
+  }
   // FAKE_CLAUDE_RATE=<0..1>: report that much of the five-hour window used, resetting in FAKE_CLAUDE_RESET_S (default 2) seconds
   if (process.env.FAKE_CLAUDE_RATE)
     out({ type: 'rate_limit_event', rate_limit_info: { status: 'allowed_warning', utilization: Number(process.env.FAKE_CLAUDE_RATE),
