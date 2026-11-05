@@ -12,6 +12,7 @@ import { clearPause, setPause, writeLive } from '../src/runstate.ts';
 import { parseQuery, schtasksCreate, service, serviceId, systemdUnit, taskName, taskXml, type ServiceSpec } from '../src/service.ts';
 import { dashboardState } from '../src/dashboard.ts';
 import { DEFAULTS, saveConfig } from '../src/config.ts';
+import { docsText } from './docs-text.ts';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const RUNNER = path.join(here, 'fakes', 'runner.mjs');
@@ -235,7 +236,7 @@ test('parseQuery reads the last result and run time', E2E, () => {
 });
 
 test('README "Starting at logon" under "Stopping and resuming", and hx help, describe supervise and service', E2E, () => {
-  const r = readFileSync(path.join(here, '..', 'README.md'), 'utf8');
+  const r = docsText();
   const start = r.indexOf('## Stopping and resuming');
   const sec = r.slice(start, r.indexOf('\n## ', start + 1));
   assert.ok(sec.includes('### Starting at logon'));

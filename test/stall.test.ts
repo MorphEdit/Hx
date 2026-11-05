@@ -7,6 +7,7 @@ import { mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { docsText } from './docs-text.ts';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.join(here, '..');
@@ -122,7 +123,7 @@ test('the ten worker prompts (not grill) carry the foreground-only rule verbatim
 
 test('stallMinutes: default 15, documented in the README config table and CLAUDE.md', E2E, () => {
   assert.equal(DEFAULTS.stallMinutes, 15);
-  const r = readFileSync(path.join(root, 'README.md'), 'utf8');
+  const r = docsText();
   assert.ok(r.split('\n').some((l) => l.startsWith('| `stallMinutes` | 15 |') && /0 = off/.test(l) && /killed/.test(l)));
   const c = readFileSync(path.join(root, 'CLAUDE.md'), 'utf8');
   assert.match(c.slice(c.indexOf('## Conventions'), c.indexOf('## Next up')), /foreground/);

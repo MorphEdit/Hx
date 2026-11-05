@@ -6,9 +6,10 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DEFAULTS } from '../src/config.ts';
+import { docsText } from './docs-text.ts';
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
-const read = (f: string) => readFileSync(path.join(root, f), 'utf8');
+const read = (f: string) => (f === 'README.md' ? docsText() : readFileSync(path.join(root, f), 'utf8'));
 const LIFECYCLE = 'gauntlet → decompose → building → review → security → bar → done';
 // A config table row starting `| `key` | value |` (plain text, no regex).
 const hasRow = (doc: string, key: string, value: string) => doc.split('\n').some((l) => l.startsWith(`| \`${key}\` | ${value} |`));
@@ -448,7 +449,7 @@ test('self-update: README paragraph in Stopping and resuming, config rows, Files
 });
 
 test('needs-human: README maxOpenQuestions row and needs-human label', () => {
-  const r = readFileSync(path.join(root, 'README.md'), 'utf8');
+  const r = docsText();
   assert.ok(hasRow(r, 'maxOpenQuestions', String(DEFAULTS.maxOpenQuestions)), 'maxOpenQuestions row');
   const labels = r.split('\n').find((l) => l.startsWith('| `labels`'))!;
   assert.ok(labels.includes(`\`${DEFAULTS.labels.needsHuman}\``) && labels.includes('`needsHuman`'), 'needsHuman label');

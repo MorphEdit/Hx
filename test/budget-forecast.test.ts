@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { actionForecast, calibrate, currentReading, forecastPct, gateDecision, percentile, roleForecast, sessions, type Reading } from '../src/budget.ts';
 import { DEFAULTS } from '../src/config.ts';
 import type { UsageRecord } from '../src/usage.ts';
+import { docsText } from './docs-text.ts';
 
 const t = (min: number) => new Date(Date.UTC(2026, 10, 2, 10, min)).toISOString();
 const rd = (min: number, utilization: number, resetsAt = 9_999_999_999, window = 'five_hour'): Reading => ({ ts: t(min), window, utilization, resetsAt });
@@ -136,6 +137,6 @@ test('gateDecision: blocks when used + forecast > cap on a calibrated window wit
 });
 
 test('README config table has the budgetMinPairs row with its default', () => {
-  const readme = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'README.md'), 'utf8');
+  const readme = docsText();
   assert.ok(readme.split('\n').some((l) => l.startsWith(`| \`budgetMinPairs\` | ${DEFAULTS.budgetMinPairs} |`)));
 });

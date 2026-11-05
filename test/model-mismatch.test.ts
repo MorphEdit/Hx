@@ -8,6 +8,7 @@ import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { docsText } from './docs-text.ts';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const tmp = mkdtempSync(path.join(os.tmpdir(), 'hx-mm-'));
@@ -79,7 +80,7 @@ test('hx status: one mismatched session (two turns) prints the line; matching, c
 });
 
 test('docs: README shows how to spot a mismatch; design.md records per-role models as opt-in with the mismatch guard', E2E, () => {
-  const r = readFileSync(path.join(here, '..', 'README.md'), 'utf8');
+  const r = docsText();
   for (const w of ['model mismatch: <role> asked', 'model mismatch: N session(s) — see run.log', 'hx status', '**model mismatch** row']) assert.ok(r.includes(w), w);
   const d = readFileSync(path.join(here, '..', 'docs', 'design.md'), 'utf8');
   assert.match(d, /## Models per role/);
