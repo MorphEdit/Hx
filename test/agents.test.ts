@@ -71,6 +71,23 @@ test('runTurn without agent uses the claude adapter (the stream-json fake still 
   assert.deepEqual(r.limited, { resetsAt: 4102444800 });
 });
 
+test('the claude adapter: text is every text block of the turn, final the result alone (else the last text block)', E2E, () => {
+  const feed = (evs: any[]) => {
+    const t = claude.turn(base({}));
+    const res: any = { ok: false, text: '', usage: {}, costUsd: 0, durationMs: 0, numTurns: 0 };
+    for (const e of evs) t.line(JSON.stringify(e), res);
+    t.finish(res, 0, '');
+    return res;
+  };
+  const said = (text: string) => ({ type: 'assistant', message: { content: [{ type: 'text', text }, { type: 'tool_use', id: text, name: 'Bash', input: {} }] } });
+  const r = feed([said('narration one'), said('narration two'), { type: 'assistant', message: { content: [{ type: 'text', text: 'the question' }] } },
+    { type: 'result', subtype: 'success', is_error: false, result: 'the question', num_turns: 3 }]);
+  assert.equal(r.text, 'narration one\nnarration two\nthe question');
+  assert.equal(r.final, 'the question');
+  assert.equal(feed([said('a'), said('b')]).final, 'b', 'no result: the last text block');
+  assert.equal(feed([said('a'), { type: 'result', subtype: 'success', result: 'only in result' }]).final, 'only in result');
+});
+
 test('the claude adapter: argv for a headless turn and an interactive session, bin = config.claudeBin', E2E, () => {
   const o = base({ model: 'claude-opus-5-5', effort: 'medium', extraArgs: ['--x'] });
   assert.deepEqual(claude.args(o), ['-p', '--output-format', 'stream-json', '--verbose', '--permission-mode', 'bypassPermissions',

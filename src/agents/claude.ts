@@ -44,6 +44,7 @@ export function shellEnv(turnTimeoutMs: number, env: NodeJS.ProcessEnv = process
 
 function claudeTurn(o: TurnOptions): AgentTurn {
   const texts: string[] = [];
+  let final = ''; // the result event's result, else the last text block
   const pending = new Set<string>(); // tool calls started and not answered yet
   const shellMs = Number(shellEnv(o.timeoutMs).BASH_MAX_TIMEOUT_MS) || 0;
   let gotResult = false;
@@ -55,7 +56,7 @@ function claudeTurn(o: TurnOptions): AgentTurn {
       const rl = rateLimitOf(ev);
       if (ev.type === 'assistant') {
         for (const c of ev.message?.content ?? []) {
-          if (c.type === 'text' && c.text) texts.push(c.text);
+          if (c.type === 'text' && c.text) { texts.push(c.text); final = c.text; }
           else if (c.type === 'tool_use' && c.id) pending.add(c.id);
         }
       } else if (ev.type === 'user') {
@@ -76,7 +77,10 @@ function claudeTurn(o: TurnOptions): AgentTurn {
           res.error = `${ev.api_error_status ? `API ${ev.api_error_status}` : ev.subtype}: ${String(ev.result ?? '').slice(0, 500)}`;
           if (FATAL_STATUS.has(Number(ev.api_error_status))) res.fatal = true;
         }
-        if (typeof ev.result === 'string' && ev.result && !texts.includes(ev.result)) texts.push(ev.result);
+        if (typeof ev.result === 'string' && ev.result) {
+          final = ev.result;
+          if (!texts.includes(ev.result)) texts.push(ev.result);
+        }
       }
       return rl ? { event: ev, rateLimit: rl } : { event: ev };
     },
@@ -84,6 +88,7 @@ function claudeTurn(o: TurnOptions): AgentTurn {
     waitMs: () => (pending.size && shellMs ? shellMs + 60_000 : 0),
     finish(res, code, stderr) {
       res.text = texts.join('\n');
+      res.final = final;
       if (!gotResult) {
         res.ok = false;
         res.error = res.stalled ? `stalled: no output for ${o.stallMs! / 60000} min`

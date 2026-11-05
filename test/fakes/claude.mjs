@@ -153,8 +153,13 @@ process.stdin.on('data', (d) => (prompt += d)).on('end', () => {
   setTimeout(() => finish(st, checkpoint, prompt), checkpoint ? 0 : Number(process.env.FAKE_CLAUDE_DELAY_MS ?? 0));
 });
 
-function reply(text) {
+/** narrate: text blocks (each with a Bash call) before the final message, as a real turn has them */
+function reply(text, narrate = []) {
   out({ type: 'system', subtype: 'init' });
+  narrate.forEach((t, i) => {
+    out({ type: 'assistant', message: { content: [{ type: 'text', text: t }, { type: 'tool_use', id: `n${i}`, name: 'Bash', input: { command: 'git status' } }] } });
+    out({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: `n${i}`, content: 'ok' }] } });
+  });
   if (process.env.FAKE_CLAUDE_TESTS) {
     const at = (d) => new Date(Date.now() + d).toISOString();
     out({ type: 'assistant', timestamp: at(-40), message: { content: [
@@ -197,7 +202,10 @@ function finish(st, checkpoint, prompt) {
     writeFileSync(askedFile, '');
     writeFileSync(path.join(process.cwd(), `wip-${st.n}.txt`), 'half done\n');
     const q = '**Hx needs your answer:** keep the scores after a restart?\n\n- **A)** Yes (recommended) — scores stay\n- **B)** No — scores reset\n\nReply with just the letter, or say what you want in your own words.';
-    return reply(`${/IMPLQUESTIONBARE/.test(body) ? '' : '<!-- hx-question -->\n'}${q}\n\n<promise>NEEDS_HUMAN ${st.n}</promise>`);
+    // IMPLQUESTIONNARRATE: narration (one line with a marker of its own) and tool calls before the final message
+    const narrate = /IMPLQUESTIONNARRATE/.test(body) ? ["I'll read the issue and run the tests first.",
+      `<!-- hx-question --> Committed and pushed the WIP to issue/${st.n} (src/scores.ts).`] : [];
+    return reply(`${/IMPLQUESTIONBARE/.test(body) ? '' : '<!-- hx-question -->\n'}${q}\n\n<promise>NEEDS_HUMAN ${st.n}</promise>`, narrate);
   }
   // audited implementer: really commit, then really run ship.mjs --no-merge (real git, fake gh)
   if (st.role === 'implement' && / --no-merge/.test(prompt) && !checkpoint) {

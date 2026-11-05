@@ -1098,8 +1098,9 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
       log(`asked a question, but ${open} of at most ${c.maxOpenQuestions} are open — not posted, back to ${L.ready} (${summary}); worktree kept`, n);
       return r;
     }
+    // the question is the final message alone: the narration before it (tool calls, pushes) never reaches the owner
     // a question that cannot be posted fails the issue: released, the next session would only ask it again
-    try { await gh.comment(c.repo, n, questionFromReply(r.last?.text ?? '', PROMISE_RE(askPromise!))); } catch (e: any) {
+    try { await gh.comment(c.repo, n, questionFromReply(r.last?.final || r.last?.text || '', PROMISE_RE(askPromise!))); } catch (e: any) {
       return fail(r, `the question for the owner could not be posted: ${String(e?.message ?? e).slice(0, 300)}`, summary);
     }
     await relabel(c.repo, n, [L.needsHuman], [L.ready, L.working]);

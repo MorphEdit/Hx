@@ -186,6 +186,24 @@ test('impl NEEDS_HUMAN: a final message without the marker gets it added as the 
   assertAsked(21, lines);
 });
 
+test('impl NEEDS_HUMAN: only the final message is posted, never the narration before it (tool calls, a marker of its own)', E2E, async () => {
+  board([ready(29, 'Save scores. IMPLQUESTION IMPLQUESTIONNARRATE'), ready(30, 'Save scores. IMPLQUESTION IMPLQUESTIONNARRATE IMPLQUESTIONBARE')]);
+  const { rc, lines } = await run();
+  assert.equal(rc, 0, lines.join('\n'));
+  for (const n of [29, 30]) {
+    assertAsked(n, lines);
+    assert.ok(!commentsOn(n).some((b) => /I'll read the issue|Committed and pushed/.test(b)), commentsOn(n).join('\n---\n'));
+  }
+  answer(29, 'A');
+  const since = Date.now();
+  assert.equal((await run()).rc, 0);
+  const [p] = implPrompts(since);
+  assert.match(p, /The owner answered a question on this issue/);
+  const note = /The question:([\s\S]*?)The owner's answer:/.exec(p)?.[1] ?? '';
+  assert.match(note, /keep the scores after a restart\?/);
+  assert.doesNotMatch(note, /I'll read the issue|Committed and pushed|<!-- hx-question -->/, 'the owner note holds the question alone');
+});
+
 test('impl NEEDS_HUMAN on the audited path: the same, and no audit runs', E2E, async () => {
   board([ready(22, 'Save scores. IMPLQUESTION')]);
   const { rc, lines } = await run({ audit: true });

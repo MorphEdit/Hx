@@ -21,6 +21,7 @@ export interface Usage {
 export interface TurnResult {
   ok: boolean; // the turn ran to a result without an error
   text: string; // everything the model said this turn
+  final?: string; // the turn's final message alone (the CLI's result), without the narration before it
   usage: Usage;
   costUsd: number;
   durationMs: number;
