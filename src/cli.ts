@@ -8,7 +8,7 @@ import * as gh from './github.ts';
 import { resolveCmd, run, runOk } from './exec.ts';
 import { log, lookupTrusted, printPlan, readBar, readPlan, runLogFile, runPool, setRunLog, trustedEnv } from './pool.ts';
 import { killAllSessions } from './agent.ts';
-import { clearPause, nextLine, otherRunner, pidAlive, readLive, readPause, setPause, writeWake } from './runstate.ts';
+import { clearPause, nextLine, otherRunner, pidAlive, readLive, readPause, setPause, writeExit, writeWake } from './runstate.ts';
 import { fmtDuration, readGate, readGateRuns } from './gate.ts';
 import { testSeries, timeWindow, type TimeSummary } from './timing.ts';
 import { release, releaseGate, type BumpKind } from './release.ts';
@@ -21,7 +21,7 @@ import { ideaFrom, sessionPaths, sessionPrompt } from './grill.ts';
 import { formatSkills, installSkill } from './skills.ts';
 import { doctor, GITATTRIBUTES_LF, render } from './doctor.ts';
 import { healthPass, readHealth, renderResult } from './health.ts';
-import { hxRoot, installKind, readSelfUpdate } from './selfupdate.ts';
+import { crashRollback, hxRoot, installKind, readSelfUpdate, short, watchStatus } from './selfupdate.ts';
 import { addRepo, type Fleet, fleetDir, fleetFile, fleetWorkers, readFleet, readGithubHold, readHold, readRepos, registerRepo, removeRepo, sameRoot, slotsInUse, startFleetRun, writeFleet, writeRepos } from './fleet.ts';
 import { readSupervise, supervise } from './supervise.ts';
 import { service, syncAutoStart } from './service.ts';
@@ -407,7 +407,12 @@ async function runCmd(args: string[]): Promise<number> {
     process.on('disconnect', () => {});
     (process.channel as any)?.unref?.();
   }
-  return runPool(p, { workers, only, watch: args.includes('--watch'), dryRun, signal: ac.signal });
+  const watch = args.includes('--watch') && !dryRun;
+  // a watching runner's exit code, for a supervisor that is not its parent (a self-update started it, #316)
+  const code = await runPool(p, { workers, only, watch: args.includes('--watch'), dryRun, signal: ac.signal })
+    .catch((e) => { if (watch) writeExit(p.stateDir, 1); throw e; });
+  if (watch) writeExit(p.stateDir, code);
+  return code;
 }
 
 function workersArgs(args: string[]): string[] {
@@ -422,7 +427,8 @@ async function superviseCmd(args: string[]): Promise<number> {
   setRunLog(runLogFile(p.stateDir));
   // Ctrl+C reaches the runner too (one console): it checkpoints and exits 0, and so does the supervisor. Without a runner, stop now.
   process.on('SIGINT', () => { if (!readSupervise(p.stateDir).childPid) process.exit(130); });
-  return supervise({ stateDir: p.stateDir, root: p.root, entry: process.argv[1], args: workersArgs(args), log: (l) => log(l) });
+  return supervise({ stateDir: p.stateDir, root: p.root, entry: process.argv[1], args: workersArgs(args), log: (l) => log(l),
+    rollback: (why) => crashRollback(p.stateDir, hxRoot(), why, (l) => log(l)) });
 }
 
 async function serviceCmd(args: string[]): Promise<number> {
@@ -615,8 +621,11 @@ async function status(p = loadProject(), o: { github?: boolean } = {}): Promise<
   if (c.gate && gate) console.log(`gate     ${gate.ok ? 'green' : 'RED'} at ${gate.sha.slice(0, 7)} (${gate.command})${gate.ok ? '' : ' — only its fix issue is claimed'}`);
   const health = readHealth(p.stateDir).last; // runner or not; none before the first pass
   if (health) console.log(`health   ${ago(health.at)} ago — ${health.line}`);
-  const selfUpdate = readSelfUpdate(p.stateDir).last; // a watching runner's last self-update line, runner or not
+  const su = readSelfUpdate(p.stateDir), selfUpdate = su.last; // a watching runner's last self-update line, runner or not
   if (selfUpdate) console.log(`update   ${ago(selfUpdate.at)} ago — ${selfUpdate.line}`);
+  const watching = watchStatus(su.watch, Date.now()); // the open watch window after a self-update (#316), and the last rollback
+  if (watching) console.log(`watch    ${watching}`);
+  if (su.rollback) console.log(`rollback ${ago(su.rollback.at)} ago — ${short(su.rollback.from)} → ${short(su.rollback.to)} (${su.rollback.reason})`);
   const sv = readSupervise(p.stateDir);
   if (sv.pid && pidAlive(sv.pid)) console.log(`supervised · pid ${sv.pid}${sv.last ? ` — ${sv.last.line}` : ''}`);
   else if (sv.last) console.log(`supervise not running — ${ago(sv.last.at)} ago: ${sv.last.line}`);

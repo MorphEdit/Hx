@@ -4,7 +4,7 @@
 import { spawn } from 'node:child_process';
 import { readFileSync, renameSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { pidAlive, readLive, readPause } from './runstate.ts';
+import { pidAlive, readExit, readLive, readPause } from './runstate.ts';
 
 /** Seconds before the 1st, 2nd, 3rd and every later restart. */
 export const BACKOFF_SECONDS = [10, 30, 60, 300];
@@ -28,6 +28,8 @@ export interface SuperviseOptions {
   maxCrashes?: number; // default 5
   pollMs?: number; // how often a pause or a foreign runner is checked (default 5 s)
   env?: NodeJS.ProcessEnv;
+  // after a crash, before the restart: a self-update's open watch window rolls the install back (#316); true: rolled back
+  rollback?: (reason: string) => Promise<boolean>;
 }
 
 const stateFile = (stateDir: string) => path.join(stateDir, 'supervise.json');
@@ -97,21 +99,35 @@ export async function supervise(o: SuperviseOptions): Promise<number> {
       const child = spawn(process.execPath, [o.entry, 'run', '--watch', ...o.args], { cwd: o.root, stdio: 'inherit', env: o.env ?? process.env, windowsHide: true });
       state.childPid = child.pid;
       say(`started hx run (pid ${child.pid})`);
-      const code = await new Promise<number>((resolve) => {
+      let code = await new Promise<number>((resolve) => {
         child.on('error', () => resolve(1));
         child.on('exit', (c, sig) => resolve(c ?? (sig ? 1 : 0)));
       });
       state.childPid = undefined;
       if (code === 0) {
-        // a self-update hands the run lock to a new runner and exits 0: watch that one until it stops
-        const next = readLive(o.stateDir);
-        if (next && next.pid !== child.pid && pidAlive(next.pid)) {
-          say(`runner exited 0 and handed over to pid ${next.pid} — watching it`);
-          while (pidAlive(next.pid)) await sleep(pollMs);
-          if (readLive(o.stateDir)?.pid !== next.pid) { say('runner stopped (exit 0) — not restarting'); return 0; }
-          say(`runner pid ${next.pid} stopped without clearing its run lock`); // a crash
-        } else { say('runner stopped (exit 0) — not restarting'); return 0; }
+        // a self-update hands the run lock to a new runner and exits 0: watch that one, and each one it hands over to
+        // (its own self-update, or a rollback's runner), until one stops
+        let next = readLive(o.stateDir), watched = 0;
+        while (next && next.pid !== child.pid && pidAlive(next.pid)) {
+          say(watched ? `runner pid ${watched} handed over to pid ${next.pid} — watching it` : `runner exited 0 and handed over to pid ${next.pid} — watching it`);
+          watched = next.pid;
+          while (pidAlive(watched)) await sleep(pollMs);
+          next = readLive(o.stateDir);
+        }
+        if (!watched) { say('runner stopped (exit 0) — not restarting'); return 0; }
+        if (next?.pid === watched) say(`runner pid ${watched} stopped without clearing its run lock`); // a crash
+        else {
+          // not this supervisor's child: its exit code is the one it recorded; none (it could not write it) and no
+          // pause counts as a crash, since a watching runner stops by itself only for a pause or a handover
+          const recorded = readExit(o.stateDir, watched);
+          code = recorded ?? (readPause(o.stateDir) ? 0 : 1);
+          if (code === 0) { say('runner stopped (exit 0) — not restarting'); return 0; }
+          say(`runner pid ${watched} exited ${recorded === null ? 'without recording its exit code' : code}`);
+        }
       }
+      // inside a self-update's watch window the crashed version is rolled back first, so the restart runs the old one.
+      // Not after a pause: a person stopped it
+      if (o.rollback && !readPause(o.stateDir)) await o.rollback(code ? `the runner exited ${code}` : 'the runner stopped without clearing its run lock').catch(() => false);
       const at = Date.now();
       if (at - startedAt >= resetAfterMs) streak = 0;
       crashes.push(at);
