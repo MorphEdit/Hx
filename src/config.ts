@@ -14,6 +14,7 @@ export interface Labels {
   gateFix: string;
   bug: string; // a bug report: triaged (reproduced) before it is built, and built before other work
   triaged: string; // a triage session reproduced the bug
+  needsHuman: string; // waiting on the owner's answer: never claimed, even with `ready`
 }
 
 export interface LabelSpec { name: string; color: string; description: string }
@@ -33,6 +34,7 @@ export function labelSpecs(L: Labels): LabelSpec[] {
     { name: L.gateFix, color: 'b60205', description: 'hx: fixes a red default branch (the only work claimed while it is red)' },
     { name: L.bug, color: 'd73a4a', description: 'hx: a bug, triaged (reproduced) before it is built, then built first' },
     { name: L.triaged, color: 'f9d0c4', description: 'hx: a triage session reproduced the bug: it may be built' },
+    { name: L.needsHuman, color: 'ff9f1c', description: "hx: waiting on the owner's answer" },
   ];
 }
 
@@ -43,6 +45,7 @@ export interface Config {
   model: string;
   effort: string; // claude --effort: low | medium | high | xhigh | max ('' = the CLI's default)
   maxIterations: number; // Ralph-loop turns per issue before giving up
+  maxOpenQuestions: number; // open needs-human issues at once (the owner's questions)
   gauntlet: boolean; // critique and revise a PRD in rounds before it is decomposed
   gauntletRounds: number; // critic → reviser rounds before the PRD is decomposed anyway
   reviewRounds: number; // PRD reviews (each may file gap issues) before a human has to look
@@ -99,6 +102,7 @@ export const DEFAULTS: Omit<Config, 'repo' | 'defaultBranch' | 'worktreeRoot'> =
   model: 'claude-opus-5-5', // a full id: the `opus` alias may resolve to an older Opus
   effort: 'medium',
   maxIterations: 8,
+  maxOpenQuestions: 3,
   gauntlet: true,
   gauntletRounds: 2,
   reviewRounds: 3,
@@ -142,7 +146,7 @@ export const DEFAULTS: Omit<Config, 'repo' | 'defaultBranch' | 'worktreeRoot'> =
   worktreeSetup: '',
   worktreeSetupMinutes: 10,
   worktreeCopy: [],
-  labels: { ready: 'ready-for-agent', working: 'agent-working', blocked: 'agent-blocked', prd: 'prd', reviewed: 'prd-reviewed', hardened: 'prd-hardened', secured: 'security-reviewed', security: 'security', barPassed: 'quality-bar-passed', gateFix: 'hx-gate-fix', bug: 'bug', triaged: 'bug-triaged' },
+  labels: { ready: 'ready-for-agent', working: 'agent-working', blocked: 'agent-blocked', prd: 'prd', reviewed: 'prd-reviewed', hardened: 'prd-hardened', secured: 'security-reviewed', security: 'security', barPassed: 'quality-bar-passed', gateFix: 'hx-gate-fix', bug: 'bug', triaged: 'bug-triaged', needsHuman: 'needs-human' },
 };
 
 /** The roles a session runs as: the keys roleModels accepts. */

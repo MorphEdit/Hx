@@ -446,3 +446,10 @@ test('self-update: README paragraph in Stopping and resuming, config rows, Files
   assert.ok(d.includes('## Self-update (#253)'), 'design: Self-update');
   assert.ok(c.includes('`selfupdate.ts`'), 'CLAUDE.md names selfupdate.ts');
 });
+
+test('needs-human: README maxOpenQuestions row and needs-human label', () => {
+  const r = readFileSync(path.join(root, 'README.md'), 'utf8');
+  assert.ok(hasRow(r, 'maxOpenQuestions', String(DEFAULTS.maxOpenQuestions)), 'maxOpenQuestions row');
+  const labels = r.split('\n').find((l) => l.startsWith('| `labels`'))!;
+  assert.ok(labels.includes(`\`${DEFAULTS.labels.needsHuman}\``) && labels.includes('`needsHuman`'), 'needsHuman label');
+});
