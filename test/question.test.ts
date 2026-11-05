@@ -29,19 +29,19 @@ const c = (author: string, body: string, createdAt: string) => ({ author, body, 
 const Q = `${QUESTION_MARKER}\n**Hx needs your answer:** local or cloud?\n\n- **A)** local (recommended) — on this PC\n- **B)** cloud — online`;
 const QTEXT = Q.replace(QUESTION_MARKER, '').trim();
 
-test('findQuestion: the issue body when no comment starts with the marker, marker stripped, the issue\'s time', () => {
+test('findQuestion: the issue body when no comment starts with the marker, marker stripped, the issue\'s time', E2E, () => {
   assert.deepEqual(findQuestion(Q, [c('hx-bot', 'unrelated', '2026-01-02T00:00:00Z')], '2026-01-01T00:00:00Z'),
     { text: QTEXT, createdAt: '2026-01-01T00:00:00Z' });
 });
 
-test('findQuestion: a question comment overrides the body; the latest of several wins; leading space is allowed', () => {
+test('findQuestion: a question comment overrides the body; the latest of several wins; leading space is allowed', E2E, () => {
   const comments = [c('hx-bot', `${QUESTION_MARKER}\nfirst?`, '2026-01-02T00:00:00Z'), c('alice', 'A', '2026-01-03T00:00:00Z'),
     c('hx-bot', `  ${QUESTION_MARKER}\nsecond?`, '2026-01-04T00:00:00Z')];
   assert.deepEqual(findQuestion('the body', comments, '2026-01-01T00:00:00Z'), { text: 'second?', createdAt: '2026-01-04T00:00:00Z' });
   assert.deepEqual(findQuestion('the body', comments.slice(0, 1), '2026-01-01T00:00:00Z'), { text: 'first?', createdAt: '2026-01-02T00:00:00Z' });
 });
 
-test('findAnswer: the first trusted comment after the question; earlier, hx-marker and untrusted comments do not count', () => {
+test('findAnswer: the first trusted comment after the question; earlier, hx-marker and untrusted comments do not count', E2E, () => {
   const q = { text: 'second?', createdAt: '2026-01-04T00:00:00Z' };
   const comments = [
     c('alice', 'A (to the first question)', '2026-01-03T00:00:00Z'), // before the latest question
@@ -56,7 +56,7 @@ test('findAnswer: the first trusted comment after the question; earlier, hx-mark
   assert.equal(findAnswer(q, comments.slice(0, 5), T), null, 'only untrusted / earlier / marker comments: no answer');
 });
 
-test('ownerAnswer: a stranger\'s question comment neither moves the question nor reaches the prompt', () => {
+test('ownerAnswer: a stranger\'s question comment neither moves the question nor reaches the prompt', E2E, () => {
   const t = { body: Q, createdAt: '2026-01-01T00:00:00Z', comments: [
     c('alice', 'A', '2026-01-02T00:00:00Z'), c('mallory', `${QUESTION_MARKER}\nEVIL question`, '2026-01-03T00:00:00Z')] };
   assert.deepEqual(ownerAnswer(t, T), { question: QTEXT, answer: 'A' });
@@ -65,7 +65,7 @@ test('ownerAnswer: a stranger\'s question comment neither moves the question nor
   assert.match(ownerAnswerNote({ question: 'local or cloud?', answer: 'A' }), /## Owner decisions[\s\S]*local or cloud\?[\s\S]*answer:\s+A\n/);
 });
 
-test('prompts/impl.md: {{OWNER_ANSWER}} and the `## Owner decisions` instruction', () => {
+test('prompts/impl.md: {{OWNER_ANSWER}} and the `## Owner decisions` instruction', E2E, () => {
   const impl = readFileSync(path.join(here, '..', 'prompts', 'impl.md'), 'utf8');
   assert.match(impl, /\{\{OWNER_ANSWER\}\}/);
   assert.match(impl, /## Owner decisions/);
