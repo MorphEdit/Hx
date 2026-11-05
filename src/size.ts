@@ -78,3 +78,19 @@ export function parseSizeReply(text: string, mode: SizeMode, promise: string): S
   if (shape === 'split') return children.length >= 2 ? { shape, children } : null;
   return scope === null ? null : { shape, scope, children };
 }
+
+const LOG_LINE = /^(\S+) (?:\[#\d+\] )?(.*)$/;
+
+/** hx status's split lines: the run-log lines (`<ISO> [#<n>] <msg>` or `<ISO> <msg>`) of the last 24 h whose message
+ *  starts with `split #`, oldest first. A line that does not parse is skipped. */
+export function splitLines(lines: string[], now: number): { at: string; msg: string }[] {
+  const out: { at: string; msg: string; t: number }[] = [];
+  for (const l of lines) {
+    const m = LOG_LINE.exec(l);
+    if (!m) continue;
+    const t = Date.parse(m[1]);
+    if (Number.isNaN(t) || !m[2].startsWith('split #') || now - t > 86_400_000) continue;
+    out.push({ at: m[1], msg: m[2], t });
+  }
+  return out.sort((a, b) => a.t - b.t).map(({ at, msg }) => ({ at, msg }));
+}

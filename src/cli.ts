@@ -26,6 +26,7 @@ import { addRepo, type Fleet, fleetDir, fleetFile, fleetWorkers, readFleet, read
 import { readSupervise, supervise } from './supervise.ts';
 import { service } from './service.ts';
 import type { Question } from './state.ts';
+import { splitLines } from './size.ts';
 import { change, compare, parseTime, SMALL_SAMPLE, type Period } from './compare.ts';
 import { fmt, localDay, mismatchedSessions, readUsage, summarize, totalTokens, type UsageRow } from './usage.ts';
 
@@ -618,6 +619,10 @@ async function status(p = loadProject(), o: { github?: boolean } = {}): Promise<
   // the board
   console.log(`${c.repo} — ${pl.prds.length} open PRD(s), ${pl.board.length} open '${c.labels.ready}' issue(s)\n`);
   printPlan(pl, c.repo);
+  // the split lines of the last 24 h: run.log.1 then run.log, as one line sequence
+  const logFile = runLogFile(p.stateDir);
+  const readLog = (f: string) => (existsSync(f) ? readFileSync(f, 'utf8').split(/\r?\n/) : []);
+  for (const s of splitLines([...readLog(`${logFile}.1`), ...readLog(logFile)], Date.now())) console.log(`split    ${s.msg} (${ago(s.at)} ago)`);
   const recs = readUsage(p.stateDir);
   const tl = timeLine(timeWindow(recs, readGateRuns(p.stateDir), Date.now() - 86_400_000, Infinity));
   if (tl) console.log(`

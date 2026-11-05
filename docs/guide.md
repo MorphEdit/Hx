@@ -121,7 +121,9 @@ hx issue "fix typo"     # a shorter session grills one small task into one issue
 hx issue --file x.md    # file an issue file the same way, without a session (--bug, --title T)
 hx status               # first `waiting on you: N question(s)` (each open needs-human issue: number, title,
                         # URL), then the runner, live sessions, usage window, and the board (issues opened by
-                        # an untrusted account show as `untrusted` and are never claimed)
+                        # an untrusted account show as `untrusted` and are never claimed); after the board,
+                        # each `split #` line of run.log from the last 24 h, oldest first:
+                        # `split    split #4 → #5, #6 (2h10m ago)`
 hx run --dry-run        # the board and what would run next, without changing anything
 hx run                  # work the board until nothing is left, then exit
 hx run --watch          # keep running and pick up new or unblocked work
