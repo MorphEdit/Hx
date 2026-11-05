@@ -448,6 +448,15 @@ test('self-update: README paragraph in Stopping and resuming, config rows, Files
   assert.ok(c.includes('`selfupdate.ts`'), 'CLAUDE.md names selfupdate.ts');
 });
 
+test('self-update watch window: a paragraph in Stopping and resuming, its two config rows (#316)', () => {
+  const r = read('README.md');
+  const stop = r.slice(r.indexOf('## Stopping and resuming'), r.indexOf('\n## ', r.indexOf('## Stopping and resuming') + 1));
+  for (const w of ['**The watch window:**', 'selfUpdateWatchMinutes', 'selfUpdateFailLimit', 'hx supervise', 'hx pause --now',
+    'self-update: rolled back 9b8e7d6 → 3f2a1c0', 'is good', 'watching 9b8e7d6 for 12 more min']) assert.ok(stop.includes(w), `Stopping and resuming: ${w}`);
+  assert.ok(hasRow(r, 'selfUpdateWatchMinutes', String(DEFAULTS.selfUpdateWatchMinutes)), 'selfUpdateWatchMinutes row');
+  assert.ok(hasRow(r, 'selfUpdateFailLimit', String(DEFAULTS.selfUpdateFailLimit)), 'selfUpdateFailLimit row');
+});
+
 test('needs-human: README maxOpenQuestions row and needs-human label', () => {
   const r = docsText();
   assert.ok(hasRow(r, 'maxOpenQuestions', String(DEFAULTS.maxOpenQuestions)), 'maxOpenQuestions row');

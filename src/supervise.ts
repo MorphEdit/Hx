@@ -28,6 +28,8 @@ export interface SuperviseOptions {
   maxCrashes?: number; // default 5
   pollMs?: number; // how often a pause or a foreign runner is checked (default 5 s)
   env?: NodeJS.ProcessEnv;
+  // after a crash, before the restart: a self-update's open watch window rolls the install back (#316); true: rolled back
+  rollback?: (reason: string) => Promise<boolean>;
 }
 
 const stateFile = (stateDir: string) => path.join(stateDir, 'supervise.json');
@@ -112,6 +114,8 @@ export async function supervise(o: SuperviseOptions): Promise<number> {
           say(`runner pid ${next.pid} stopped without clearing its run lock`); // a crash
         } else { say('runner stopped (exit 0) — not restarting'); return 0; }
       }
+      // inside a self-update's watch window the crashed version is rolled back first, so the restart runs the old one
+      if (o.rollback) await o.rollback(code ? `the runner exited ${code}` : 'the runner stopped without clearing its run lock').catch(() => false);
       const at = Date.now();
       if (at - startedAt >= resetAfterMs) streak = 0;
       crashes.push(at);

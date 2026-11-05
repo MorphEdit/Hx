@@ -84,6 +84,8 @@ export interface Config {
   selfUpdate: boolean; // hx run --watch updates its own hx install when idle and restarts itself (rolled back if the new code does not start)
   selfUpdateMinutes: number; // minutes between self-update checks
   autoStart: boolean; // hx run keeps this repo's logon task (hx service install) in step: registered when true, removed when false
+  selfUpdateWatchMinutes: number; // minutes the new runner is watched after a self-update: a crash, failing sessions or a red gate at its sha roll it back
+  selfUpdateFailLimit: number; // sessions in a row ending with an agent or hx error that roll a watched self-update back
   worktreeRoot: string; // keep it short: Windows MAX_PATH
   agentCli: string; // the agent CLI workers and hx grill / hx issue run (src/agents): claude
   claudeBin: string; // the claude adapter's binary
@@ -149,6 +151,8 @@ export const DEFAULTS: Omit<Config, 'repo' | 'defaultBranch' | 'worktreeRoot'> =
   selfUpdate: false,
   selfUpdateMinutes: 15,
   autoStart: false,
+  selfUpdateWatchMinutes: 30,
+  selfUpdateFailLimit: 3,
   agentCli: 'claude',
   claudeBin: 'claude',
   claudeArgs: [],

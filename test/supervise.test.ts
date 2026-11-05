@@ -64,6 +64,14 @@ test('a crash restarts the runner after the backoff, with the same arguments in 
   assert.match(s.last!.line, /^supervise: runner stopped \(exit 0\)/);
 });
 
+test('a crash: the self-update rollback hook runs before the restart, with the exit code; a clean exit calls it not (#316)', E2E, async () => {
+  const r = repo([2, 0]);
+  const calls: { reason: string; runs: number }[] = [];
+  assert.equal(await supervise(r.opts({ rollback: async (reason) => { calls.push({ reason, runs: r.runs().length }); return true; } })), 0);
+  assert.equal(r.runs().length, 2);
+  assert.deepEqual(calls, [{ reason: 'the runner exited 2', runs: 1 }], 'once, after the first run and before the second');
+});
+
 test('exit 0 → no restart, the supervisor exits', E2E, async () => {
   const r = repo([0]);
   assert.equal(await supervise(r.opts()), 0);

@@ -332,6 +332,18 @@ on, and that sha (or tag) is never tried again, while a newer one is. No issue i
 (`update   2h ago — self-update: restarted — pid 4242 took over`). The new runner is detached from the terminal:
 Ctrl+C there no longer reaches it, so stop it with `hx pause`. It is off under `hx fleet run`.
 
+**The watch window:** new code that starts fine can still misbehave, so for `selfUpdateWatchMinutes` (default 30) after a
+self-update from G to N the new runner is watched (`{ from, to, until }` in `.hx/selfupdate.json`). It is rolled back
+to G when, inside the window, the runner crashes (it exits non-zero, or leaves its run lock behind: `hx supervise` or
+the next `hx run --watch` rolls back first and then starts G), `selfUpdateFailLimit` (default 3) sessions in a row end
+with an agent or hx error (a FAIL verdict, a timeout or a usage limit does not count; a success ends the streak), or the
+first gate run at N itself is red while the same command is green at G (it is re-run there; red at both means the
+default branch was red already, and its gate-fix issue handles it). The running sessions checkpoint first, as with
+`hx pause --now`; then the checkout goes back to G (detached), a runner on G takes over, N is never tried again (a
+newer sha is), and the run log gets `self-update: rolled back 9b8e7d6 → 3f2a1c0 (3 sessions in a row ended with an error)`.
+A window that passes cleanly logs `self-update: 9b8e7d6 is good`. No self-update is tried while the window is open.
+`hx status` shows the open window (`watch    watching 9b8e7d6 for 12 more min …`) and the last rollback with its reason.
+
 **A crashed run** (terminal closed, machine rebooted, process killed) leaves `agent-working` on its
 issues. The next `hx run` sees that the previous runner is gone and hands those issues back first.
 
@@ -916,6 +928,8 @@ and the dashboard's per-model numbers use it). To spot one:
 | `selfUpdate` | `false` | `hx run --watch` updates its own hx install when idle (a git checkout: fast-forward; a release: `hx update`) and restarts itself; rolled back when the new runner does not start (see [Stopping and resuming](#stopping-and-resuming)). `hx init` asks when hx runs from a git checkout |
 | `selfUpdateMinutes` | 15 | minutes between the self-update checks of `hx run --watch` |
 | `autoStart` | `false` | `hx run` keeps this repo's logon task (`hx service install`) in step: registers it when `true`, removes it when `false` (see [Starting at logon](#starting-at-logon)). `hx init` asks on Windows |
+| `selfUpdateWatchMinutes` | 30 | minutes the new runner is watched after a self-update: a crash, failing sessions or a red first gate at its sha roll it back (see [Stopping and resuming](#stopping-and-resuming)) |
+| `selfUpdateFailLimit` | 3 | sessions in a row ending with an agent or hx error that roll a watched self-update back |
 | `worktreeRoot` | `<drive>:\hx-wt\<repo>` | keep it short: Windows path-length limits |
 | `worktreeSetup` | `""` | a shell command run in every new worktree (sessions and the gate) before it is used, e.g. `npm ci`; `hx init` proposes one from the lockfile (see [Worktree setup](#worktree-setup)) |
 | `worktreeSetupMinutes` | `10` | the setup command is killed, with its process tree, after this long and counts as failed |
@@ -958,7 +972,7 @@ it reads. So Hx only works on text from **trusted accounts**: your `gh` login pl
 - `.hx/gate-runs.jsonl` — one line per pool gate run whose test command finished or timed out: `{ ts, sha, ok, durationMs, timedOut }`
   (`durationMs` is the test command only; the release gate is not recorded). `hx run` logs `gate is slow: …` once when the median of the last 5 is above 70% of `gateMinutes`
 - `.hx/health.json` — the health pass: when it first saw each `agent-working` issue with no live session, and the last pass's time and line (see [Self-check](#self-check))
-- `.hx/selfupdate.json` — the last self-update line, the shas (or tags) whose runner did not start (`bad`), and the sha a rollback left the checkout at; `.hx/selfupdate-ready` is the new runner's ready marker
+- `.hx/selfupdate.json` — the last self-update line, the shas (or tags) whose runner did not start (`bad`), the sha a rollback left the checkout at, the open watch window (`watch`), the last rollback (`rollback`) and the last good version (`good`); `.hx/selfupdate-ready` is the new runner's ready marker
 - `.hx/selfreview.json` — the head of `origin/<default>` the last self-review reviewed, and when: `{ sha, at }`
 - `.hx/run.log` — the `hx run` log, `<ISO time> [#n] message` per line (rotated to `run.log.1` past 2 MiB), read by `hx dashboard`
 - `~/.hx/fleet/hold.json` — the shared usage hold of `hx fleet run` (`{ until, reason, repo }`); every runner copies it

@@ -12,7 +12,7 @@ import { addWorktree, auditWorktree, cleanStaleWorktrees, implWorktree, prdWorkt
 import { emptyUsage, runGoal, runTurn, type GoalResult, type RateLimit } from './agent.ts';
 import { clearSetupRecord, readSetupRecord, setupLine, setupNote, setupWorktree, writeSetupRecord, type SetupResult } from './setup.ts';
 import { agentFor, type AgentCli } from './agents/index.ts';
-import { clearLive, otherRunner, readLive, readPause, writeLive, type LiveSession, type LiveState } from './runstate.ts';
+import { clearLive, otherRunner, pidAlive, readLive, readPause, writeLive, type LiveSession, type LiveState } from './runstate.ts';
 import { fmt, recordUsage, totalTokens } from './usage.ts';
 import { testMatcher, turnTiming, type TurnTiming } from './timing.ts';
 import { actionBudget, budgetFilter, newSkipLines, readBudget, readBudgetWindows, readingOf, recordReading, type Budget } from './budget.ts';
@@ -21,7 +21,8 @@ import { appendGateRun, gateIssueBody, gateIssueTitle, readGate, readGateRuns, r
 import { run as runCmd } from './exec.ts';
 import { dueRelease, release, releaseGate } from './release.ts';
 import { acquireSlot, DEFAULT_FLEET_WORKERS, readGithubHold, readHold, releaseSlot, writeGithubHold, writeHold } from './fleet.ts';
-import { checkGit, checkRelease, handover, hxRoot, installKind, readSelfUpdate, restart, selfUpdateConfigError, short, writeSelfUpdate, type Check } from './selfupdate.ts';
+import { checkGit, checkRelease, crashRollback, currentVersion, gateAtOld, handover, hxRoot, installKind, readSelfUpdate, restart, rollbackWatch, selfUpdateConfigError, sessionOutcome, short,
+  updateSelfUpdate, watchEvent, watchGood, watchOpen, watchVerdict, writeSelfUpdate, type Check, type WatchEvent } from './selfupdate.ts';
 import { findingBody, parseFindings, readSelfReview, selfReviewDecision, SELFREVIEW_PROMISE, writeSelfReview } from './selfreview.ts';
 import { BAR_JUDGE_PROMISE, BAR_PROMISE, barCapComment, barLine, barMarker, barRound, barStatus, gapIssueBody, parseJudgeReply, pickMapping, readMapping, refDir, roundDir, writeMapping, type Side } from './bar.ts';
 import { parseQualityBar } from './prd.ts';
@@ -325,6 +326,20 @@ async function pool(p: Project, o: PoolOptions): Promise<number> {
   if (other && other.pid !== ho?.from) { log(`hx is already running for this repo (pid ${other.pid}, since ${other.startedAt}). Use hx status / hx pause.`); return 3; }
   const pausedMode = readPause(p.stateDir);
   if (pausedMode) { log(`paused (${pausedMode}) — run  hx resume  first.`); return 3; }
+  // the self-update (#253) is off under hx fleet run: the fleet owns its children
+  const fleetChild = !!process.env.HX_FLEET_DIR || !!process.send;
+  const runArgs = ['run', '--watch', '--workers', String(o.workers), ...(o.only?.length ? ['--issue', o.only.join(',')] : [])];
+  // a runner a self-update started crashed (its run lock is left behind) inside its watch window (#316): back to the
+  // old version and a runner on it before anything else; that runner hands the crashed run's issues back
+  const prevRun = readLive(p.stateDir);
+  if (o.watch && !fleetChild && prevRun && prevRun.pid !== process.pid && !pidAlive(prevRun.pid)) {
+    const root = hxRoot();
+    if (await crashRollback(p.stateDir, root, `the runner crashed (pid ${prevRun.pid})`, (l) => log(l))) {
+      const r = await restart({ root, args: runArgs, cwd: p.root, stateDir: p.stateDir });
+      if (r.ok) { log(`self-update: restarted — pid ${r.pid} took over`); return 0; }
+      log(`self-update: the runner on the old version did not start (${r.reason}) — carrying on`);
+    }
+  }
 
   // skills: resolved once per run (rtdd only when its binary works and .rtdd/ is on origin)
   const skills = await resolveSkills(p.root, c.roleSkills ?? {}, c.skillMaxChars,
@@ -409,6 +424,28 @@ async function pool(p: Project, o: PoolOptions): Promise<number> {
 
   let wake = () => {}; // set while the loop waits; called to wake it early
 
+  // the watch window after a self-update (#316), kept by the runner whose version it watches. Its verdict: `good` once
+  // it passes; a rollback stops the run as hx pause --now does, then the install goes back and a runner on it starts.
+  const myVersion = o.watch && !fleetChild ? await currentVersion(hxRoot()).catch(() => '') : '';
+  let rollbackWhy = '';
+  const myWatch = () => { const w = readSelfUpdate(p.stateDir).watch; return myVersion && w?.to === myVersion ? w : undefined; };
+  const watchCheck = () => {
+    const w = myWatch();
+    if (!w || rollbackWhy) return;
+    const v = watchVerdict(w, Date.now(), c.selfUpdateFailLimit);
+    if (v.kind === 'good') watchGood(p.stateDir, (l) => log(l));
+    if (v.kind !== 'rollback') return;
+    rollbackWhy = v.reason;
+    if (live.sessions.length) log(`self-update: ${short(w.to)} misbehaves (${v.reason}) — checkpointing running sessions before the rollback`);
+    stop.abort();
+    wake();
+  };
+  const watchReport = (e: WatchEvent) => {
+    if (!myWatch()) return;
+    try { updateSelfUpdate(p.stateDir, (s) => { if (s.watch?.to === myVersion) s.watch = watchEvent(s.watch, e, Date.now()); }); } catch {}
+    watchCheck();
+  };
+
   // CI gate: test the default branch at start and after every merge; while it is red, claim only its fix
   const gs = readGate(p.stateDir);
   let gateRunning: Promise<void> | null = null;
@@ -467,6 +504,23 @@ async function pool(p: Project, o: PoolOptions): Promise<number> {
         }
         writeGate(p.stateDir, gs);
         showGate();
+        // a watched self-update (#316): the first gate run at this runner's own sha; a red one is run again at the old sha
+        const w = myWatch();
+        if (w && !w.gate && r.sha === w.to && watchOpen(w, Date.now())) {
+          if (r.ok) watchReport({ gate: 'green' });
+          else {
+            log(`self-update: the gate is red at ${short(w.to)} — running it at ${short(w.from)}`);
+            const g = await runGate(p.root, c.worktreeRoot, c.defaultBranch, r.command, c.gateMinutes * 60_000, o.signal, setup, w.from)
+              .catch((e) => ({ error: String(e.message) }));
+            if ('error' in g) log(`self-update: the gate at ${short(w.from)} could not run (${g.error.slice(0, 160)})`);
+            else if (!g.aborted) {
+              const v = gateAtOld(r, g);
+              log(v === 'bad' ? `self-update: the gate is ${g.ok ? 'green' : 'red on other tests'} at ${short(w.from)}`
+                : `self-update: the same tests fail at ${short(w.from)} — ${c.defaultBranch} was red already, no rollback`);
+              watchReport({ gate: v });
+            }
+          }
+        }
       } while (gateAgain);
     })().finally(() => { gateRunning = null; wake(); });
     return gateRunning;
@@ -602,12 +656,10 @@ async function pool(p: Project, o: PoolOptions): Promise<number> {
   };
 
   // the self-update (#253): on an idle --watch board, at most every selfUpdateMinutes. Not in hx fleet run: the fleet
-  // owns its children. true: a new runner took over and this one exits.
-  const fleetChild = !!fleetDir || !!process.send;
+  // owns its children (fleetChild). true: a new runner took over and this one exits.
   if (c.selfUpdate && o.watch && fleetChild) log('self-update: off under hx fleet run');
   let selfUpdateAt = -Infinity;
   let selfUpdateSkip = ''; // the skip reason last logged: once per reason
-  const runArgs = ['run', '--watch', '--workers', String(o.workers), ...(o.only?.length ? ['--issue', o.only.join(',')] : [])];
   const selfUpdateCheck = async (): Promise<boolean> => {
     selfUpdateAt = Date.now();
     const root = hxRoot(), kind = installKind(root);
@@ -630,9 +682,19 @@ async function pool(p: Project, o: PoolOptions): Promise<number> {
     const failed = await ch.apply();
     if (failed) { await rollback(failed); return false; }
     handedOff = true;
+    // the new runner's watch window (#316), recorded before it starts: it reads the window from its first poll
+    s.watch = { from: ch.from, to: ch.to, until: new Date(Date.now() + c.selfUpdateWatchMinutes * 60_000).toISOString(), fails: 0, ...(ch.lockfile ? { lockfile: true } : {}) };
+    try { writeSelfUpdate(p.stateDir, s); } catch {}
     const r = await restart({ root, args: runArgs, cwd: p.root, stateDir: p.stateDir });
-    if (r.ok) { s.detached = undefined; note(`self-update: restarted — pid ${r.pid} took over`); return true; }
+    if (r.ok) {
+      const line = `self-update: restarted — pid ${r.pid} took over`;
+      log(line);
+      // read again: the new runner may have written the file since
+      try { updateSelfUpdate(p.stateDir, (x) => { x.detached = undefined; x.last = { at: new Date().toISOString(), line }; }); } catch {}
+      return true;
+    }
     handedOff = false;
+    s.watch = undefined;
     save(); // the new runner may have written live.json before it died
     await rollback(r.reason);
     return false;
@@ -715,6 +777,8 @@ async function pool(p: Project, o: PoolOptions): Promise<number> {
   try {
     while (!stop.signal.aborted && !fatal) {
       if (ho) { try { writeFileSync(ho.ready, String(process.pid)); } catch {} ho = null; await startGate; }
+      watchCheck(); // the window passed (good), or a rollback is due
+      if (stop.signal.aborted) break;
       let actions: Action[] = [];
       let stuck: number[] = []; // labelled agent-working with no live session: hx never claims them again
       const finishedBefore = finished;
@@ -767,7 +831,8 @@ async function pool(p: Project, o: PoolOptions): Promise<number> {
           } else if (r?.stopReason === 'fatal') {
             fatal = r.last?.error ?? 'unknown setup error';
           } else if (r && !r.done && r.stopReason !== 'aborted' && r.promiseSeen !== 'alt') failures++; // a question is no failure
-        }).catch((e) => { failures++; log(`crashed: ${e.message}`, target(a)); })
+          watchReport({ session: sessionOutcome(r) });
+        }).catch((e) => { failures++; log(`crashed: ${e.message}`, target(a)); watchReport({ session: 'error' }); })
           .finally(() => { if (fleetDir && slot !== null) releaseSlot(fleetDir, slot); inFlight.delete(key); live.sessions = live.sessions.filter((s) => s.key !== key); save(); finished++; });
         inFlight.set(key, task);
       }
@@ -793,7 +858,8 @@ async function pool(p: Project, o: PoolOptions): Promise<number> {
           break;
         }
         if (engineOnly) { await sleep(2000, stop.signal); continue; }
-        if (o.watch && c.selfUpdate && !fleetChild && !gateRunning && !releasing && Date.now() - selfUpdateAt >= c.selfUpdateMinutes * 60_000
+        // not while this runner's own watch window is open: its version is not known good yet
+        if (o.watch && c.selfUpdate && !fleetChild && !gateRunning && !releasing && !myWatch() && Date.now() - selfUpdateAt >= c.selfUpdateMinutes * 60_000
           && await selfUpdateCheck()) { restarted = true; break; }
         if (o.watch) void releaseCheck();
         if (o.watch && !limited && !actions.length && Date.now() - healthAt >= c.healthEveryMinutes * 60_000 && await healthCheck()) continue;
@@ -816,6 +882,16 @@ async function pool(p: Project, o: PoolOptions): Promise<number> {
     clearInterval(watcher);
     unwatchFile(wakeFile, onWake);
     clearLive(p.stateDir, process.pid);
+  }
+  if (rollbackWhy) {
+    // the running sessions have checkpointed and handed back: the install goes back, a runner on it takes over
+    if (gateRunning) await gateRunning;
+    const root = hxRoot();
+    await rollbackWatch(p.stateDir, root, rollbackWhy, (l) => log(l));
+    const r = await restart({ root, args: runArgs, cwd: p.root, stateDir: p.stateDir });
+    if (r.ok) { log(`self-update: restarted — pid ${r.pid} took over`); return 0; }
+    log(`self-update: the runner on the old version did not start (${r.reason})`);
+    return 1;
   }
   if (restarted) return 0;
   if (fatal) {

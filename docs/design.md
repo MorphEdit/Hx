@@ -456,6 +456,11 @@ Hx builds itself, so a watching runner would otherwise run the morning's code al
   back (detached at the old sha, which the next check still accepts as the default branch), records the bad sha in
   `.hx/selfupdate.json` and keeps working on the old code. A newer sha is tried.
 - **Not under `hx fleet run`:** the fleet owns its children and would read the old runner's exit as the end of the repo.
+- **Watched, not trusted, after it starts (#316).** Starting proves little: for `selfUpdateWatchMinutes` the new runner
+  records what it sees in `.hx/selfupdate.json` and a pure verdict over those events and the clock decides. A crash,
+  a streak of agent or hx errors, or a red first gate at its own sha that is green at the old one rolls it back; a
+  red gate at both is the default branch's problem, not the update's. The rollback waits for a checkpoint, never cuts
+  a session's work, and the old version restarts through the same ready marker.
 
 ## Quality bar (PRD #254)
 

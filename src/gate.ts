@@ -100,13 +100,18 @@ const tailOf = (s: string, n: number) => s.trim().split('\n').slice(-n).join('\n
  * Run `command` on a fresh checkout of origin/<base>; `signal` aborts it (the result then has `aborted`).
  * With `setup`, the worktree setup runs first; when it fails the command does not run and the result has
  * `setupFailed`. The gate never writes a setup record. An aborted result can return before the killed tree is
- * gone: await its `killed` before exiting.
+ * gone: await its `killed` before exiting. With `at`, the checkout first moves to that commit of origin/<base>'s
+ * history (a watched self-update re-runs a red gate at the old sha, #316).
  */
 export async function runGate(checkout: string, root: string, base: string, command: string, timeoutMs = 45 * 60_000,
-  signal?: AbortSignal, setup?: GateSetup): Promise<GateResult> {
+  signal?: AbortSignal, setup?: GateSetup, at?: string): Promise<GateResult> {
   const wt = await addWorktree(checkout, root, { name: 'gate', branch: 'hx/gate', base, fresh: true });
   let aborted = false;
   try {
+    if (at) {
+      const co = await run(process.env.HX_GIT_BIN || 'git', ['-C', wt.dir, 'checkout', '-q', '--detach', at]);
+      if (co.code !== 0) throw new Error(`git checkout ${at.slice(0, 7)}: ${(co.stderr || co.stdout).trim().split(/\r?\n/)[0]}`);
+    }
     const sha = (await run(process.env.HX_GIT_BIN || 'git', ['-C', wt.dir, 'rev-parse', 'HEAD'])).stdout.trim();
     const s = setup && await setupWorktree({ checkout, dir: wt.dir, name: 'gate', stateDir: setup.stateDir, config: setup.config, signal, log: setup.log });
     if (s?.aborted) { aborted = true; return { sha, ok: false, command: s.command, output: s.tail, aborted: true, at: new Date().toISOString() }; }
