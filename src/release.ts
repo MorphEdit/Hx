@@ -280,14 +280,11 @@ export async function release(o: ReleaseOptions): Promise<ReleaseOutcome> {
     let target = G;
     if (existsSync(pkg)) {
       writeFileSync(pkg, setPackageVersion(readFileSync(pkg, 'utf8'), tag.slice(1)));
-      await git(wt.dir, 'add', 'package.json');
-      await git(wt.dir, 'commit', '-q', '-m', `chore: release ${tag}`);
+      await git(wt.dir, 'commit', '-q', '-m', `chore: release ${tag}`, '--', 'package.json'); // the file alone, no add first
       target = (await git(wt.dir, 'rev-parse', 'HEAD')).trim();
     }
-    const tagAt = async (sha: string) => {
-      await run(GIT(), ['-C', wt.dir, 'tag', '-d', tag]); // a local tag only: origin's tags are never moved or deleted
-      await git(wt.dir, 'tag', '-a', tag, '-m', tag, sha);
-    };
+    // -f replaces a local tag only: origin's tags are never moved or deleted
+    const tagAt = (sha: string) => git(wt.dir, 'tag', '-f', '-a', tag, '-m', tag, sha);
     await tagAt(target);
     if (target === G) await git(wt.dir, 'push', '-q', 'origin', `refs/tags/${tag}`);
     else {

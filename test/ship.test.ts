@@ -8,6 +8,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { hhmm } from '../src/ghlimit.ts';
+import { copyRepos, fwd } from './repo-copy.ts';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const SHIP = path.join(here, '..', 'scripts', 'ship.mjs');
@@ -17,15 +18,26 @@ process.env.HX_RTDD_BIN = path.join(here, 'fakes', 'rtdd.mjs');
 const git = (cwd: string, ...a: string[]) => execFileSync('git', a, { cwd, encoding: 'utf8', stdio: 'pipe' }).trim();
 const gitId = ['-c', 'user.email=t@t', '-c', 'user.name=t'];
 
-function setup() {
-  const tmp = mkdtempSync(path.join(os.tmpdir(), 'hx-ship-'));
-  const origin = path.join(tmp, 'origin.git'), wt = path.join(tmp, 'wt'), other = path.join(tmp, 'other');
+// origin with one commit on main, the issue branch checked out in `wt`, a second clone `other`: built once, copied per test
+let template = '';
+function repos(): string {
+  if (template) return template;
+  const tmp = mkdtempSync(path.join(os.tmpdir(), 'hx-ship-t-'));
+  const origin = fwd(path.join(tmp, 'origin.git')), wt = path.join(tmp, 'wt'), other = path.join(tmp, 'other');
   git(tmp, 'init', '-q', '--bare', '-b', 'main', origin);
   git(tmp, 'clone', '-q', origin, wt);
   writeFileSync(path.join(wt, 'a.txt'), 'one\n');
   git(wt, 'add', '-A'); git(wt, ...gitId, 'commit', '-q', '-m', 'init'); git(wt, 'push', '-q', 'origin', 'HEAD:main');
   git(wt, 'checkout', '-q', '-b', 'issue/7');
   git(tmp, 'clone', '-q', origin, other);
+  return (template = tmp);
+}
+
+// The tests' own test commands are shell builtins (`exit 0`), so a passing run starts no node
+function setup() {
+  const tmp = mkdtempSync(path.join(os.tmpdir(), 'hx-ship-'));
+  copyRepos(repos(), tmp, ['wt', 'other']);
+  const origin = path.join(tmp, 'origin.git'), wt = path.join(tmp, 'wt'), other = path.join(tmp, 'other');
   const board = path.join(tmp, 'board.json');
   writeFileSync(board, JSON.stringify({ comments: [], prs: [], issues: [{ number: 7, title: 't', body: '', state: 'OPEN', labels: [] }] }));
   return { tmp, origin, wt, other, board };
@@ -48,7 +60,7 @@ test('ship: commits, rebases, tests, pushes, opens + merges the PR, deletes the 
   git(env.other, 'add', '-A'); git(env.other, ...gitId, 'commit', '-q', '-m', 'other'); git(env.other, 'push', '-q', 'origin', 'HEAD:main');
   writeFileSync(path.join(env.wt, 'c.txt'), 'mine\n');
 
-  const r = ship(env, 'node -e "process.exit(0)"');
+  const r = ship(env, 'exit 0');
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.stdout, /SHIPPED #7 via PR #100/);
   const b = board(env);
@@ -62,7 +74,7 @@ test('ship: commits, rebases, tests, pushes, opens + merges the PR, deletes the 
 test('ship: failing tests stop it before anything is pushed', E2E, () => {
   const env = setup();
   writeFileSync(path.join(env.wt, 'c.txt'), 'mine\n');
-  const r = ship(env, 'node -e "console.log(\'boom\'); process.exit(1)"');
+  const r = ship(env, 'echo boom&& exit 1');
   assert.equal(r.status, 4);
   assert.match(r.stderr, /tests failed[\s\S]*boom/);
   assert.doesNotMatch(remoteHeads(env), /issue\/7/);
@@ -74,7 +86,7 @@ test('ship: a rebase conflict is aborted and reported with the files', E2E, () =
   writeFileSync(path.join(env.other, 'a.txt'), 'theirs\n');
   git(env.other, 'add', '-A'); git(env.other, ...gitId, 'commit', '-q', '-m', 'other'); git(env.other, 'push', '-q', 'origin', 'HEAD:main');
   writeFileSync(path.join(env.wt, 'a.txt'), 'mine\n');
-  const r = ship(env, 'node -e "process.exit(0)"');
+  const r = ship(env, 'exit 0');
   assert.equal(r.status, 3);
   assert.match(r.stderr, /conflicts in: a\.txt/);
   assert.equal(git(env.wt, 'status', '--porcelain'), '', 'rebase aborted, tree clean');
@@ -109,7 +121,7 @@ test('ship: a test run past --test-timeout is killed with its whole tree and fai
 test('ship: --test-timeout is remembered by --no-merge and reused by --resume; HX_SHIP_TEST_TIMEOUT_MS overrides it', E2E, () => {
   const env = setup();
   writeFileSync(path.join(env.wt, 'c.txt'), 'mine\n');
-  const r = shipWith(env, ['--repo', 'me/app', '--base', 'main', '--issue', '7', '--title', 'feat: thing', '--test', 'node -e "process.exit(0)"',
+  const r = shipWith(env, ['--repo', 'me/app', '--base', 'main', '--issue', '7', '--title', 'feat: thing', '--test', 'exit 0',
     '--test-timeout', '0.1', '--no-merge']);
   assert.equal(r.status, 0, r.stderr);
   const stateFile = path.join(env.wt, '.git', 'hx-ship.json');
@@ -151,7 +163,7 @@ test('ship: a fork PR from a branch of the same name is never taken or merged; o
   writeFileSync(env.board, JSON.stringify(b0));
   writeFileSync(path.join(env.wt, 'c.txt'), 'mine\n');
 
-  const r = ship(env, 'node -e "process.exit(0)"');
+  const r = ship(env, 'exit 0');
   assert.equal(r.status, 0, r.stderr);
   const b = board(env);
   assert.equal(b.prs.find((p: any) => p.number === 99).state, 'OPEN', 'the fork PR is untouched');
@@ -169,7 +181,7 @@ test('ship --resume with no hx-ship.json and an open PR for the branch writes th
   const b0 = board(env);
   b0.prs.push({ number: 181, head: 'issue/7', base: 'main', title: 'feat: by hand', state: 'OPEN', hide: 0 });
   writeFileSync(env.board, JSON.stringify(b0));
-  const r = shipWith(env, ['--resume', '--repo', 'me/app', '--base', 'main', '--test', 'node -e "process.exit(0)"'],
+  const r = shipWith(env, ['--resume', '--repo', 'me/app', '--base', 'main', '--test', 'exit 0'],
     { GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' });
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.stdout, /state written from PR #181/);
@@ -179,12 +191,12 @@ test('ship --resume with no hx-ship.json and an open PR for the branch writes th
   assert.equal(b.issues[0].state, 'CLOSED');
   const saved = JSON.parse(readFileSync(path.join(env.wt, '.git', 'hx-ship.json'), 'utf8'));
   assert.deepEqual({ repo: saved.repo, base: saved.base, issue: saved.issue, title: saved.title, test: saved.test, pr: saved.pr },
-    { repo: 'me/app', base: 'main', issue: '7', title: 'feat: by hand', test: 'node -e "process.exit(0)"', pr: '181' });
+    { repo: 'me/app', base: 'main', issue: '7', title: 'feat: by hand', test: 'exit 0', pr: '181' });
 });
 
 test('ship --resume with no hx-ship.json and no PR for the branch fails as before', E2E, () => {
   const env = setup();
-  const r = shipWith(env, ['--resume', '--repo', 'me/app', '--base', 'main', '--test', 'node -e "process.exit(0)"']);
+  const r = shipWith(env, ['--resume', '--repo', 'me/app', '--base', 'main', '--test', 'exit 0']);
   assert.equal(r.status, 2, r.stderr);
   assert.match(r.stderr, /--resume: no .*hx-ship\.json; run ship --no-merge first/);
   const bare = shipWith(env, ['--resume']);
@@ -193,7 +205,7 @@ test('ship --resume with no hx-ship.json and no PR for the branch fails as befor
 });
 
 // #172: a rate-limited gh call is waited out briefly, capped by HX_GH_WAIT_MAX_SECONDS; git calls never wait
-const SHIP_ARGS = ['--repo', 'me/app', '--base', 'main', '--issue', '7', '--title', 'feat: thing', '--test', 'node -e "process.exit(0)"'];
+const SHIP_ARGS = ['--repo', 'me/app', '--base', 'main', '--issue', '7', '--title', 'feat: thing', '--test', 'exit 0'];
 const limitBoard = (env: ReturnType<typeof setup>, state: object) => writeFileSync(env.board, JSON.stringify({ ...board(env), ...state }));
 const waits = (stderr: string) => stderr.split('\n').filter((l) => /^ship: github \w+ rate limit — waiting \d+s, then retrying$/.test(l));
 
@@ -246,7 +258,8 @@ test('ship: a primary limit whose reset is past the cap is not waited on at all:
 });
 
 // #347: a PR lands on the base while ship's tests run, so GitHub cannot build the merge commit of the tested head.
-// The test command itself pushes that commit from another clone (on its first `lands` runs), so the order is exact.
+// The test command itself pushes that commit from another clone (on its first `lands` runs), so the order is exact. That
+// clone is the only one that pushes main, so it is never behind origin: it commits and pushes without a pull first.
 function landing(env: ReturnType<typeof setup>, lands: number) {
   const script = path.join(env.tmp, 'land.mjs'), count = path.join(env.tmp, 'runs.n');
   writeFileSync(script, `import { execFileSync } from 'node:child_process';
@@ -255,7 +268,6 @@ const n = (existsSync(${JSON.stringify(count)}) ? Number(readFileSync(${JSON.str
 writeFileSync(${JSON.stringify(count)}, String(n));
 if (n <= ${lands}) {
   const g = (...a) => execFileSync('git', ['-C', ${JSON.stringify(env.other)}, '-c', 'user.email=t@t', '-c', 'user.name=t', ...a], { stdio: 'pipe' });
-  g('pull', '-q', '--rebase', 'origin', 'main');
   writeFileSync(${JSON.stringify(path.join(env.other, 'landed.txt'))}, 'landed ' + n);
   g('add', '-A'); g('commit', '-q', '-m', 'landed ' + n); g('push', '-q', 'origin', 'HEAD:main');
 }
