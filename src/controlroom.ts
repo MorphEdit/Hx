@@ -121,3 +121,68 @@ export function eventsFrom(lines: string[], today: string, blockedLabel: string)
   }
   return out;
 }
+
+/** One Timeline bar: a session (or a gate run) over [startMs, endMs]; `running` on a live session's bar, `ok` on a gate run's. */
+export interface Bar { issue: number | null; role: string; startMs: number; endMs: number; running?: true; ok?: boolean }
+export interface Lane { worker: string; bars: Bar[] }
+export interface Timeline { from: number; to: number; lanes: Lane[] }
+
+/** What timelineFrom reads of a usage record, a live session and a gate run. */
+type UsageRec = { ts: string; issue: number; role?: string; sessionId: string; durationMs?: number };
+type Session = { number: number; kind: string; since: string };
+type Gate = { ts: string; ok: boolean; durationMs?: number };
+
+export const GATE_LANE = 'gate';
+
+/** The Timeline (PRD #367, Data → timeline): finished and live sessions packed into worker lanes `W1`, `W2`, …, then the
+ *  `gate` lane, over the last `hours` before `now`. `lines` are run.log lines (for a live impl session's stage). */
+export function timelineFrom(usage: UsageRec[], sessions: Session[], gateRuns: Gate[], lines: string[], now: number, hours = 6): Timeline {
+  const from = now - hours * 3_600_000;
+  const groups = new Map<string, Bar>();
+  for (const r of usage) {
+    const role = r.role ?? 'impl', end = Date.parse(r.ts), start = end - (r.durationMs ?? 0);
+    if (Number.isNaN(end)) continue;
+    const key = JSON.stringify([r.issue, role, r.sessionId]);
+    const b = groups.get(key);
+    if (!b) groups.set(key, { issue: r.issue, role, startMs: start, endMs: end });
+    else { b.startMs = Math.min(b.startMs, start); b.endMs = Math.max(b.endMs, end); }
+  }
+  const finished = [...groups.values()];
+  const parsed = parseLines(lines);
+  const live: Bar[] = sessions.map((s) => {
+    const since = Date.parse(s.since);
+    const ends = finished.filter((b) => b.issue === s.number && b.endMs > since).map((b) => b.endMs);
+    const role = s.kind === 'impl' ? implStage(parsed, s.number) : s.kind;
+    return { issue: s.number, role, startMs: ends.length ? Math.max(...ends) : since, endMs: now, running: true };
+  });
+  // the window: bars ending before `from` dropped, bars starting before it clipped; issue 0 (the self-review session) is null
+  const inWindow = (b: Bar): Bar[] => (b.endMs < from ? [] : [{ ...b, issue: b.issue || null, startMs: Math.max(b.startMs, from) }]);
+  const bars = [...finished, ...live].flatMap(inWindow)
+    .sort((a, b) => a.startMs - b.startMs || (a.issue ?? 0) - (b.issue ?? 0) || a.endMs - b.endMs);
+  const lanes: Lane[] = [];
+  for (const bar of bars) {
+    const free = (l: Lane) => l.bars.at(-1)!.endMs <= bar.startMs;
+    const lane = lanes.find((l) => free(l) && l.bars.at(-1)!.issue === bar.issue) ?? lanes.find(free);
+    if (lane) lane.bars.push(bar);
+    else lanes.push({ worker: `W${lanes.length + 1}`, bars: [bar] });
+  }
+  const gate = gateRuns.flatMap((g) => {
+    const end = Date.parse(g.ts);
+    return Number.isNaN(end) ? [] : inWindow({ issue: null, role: 'gate', startMs: end - (g.durationMs ?? 0), endMs: end, ok: g.ok });
+  });
+  lanes.push({ worker: GATE_LANE, bars: gate });
+  return { from, to: now, lanes };
+}
+
+/** An issue's (or its live session's) worker: the lane of its running bar, else of its latest bar by end time; `—` with none. */
+export function workerOf(timeline: Timeline, issue: number): string {
+  let best: { worker: string; bar: Bar } | null = null;
+  for (const l of timeline.lanes) {
+    if (l.worker === GATE_LANE) continue;
+    for (const bar of l.bars) {
+      if (bar.issue !== issue) continue;
+      if (!best || (bar.running && !best.bar.running) || (!!bar.running === !!best.bar.running && bar.endMs > best.bar.endMs)) best = { worker: l.worker, bar };
+    }
+  }
+  return best?.worker ?? '—';
+}
