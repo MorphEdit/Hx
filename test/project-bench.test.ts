@@ -144,8 +144,10 @@ test('the template: package.json entries pointing at files that do not exist yet
 });
 
 test('npm test never runs the hidden suite: it lives outside test/ and outside the test glob', () => {
+  // npm test is scripts/test.mjs (#349), which adds the suite's glob when no file is given
   const script = JSON.parse(readFileSync(path.join(root, 'package.json'), 'utf8')).scripts.test;
-  assert.match(script, /"test\/\*\*\/\*\.test\.ts"/);
+  assert.equal(script, 'node scripts/test.mjs');
+  assert.match(readFileSync(path.join(root, 'scripts', 'test.mjs'), 'utf8'), /const SUITE = 'test\/\*\*\/\*\.test\.ts';/);
   assert.ok(hiddenFiles.length > 0);
   for (const f of walk(path.join(root, 'test'))) assert.ok(!hiddenFiles.includes(path.basename(f)), `${f} is a hidden file`);
   assert.ok(hiddenFiles.every((f) => !f.endsWith('.ts')));
