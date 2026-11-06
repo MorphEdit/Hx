@@ -32,7 +32,9 @@ export const FLEET_HTML_FILE = path.join(path.dirname(fileURLToPath(import.meta.
 export const DEFAULT_PORT = 4777;
 export const BOARD_TTL_MS = 30_000;
 const HOST = '127.0.0.1';
-const CSP = "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; img-src 'self' data:";
+// the fleet overview's policy; a repo's page (also at /repo/<k>/ of the fleet dashboard) adds only the Google Fonts its design loads
+const FLEET_CSP = "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; img-src 'self' data:";
+const CSP = "default-src 'none'; style-src 'unsafe-inline' https://fonts.googleapis.com; script-src 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; font-src https://fonts.gstatic.com";
 const LOG_LINES = 200;
 
 interface BoardEntry { at: number; plan?: Plan; error?: string }
@@ -318,7 +320,7 @@ export async function serveFleetDashboard(opts: { port?: number; open?: boolean 
   refresh();
 
   return serve(async (route, res) => {
-    if (route === '/') return send(res, 200, 'text/html; charset=utf-8', fleetHtml, { 'Content-Security-Policy': CSP });
+    if (route === '/') return send(res, 200, 'text/html; charset=utf-8', fleetHtml, { 'Content-Security-Policy': FLEET_CSP });
     if (route === '/api/fleet') {
       const f = refresh();
       const byDay = new Map<string, number>();

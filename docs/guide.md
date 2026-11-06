@@ -201,8 +201,18 @@ A read-only page over `.hx/` and the board. It works with or without an `hx run`
 `/api/state` every 5 s and the board every 30 s (one `gh issue list` per 30 s however many tabs are
 open), and keeps the last data with an "offline / last updated" note when a fetch fails.
 
-- **Waiting on you** — the open `needs-human` questions (number linked to the issue, title), from the last
-  board read; "nothing waiting on you" when there are none.
+The page is laid out as a control room, light or dark with the system theme:
+
+- **Header** — under HX CONTROL ROOM the repo and the "last updated" note, then one line of values:
+  RUNNER (`running · 2/3 workers`, `paused · …` while paused or draining, `stopped`), MACHINE (the CPU and whether
+  auto-scale is on), MAIN (the gate on the default branch: `green ✓ <sha>`, `RED ✗ <sha>` or `no run yet`),
+  WAITING ON YOU (how many questions) and TODAY (how many PRDs closed today).
+- **Waiting on you** — a highlighted card above the panels, shown only while a question is open: the open
+  `needs-human` questions (number linked to the issue, title), from the last board read.
+- **Board**, **Pipeline** (Flow / Timeline), **Details** and **Event log** — four panels under it. The tabs (the
+  board filter, Flow / Timeline, the event filter) and the selected issue stay as they are across refreshes.
+  The raw tail of `.hx/run.log` sits under the event table, collapsed (open **RAW LOG**).
+- **More** — a section under the four panels that holds the four parts below (Now, Board, Machine, Stats):
 - **Now** — the runner ("not running", or its pid, uptime, workers, the auto-scaled target line
   `workers 2/3 (auto: cpu 88%)` when autoWorkers is on, paused/draining and the rate-limit window), the live sessions (issue, kind, title, turn, tokens, elapsed) and the CI gate (green/red,
   sha, when, the fix issue).
@@ -232,7 +242,7 @@ open), and keeps the last data with an "offline / last updated" note when a fetc
   tokens/turns/sessions/time by PRD, role and model, and outcomes parsed
   from the run log: audit PASS/FAIL and average rounds, gauntlet rounds and FAILs, security passes and
   how many of them filed issues, gate REDs with the average RED → green time, and the median issue wall time.
-- **Log** — the tail of `.hx/run.log`, newest last.
+- **Log** (the RAW LOG under the Event log table) — the tail of `.hx/run.log`, newest last.
 
 `hx run` writes every line it prints to `.hx/run.log` with an ISO timestamp; past 2 MiB the file is
 rotated to `run.log.1` (one old file is kept), and the outcome numbers are parsed from `run.log.1` then `run.log`.
@@ -240,8 +250,8 @@ Usage by day groups records by their local date (the machine's time zone); the l
 
 Safety: the server binds **127.0.0.1 only**, answers only a `Host` of `127.0.0.1:<port>` or
 `localhost:<port>` (no DNS rebinding), takes **GET only**, sends no CORS headers and changes nothing —
-it only reads. The page is one self-contained file under a strict CSP (no external scripts, styles or
-fonts), and every title, label, error and log line is rendered as **escaped text** (`textContent`,
+it only reads. The page is one self-contained file under a strict CSP (no external scripts; the only outside
+resource is the Google Fonts stylesheet and its fonts, and without them the page falls back to system fonts), and every title, label, error and log line is rendered as **escaped text** (`textContent`,
 never `innerHTML`), so an issue titled `<img src=x onerror=…>` shows as that text.
 
 ## Where the time goes

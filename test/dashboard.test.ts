@@ -171,8 +171,8 @@ test('no live.json: / serves the page with its CSP and /api/state says not runni
   const page = await get(d.port, '/');
   assert.equal(page.status, 200);
   assert.match(String(page.headers['content-type']), /^text\/html/);
-  assert.equal(page.headers['content-security-policy'],
-    "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; img-src 'self' data:");
+  assert.equal(page.headers['content-security-policy'], // today's policy plus only the Google Fonts the page's design loads
+    "default-src 'none'; style-src 'unsafe-inline' https://fonts.googleapis.com; script-src 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; font-src https://fonts.gstatic.com");
   assert.equal(page.body, readFileSync(path.join(here, '..', 'src', 'dashboard.html'), 'utf8'));
   const r = await get(d.port, '/api/state', { host: `localhost:${d.port}` });
   assert.equal(r.status, 200);

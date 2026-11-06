@@ -284,7 +284,10 @@ test('403 on a foreign Host and 405 on POST on every fleet route; / is the fleet
   }
   const page = await get(d.port, '/');
   assert.match(String(page.headers['content-type']), /^text\/html/);
-  assert.match(String(page.headers['content-security-policy']), /default-src 'none'/);
+  assert.equal(page.headers['content-security-policy'], // the overview loads no fonts: its policy is unchanged
+    "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; img-src 'self' data:");
+  assert.equal((await get(d.port, '/repo/0/')).headers['content-security-policy'], // a repo's page under /repo/<k>/: the repo page's policy
+    "default-src 'none'; style-src 'unsafe-inline' https://fonts.googleapis.com; script-src 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; font-src https://fonts.gstatic.com");
   assert.equal(page.body, readFileSync(path.join(here, '..', 'src', 'dashboard-fleet.html'), 'utf8'));
   assert.equal(d.address().address, '127.0.0.1');
 });
