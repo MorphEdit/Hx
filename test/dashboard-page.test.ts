@@ -698,10 +698,12 @@ test('the four panels in the reference\'s order with their empty containers, the
   const sections = p.root.all().filter((e) => e.tag === 'section' && e.hasAttribute('aria-label')).map((e) => e.getAttribute('aria-label'));
   assert.deepEqual(sections, ['Waiting on you', 'Board', 'Pipeline', 'Issue details', 'Event log', 'More']);
   assert.ok(html.indexOf('</header>') < html.indexOf('aria-label="Board"'));
-  for (const id of ['groups', 'waiting', 'lanes', 'details', 'ticks']) assert.deepEqual(p.ids.get(id)!.childNodes, [], `#${id} is empty`);
+  for (const id of ['waiting', 'lanes', 'ticks']) assert.deepEqual(p.ids.get(id)!.childNodes, [], `#${id} is empty`);
   // the Flow's six columns are always there (#376): with no session each is idle and has no chip
   assert.equal(p.ids.get('stages')!.childNodes.length, 6);
   assert.equal(p.ids.get('stages')!.all().filter((e) => e.tag === 'button').length, 0, 'no chip');
+  assert.deepEqual(p.ids.get('groups')!.childNodes.map(text), ['Nothing on the board yet.'], 'the Board with no group (#375)');
+  assert.deepEqual(p.ids.get('details')!.childNodes.map(text), ['Nothing selected.'], 'Details with nothing selected (#375)');
   assert.deepEqual(p.ids.get('events')!.childNodes.map(text), ['No events today.'], 'the Event log with no events (#377)');
   const row = p.ids.get('groups')!.closest('section')!.parentNode as E;
   assert.equal(row.style.flexWrap, 'wrap', 'the panels stack');
@@ -773,7 +775,8 @@ test('More holds Now, Board, Machine and Stats whole, after the Event log; the r
 });
 
 test('tabs: one click handler sets state and aria-selected, Flow / Timeline toggle with style.display, the state survives each poll', E2E, async () => {
-  const p = page(quiet, null);
+  // one item, #351, on no board row and not running: nothing is selected until the click
+  const p = page({ ...quiet, issues: { groups: [], items: [{ number: 351, prd: null, title: 't', group: 'other', status: 'waiting', word: 'waiting', since: null, steps: [], facts: [], next: '' }] } }, null);
   await p.flush();
   const sel = (key: string) => ['all', 'building', 'done', 'flow', 'timeline', 'results', 'problems']
     .map((v) => p.button(key, v)).filter((b) => b).map((b) => [b!.getAttribute(`data-${key}`), b!.getAttribute('aria-selected')]);
@@ -810,7 +813,7 @@ test('tabs: one click handler sets state and aria-selected, Flow / Timeline togg
   p.tick();
   await p.flush();
   after();
-  assert.deepEqual(p.ids.get('groups')!.childNodes, [], 'each api/state poll re-renders the panels');
+  assert.deepEqual(p.ids.get('groups')!.childNodes.map(text), ['Nothing on the board yet.'], 'each api/state poll re-renders the panels');
   p.click(p.button('view', 'flow')!);
   assert.equal(p.ids.get('flow')!.style.display, 'flex');
   assert.equal(p.ids.get('timeline')!.style.display, 'none');

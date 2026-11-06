@@ -212,6 +212,9 @@ The page is laid out as a control room, light or dark with the system theme:
 - **Board**, **Pipeline** (Flow / Timeline), **Details** and **Event log** — four panels under it. The tabs (the
   board filter, Flow / Timeline, the event filter) and the selected issue stay as they are across refreshes.
   The raw tail of `.hx/run.log` sits under the event table, collapsed (open **RAW LOG**).
+- **Board** — one block per PRD, split issue, `Other issues` and `Closed today`, with its progress; under it a row
+  per issue: a dot, the number, the status word (`done`, `merging`, `auditing`, `implementing`, `waiting`) and the
+  title. **Building** hides the done rows, **Done** shows only them. Click a row to see it under Details.
 - **Pipeline** — **Flow** shows the six steps an issue goes through (Gauntlet, Decompose, Implement, Audit, Merge,
   Gate) with a card in its column for each session at work: the worker (`W1`, …), the issue and a short note
   (`turn 2`, `audit 1/3 · PR #366`, `audit PASS · rebasing`). An idle column says what it does (`issue → PR · idle`);
@@ -220,6 +223,10 @@ The page is laid out as a control room, light or dark with the system theme:
   **Timeline** shows the last 6 hours: one row per worker with a bar per session (`#351 implement`, `#351 audit`,
   `#351 merge`), and a gate row with each full test run on main (`green` or `RED`). Clicking a card or a bar
   selects its issue.
+- **Details** — the selected issue or PRD: its group, number, title and status, its steps (done ✓, now, next, each
+  with a short note), a few facts (worker, tokens, time, audit round, PR; or what it waits on; a PRD's status and
+  steps) and what happens next. Until you click, it shows the session that started first, else the first row on the
+  board; with nothing on the board it says `Nothing selected.`
 - **Event log** — today's events from `.hx/run.log`, one row each: the local time, the issue (`#N`, `PRD #N`,
   `gate` or `runner`), the step, what happened and the tokens (`2.5M`, `288K`). **Results** shows only the
   results (DONE, PASS, PRD closed, gate green), **Problems** only the problems (gate RED, FAIL, timeouts, conflicts,

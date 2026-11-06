@@ -566,10 +566,56 @@ const statusStyle = (st) => 'font-size:12px;font-weight:600;color:' + LCOLOR[st]
 let snap = null, boardSnap = null;
 const state = { sel: null, board: 'all', view: 'flow', filter: 'all' };
 // the four panels: their slices of PRD #367 fill them from `snap` and `state`
-function renderBoard() { fill($('groups')); }
+// an item's page status → the reference's dot / word-colour key (auditing and implementing share `working`)
+const DOT_KEY = { done: 'done', merging: 'merging', auditing: 'working', implementing: 'working', waiting: 'waiting' };
+const STATUS_ORDER = ['done', 'merging', 'auditing', 'implementing', 'waiting'];
+const dotKey = (it) => DOT_KEY[it.status] ?? 'waiting';
+const isPrdItem = (it) => it.prd !== null && it.prd !== undefined && it.prd === it.number;
+const itemId = (it) => (isPrdItem(it) ? 'PRD #' : '#') + it.number;
 const snapItems = () => (Array.isArray(snap?.issues?.items) ? snap.issues.items : []).filter((it) => it && typeof it === 'object');
-const itemId = (it) => (it.prd !== null && it.prd === it.number ? 'PRD #' : '#') + Math.trunc(Number(it.number));
 const isSel = (n) => n !== null && n !== undefined && state.sel !== null && String(n) === String(state.sel);
+const snapGroups = () => (Array.isArray(snap?.issues?.groups) ? snap.issues.groups : []).filter((g) => g && typeof g === 'object');
+const inBoard = (it) => state.board === 'building' ? it.status !== 'done' : state.board === 'done' ? it.status === 'done' : true;
+// a group's rows under the board filter: its items (an open PRD is not a row), done → merging → auditing → implementing → waiting,
+// then by number; Closed today holds its PRDs, then its issues, newest close first within each
+const closedMs = (it) => { const t = Date.parse(String(it.closedAt ?? '')); return Number.isFinite(t) ? t : 0; };
+function boardRows(g) {
+  return snapItems().filter((it) => it.group === g.key && !(isPrdItem(it) && it.status !== 'done') && inBoard(it))
+    .sort((a, b) => STATUS_ORDER.indexOf(a.status) - STATUS_ORDER.indexOf(b.status)
+      || (g.key === 'closed' ? Number(isPrdItem(b)) - Number(isPrdItem(a)) || closedMs(b) - closedMs(a) : 0) || a.number - b.number);
+}
+// the default selection: the running item that started first, else the first board row under the filter, else none
+function defaultSel() {
+  const running = snapItems().filter((it) => it.since && Number.isFinite(Date.parse(it.since)))
+    .sort((a, b) => Date.parse(a.since) - Date.parse(b.since) || a.number - b.number);
+  if (running.length) return String(running[0].number);
+  for (const g of snapGroups()) { const r = boardRows(g); if (r.length) return String(r[0].number); }
+  return null;
+}
+const selected = () => (state.sel === null ? null : snapItems().find((it) => isSel(it.number)) ?? null);
+function renderBoard() {
+  const groups = snapGroups();
+  if (!groups.length) { fill($('groups'), el('span', { style: 'padding:4px 6px;font-size:13px;color:var(--muted)' }, 'Nothing on the board yet.')); return; }
+  fill($('groups'), groups.map((g) => {
+    const items = boardRows(g);
+    if (!items.length) return null;
+    return el('div', { style: 'display:flex;flex-direction:column;gap:2px;padding-top:8px' },
+      el('div', { style: 'display:flex;justify-content:space-between;align-items:baseline;padding:4px 6px' },
+        el('span', { style: 'font-weight:600' }, String(g.title ?? '')),
+        el('span', { class: 'mono', style: 'font-size:12px;color:var(--muted)' }, String(g.progress ?? ''))),
+      items.map((it) => {
+        const on = isSel(it.number), k = dotKey(it);
+        return el('button', { type: 'button', 'data-sel': String(it.number), 'aria-pressed': String(on), style: 'display:flex;gap:10px;align-items:flex-start;width:100%;text-align:left;padding:8px;border-radius:8px;cursor:pointer;min-height:44px;' +
+            (on ? 'background:var(--blue-select);border:1px solid var(--blue)' : 'background:transparent;border:1px solid transparent') },
+          el('span', { style: DOT[k] }),
+          el('span', { style: 'display:flex;flex-direction:column;gap:1px;min-width:0;flex:1' },
+            el('span', { style: 'display:flex;gap:8px;align-items:baseline' },
+              el('span', { class: 'mono', style: 'font-size:12px;font-weight:500' }, itemId(it)),
+              el('span', { style: statusStyle(k) }, String(it.word ?? ''))),
+            el('span', { style: 'font-size:13px;color:var(--ink-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap' }, String(it.title ?? ''))));
+      }));
+  }));
+}
 // ---- Pipeline → Flow: the six stage columns with each live session's chip, the waiting lane, the legend's tests line ----
 const COLUMNS = [['01', 'Gauntlet', 'PRD critic'], ['02', 'Decompose', 'PRD → issues'], ['03', 'Implement', 'issue → PR'],
   ['04', 'Audit', 'independent check'], ['05', 'Merge', 'PR → main'], ['06', 'Gate', null]];
@@ -637,7 +683,37 @@ function renderTimeline() {
         })));
   }));
 }
-function renderDetails() { fill($('details')); }
+function renderDetails() {
+  const it = selected();
+  if (!it) { fill($('details'), el('span', { style: 'font-size:13px;color:var(--muted)' }, 'Nothing selected.')); return; }
+  const k = dotKey(it), group = snapGroups().find((g) => g.key === it.group);
+  const steps = (Array.isArray(it.steps) ? it.steps : []).filter((s) => s && typeof s === 'object');
+  const facts = (Array.isArray(it.facts) ? it.facts : []).filter(Array.isArray);
+  fill($('details'),
+    el('div', { style: 'display:flex;flex-direction:column;gap:6px' },
+      el('span', { class: 'mono', style: 'font-size:12px;color:var(--muted)' }, String(group?.title ?? '')),
+      el('span', { class: 'head', style: 'font-weight:700;font-size:24px' }, itemId(it)),
+      el('span', { style: 'font-size:14px;line-height:1.45' }, String(it.title ?? '')),
+      el('span', { style: statusStyle(k) + ';text-transform:uppercase;letter-spacing:0.08em' }, String(it.word ?? ''))),
+    el('ol', { style: 'list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:0' }, steps.map((s, i) => {
+      const st = s.state === 'done' || s.state === 'now' ? s.state : 'next';
+      const dot = 'width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;flex:none;box-sizing:border-box;' +
+        (st === 'done' ? 'background:var(--blue);color:var(--panel)' : st === 'now' ? 'background:var(--panel);color:var(--orange-text);border:2px solid var(--orange)' : 'background:var(--panel);color:var(--muted-2);border:1.5px solid var(--grey)');
+      const line = i === steps.length - 1 ? 'width:2px;flex:1;background:transparent' : 'width:2px;flex:1;min-height:14px;background:' + (st === 'done' ? 'var(--blue)' : 'var(--border)');
+      return el('li', { style: 'display:flex;gap:12px' },
+        el('div', { style: 'display:flex;flex-direction:column;align-items:center' }, el('span', { style: dot }, st === 'done' ? '✓' : String(i + 1)), el('span', { style: line })),
+        el('div', { style: 'display:flex;flex-direction:column;gap:2px;padding-bottom:12px' },
+          el('span', { style: 'font-weight:600;font-size:14px;color:' + (st === 'next' ? 'var(--muted-2)' : 'var(--ink)') }, String(s.name ?? '')),
+          el('span', { style: 'font-size:12px;color:var(--muted)' }, String(s.note ?? ''))));
+    })),
+    el('div', { style: 'border:1px solid var(--border-soft);border-radius:8px;overflow:hidden' }, facts.map(([f, v]) =>
+      el('div', { style: 'display:flex;justify-content:space-between;gap:12px;padding:8px 12px;border-bottom:1px solid var(--soft)' },
+        el('span', { style: 'font-size:12px;color:var(--muted);letter-spacing:0.06em' }, String(f ?? '')),
+        el('span', { class: 'mono', style: 'font-size:12px;text-align:right' }, String(v ?? ''))))),
+    el('div', { style: 'background:var(--blue-select);border-radius:8px;padding:10px 12px;display:flex;flex-direction:column;gap:4px' },
+      el('span', { style: 'font-size:11px;color:var(--blue-deep);letter-spacing:0.08em;font-weight:600' }, 'WHAT HAPPENS NEXT'),
+      el('span', { style: 'font-size:13px;line-height:1.45' }, String(it.next ?? ''))));
+}
 // tokens in the short format: 2.5M (one decimal from a million), 288K (whole thousands from a thousand), else the number
 function shortTok(n) {
   const v = Number(n);
@@ -674,12 +750,13 @@ function render() {
   // style.display, not the hidden attribute: both panes set display:flex inline, which beats [hidden]
   $('flow').style.display = state.view === 'flow' ? 'flex' : 'none';
   $('timeline').style.display = state.view === 'timeline' ? 'flex' : 'none';
+  if (!selected()) state.sel = defaultSel(); // the selection survives a refresh; one that is gone falls back to the default
   renderBoard(); renderFlow(); renderTimeline(); renderDetails(); renderEvents();
 }
 document.addEventListener('click', (ev) => {
   const b = ev.target && ev.target.closest ? ev.target.closest('button') : null;
   if (!b) return;
-  if (b.dataset.sel) state.sel = b.dataset.sel;
+  if (b.dataset.sel) state.sel = b.dataset.sel; // the item number, as the button holds it
   else if (b.dataset.board) state.board = b.dataset.board;
   else if (b.dataset.view) state.view = b.dataset.view;
   else if (b.dataset.filter) state.filter = b.dataset.filter;
