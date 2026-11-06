@@ -550,9 +550,9 @@ async function pool(p: Project, o: PoolOptions): Promise<number> {
         // Ctrl+C (o.signal) aborts the gate; `hx pause --now` (stop) does not
         // the gate counts as one more than the sessions (gateRunning is not set yet on the first run)
         const reused = forced ? null : await reusedGate(cmd);
-        forced = false;
-        const r = reused ?? await runGate(p.root, c.worktreeRoot, c.defaultBranch, cmd, c.gateMinutes * 60_000, o.signal, setup, undefined, testEnv(sessionsNow() + 1)).catch((e) => ({ sha: '', ok: true, command: cmd, output: String(e.message), at: new Date().toISOString(), error: true }));
+        const r = reused ??await runGate(p.root, c.worktreeRoot, c.defaultBranch, cmd, c.gateMinutes * 60_000, o.signal, setup, undefined, testEnv(sessionsNow() + 1)).catch((e) => ({ sha: '', ok: true, command: cmd, output: String(e.message), at: new Date().toISOString(), error: true }));
         if ('aborted' in r && r.aborted) { await r.killed; break; } // discarded: no log, no gate.json, no fix issue; the tree is gone first
+        if (!('setupFailed' in r && r.setupFailed)) forced = false; // a setup retry of a requested run still never reuses
         if ('error' in r) { log(`gate: could not run (${r.output.slice(0, 160)}) — retried after the next merge`); continue; }
         if ('setupFailed' in r && r.setupFailed) {
           setupTries = r.sha === setupSha ? setupTries + 1 : 1;

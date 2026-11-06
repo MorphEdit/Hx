@@ -273,3 +273,22 @@ test('hx health with a reused green at the head: ✗ reported, no gate run (with
     assert.equal(gateRuns(r), 1);
   }
 });
+
+test('a requested gate run whose worktree setup fails once: the retry still runs the full suite, never reusing the passing record', E2E, async () => {
+  const marks = path.join(tmp, `marks-${k + 1}`), tries = path.join(tmp, `setup-${k + 1}`);
+  const counting = `node -e "require('fs').appendFileSync('${marks.replace(/\\/g, '/')}', 'x')"`;
+  const t = tries.replace(/\\/g, '/');
+  const flaky = `node -e "const fs=require('fs');const n=(fs.existsSync('${t}')?fs.readFileSync('${t}','utf8').length:0)+1;fs.appendFileSync('${t}','x');process.exit(n===1?1:0)"`;
+  const r = repo({ gate: true, gateCommand: counting, worktreeSetup: flaky, worktreeCopy: [] });
+  const tree = git(r.root, 'rev-parse', 'HEAD^{tree}');
+  writeFileSync(path.join(r.stateDir, 'gate.json'), JSON.stringify({ last: { sha: r.head, ok: true, command: counting, output: '', at: new Date().toISOString() } }));
+  writeFileSync(path.join(r.stateDir, 'tested-trees.jsonl'), JSON.stringify({ tree, command: counting, ok: true, at: new Date(Date.now() - 60_000).toISOString() }) + '\n');
+  board({});
+  assert.equal(await plain(r), 0);
+  const lines = runLog(r);
+  assert.ok(lines.some((l) => /gate: setup FAILED \(exit 1, try 1 of 3\)/.test(l)), lines.join('\n'));
+  const runs = readFileSync(path.join(r.stateDir, 'gate-runs.jsonl'), 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l));
+  assert.deepEqual(runs.map((x) => [x.sha, x.ok, !!x.reused]), [[r.head, true, true], [r.head, true, false]], lines.join('\n'));
+  assert.equal(readFileSync(marks, 'utf8'), 'x', 'the retried requested run ran the test command once');
+  assert.equal(lines.filter((l) => /\(tree already tested\)/.test(l)).length, 1, lines.join('\n'));
+});
