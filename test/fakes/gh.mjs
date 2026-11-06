@@ -2,6 +2,7 @@
 // A program (node gh.mjs …), or in-process: gh(args, { input, cwd, inProcess: true }) → { code, stdout, stderr }, the
 // same answers and recorded calls without a node start per call. hx (src/exec.ts) and the scripts (ghwait.mjs) call it
 // that way when HX_GH_INPROC names this file, as test/isolate.ts sets it; null = run it as a program.
+import { spawnSync } from 'node:child_process';
 import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -126,6 +127,15 @@ export function gh(a, { input = () => '', cwd = process.cwd(), inProcess = false
     } else if (a[0] === 'pr' && a[1] === 'merge') {
       // HX_FAKE_AUTOMERGE: the repo only accepts auto-merge, which lands (and closes the issue) at once
       if (process.env.HX_FAKE_AUTOMERGE && !a.includes('--auto')) { printErr('Pull request is not mergeable'); exit(1); }
+      // state.mergeFails: every merge fails as GitHub's does when it cannot build the merge commit (auto-merge too, as in a
+      // repo that does not allow it); state.mergeNeedsBase = <bare origin>: it fails so while that origin's main is not an
+      // ancestor of --match-head-commit (a PR landed on the base after the head was tested)
+      const behind = () => spawnSync('git', ['-C', s.mergeNeedsBase, 'merge-base', '--is-ancestor', 'main', opt('--match-head-commit') ?? 'HEAD']).status !== 0;
+      if (s.mergeFails || (s.mergeNeedsBase && behind())) {
+        mutate((cur) => { cur.mergeRefused = (cur.mergeRefused ?? 0) + 1; });
+        printErr(`GraphQL: Pull request #${a[2]} is not mergeable: the merge commit cannot be cleanly created. (mergePullRequest)`);
+        exit(1);
+      }
       mutate((cur) => {
         const pr = (cur.prs ?? []).find((p) => p.number === Number(a[2]));
         pr.state = 'MERGED';

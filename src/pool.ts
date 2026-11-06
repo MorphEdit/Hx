@@ -1553,13 +1553,17 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
   // a PASS held while the default branch was red (#301): only its merge is retried, in the round it passed
   const held = readHeld(p.stateDir)[n];
   if (held) setHeld(p.stateDir, n, undefined);
-  for (let attempt = held?.round ?? 1; ; attempt++) {
+  // an audit FAIL counts against auditRounds, a merge that fails after a PASS against mergeRounds (#347)
+  let mergeRound = 0;
+  let passedSha = ''; // the head the last PASS was for, after a merge-fix round: the re-audit checks what came since
+  for (let attempt = held?.round ?? 1, resumeHeld = !!held; ; resumeHeld = false) {
     let r: GoalResult, pr: number, v: { pass: boolean; findings: string }, summary: string;
-    if (held && attempt === held.round) {
+    if (held && resumeHeld) {
       r = { done: true, sessionId: '', iterations: 0, usage: emptyUsage(), costUsd: 0, stopReason: 'promise' };
       pr = held.pr;
       v = { pass: true, findings: '' };
       summary = `${fmt(sessionTokens)} tokens`;
+      passedSha = await headSha(wt.dir);
       log(`${c.defaultBranch} is green: merging held PR #${pr} (audit ${attempt}/${c.auditRounds} PASS kept)`, n);
     } else {
       r = await goal('impl', wt.dir, 'impl.md', promise, extra, askPromise);
@@ -1584,6 +1588,7 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
 
       // the auditor works in its own fresh checkout of the pushed branch and never sees the implementer's session
       const awt = await addWorktree(p.root, c.worktreeRoot, auditWorktree(n));
+      const auditedSha = await headSha(awt.dir); // the commit the auditor is given, before its session can move the checkout
       log(`audit ${attempt}/${c.auditRounds}: PR #${pr}`, n);
       const auditNote = await setup(awt, `a${n}`);
       if (auditNote === null) {
@@ -1591,13 +1596,14 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
         return handBack(setupStopped(), 'during the audit worktree setup');
       }
       const ar = await goal('audit', awt.dir, 'audit.md', `AUDIT ${n} DONE`, { PR: pr, ROUND: attempt, ROUNDS: c.auditRounds,
-        BUG_NOTE: bug ? `${AUDIT_BUG_NOTE}\n` : '', SETUP_NOTE: auditNote });
+        BUG_NOTE: bug ? `${AUDIT_BUG_NOTE}\n` : '', SETUP_NOTE: auditNote, REAUDIT_NOTE: passedSha ? reauditNote(passedSha, c.defaultBranch) : '' });
       await removeWorktree(p.root, awt.dir);
       summary = `${fmt(sessionTokens)} tokens`;
       if (stopped(ar)) return handBack(ar, summary);
       const verdict = auditVerdict(ar.done ? ar.last?.text ?? '' : '');
       if (!verdict) return fail(ar, ar.done ? 'the auditor gave no VERDICT line' : `audit did not complete: ${ar.last?.error ?? ar.stopReason}`, summary);
       v = verdict;
+      passedSha = v.pass ? auditedSha : '';
       await gh.comment(c.repo, n, `${AUDIT_MARKER}\n**hx audit ${attempt}/${c.auditRounds}: ${v.pass ? 'PASS ✓' : 'FAIL ✗'}** (PR #${pr})\n\n${v.findings}`).catch(() => {});
       log(`audit ${v.pass ? 'PASS ✓' : 'FAIL ✗'}${v.pass ? '' : ` — ${v.findings.split('\n')[0].slice(0, 140)}`}`, n);
     }
@@ -1611,7 +1617,7 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
         const shipped = await shipInfo(wt.dir);
         await relabel(c.repo, n, [], [L.working]);
         await removeWorktree(p.root, wt.dir);
-        log(`DONE ✓ audited and merged (${attempt} round(s), ${summary})`, n);
+        log(`DONE ✓ audited and merged (${attempt} round(s), ${mergeRound ? `${mergeRound} merge round(s), ` : ''}${summary})`, n);
         ctx.merged?.(shipped?.test);
         return { ...r, done: true };
       }
@@ -1631,6 +1637,14 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
         + (own.length ? `${c.defaultBranch} is red, but these failing tests do not fail there, so your branch broke them: ${own.join(', ')}.\n\n` : '')
         + `Fix that on your branch, then ship again with --no-merge. ${RESUME_TESTS_NOTE}`;
       why = `merge after audit failed (${m.code === 3 ? 'rebase conflict' : `tests fail after the rebase${own.length ? `; not failing on ${c.defaultBranch}: ${own.join(', ')}` : ''}`})`;
+      mergeRound++;
+      if (mergeRound >= c.mergeRounds) return fail(r, `still not merging after ${mergeRound} merge round(s) (audit ${attempt}/${c.auditRounds} passed); last: ${feedback.slice(0, 400)}`, summary);
+      // the PASS stands: no audit round is used up, and the next audit checks the fix since the passed sha
+      const back = `${why} — back to the implementer, merge round ${mergeRound}/${c.mergeRounds} (audit round ${attempt}/${c.auditRounds} unchanged)`;
+      log(back, n);
+      await gh.comment(c.repo, n, `${RETRY_MARKER}\n**hx:** ${back} (PR #${pr})`).catch(() => {});
+      extra = { RESUMED: `NOTE: this branch already has your earlier work (PR #${pr} is open).\n${feedback}\n` };
+      continue;
     } else {
       feedback = `An independent audit of PR #${pr} FAILED with these findings — fix every one (add a test for each), then ship again with --no-merge. ${RESUME_TESTS_NOTE}\n\n${v.findings}`;
       why = 'audit failed';
@@ -1641,7 +1655,22 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
     log(back, n);
     await gh.comment(c.repo, n, `${RETRY_MARKER}\n**hx:** ${back} (PR #${pr})`).catch(() => {});
     extra = { RESUMED: `NOTE: this branch already has your earlier work (PR #${pr} is open).\n${feedback}\n` };
+    attempt++;
   }
+}
+
+/** {{REAUDIT_NOTE}} in the audit prompt after a merge-fix round: the sha the previous audit passed, and what to check since. */
+export function reauditNote(sha: string, base: string): string {
+  return `This is a re-audit after a merge-fix round: the previous audit PASSED at ${sha}, then the merge failed (a rebase conflict `
+    + `or tests failing after the rebase on ${base}) and the implementer fixed it. Do not re-audit the whole PR from scratch: in steps 2, 4 `
+    + `and 7 check the commits since ${sha} (\`git log --oneline ${sha}..HEAD\`, \`git diff ${sha} HEAD\`; the branch may have been rebased, `
+    + `so that diff also holds ${base}'s new commits: judge the PR's own files, \`git diff origin/${base}...HEAD --stat\`). `
+    + `The fix can still break a criterion that passed: then VERDICT: FAIL.\n`;
+}
+
+/** The commit checked out in a worktree ('' when git cannot say). */
+async function headSha(cwd: string): Promise<string> {
+  return (await runCmd('git', ['-C', cwd, 'rev-parse', 'HEAD'])).stdout.trim();
 }
 
 /** The dependents of a split issue #n (PRD #300 §4): every open issue opened by a trusted account whose

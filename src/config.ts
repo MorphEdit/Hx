@@ -63,6 +63,7 @@ export interface Config {
   triageRounds: number; // triage sessions on a bug before a human has to look
   audit: boolean; // an independent auditor session checks every implementation PR before hx merges it
   auditRounds: number; // implement → audit attempts before the issue goes to a human
+  mergeRounds: number; // merge-fix rounds after an audit PASS (a rebase conflict, tests failing after the rebase) before the issue goes to a human
   gate: boolean; // test the default branch after every merge; while red, claim only the fix
   gateCommand: string; // the gate's test command ('' = learned from the first audited merge)
   testPatterns: string[]; // regexes (case-insensitive) that mark a worker's shell command as a test run, on top of the defaults in src/timing.ts
@@ -130,6 +131,7 @@ export const DEFAULTS: Omit<Config, 'repo' | 'defaultBranch' | 'worktreeRoot'> =
   triageRounds: 2,
   audit: true,
   auditRounds: 3,
+  mergeRounds: 3,
   gate: true,
   gateCommand: '',
   gateMinutes: 45,

@@ -244,3 +244,68 @@ test('ship: a primary limit whose reset is past the cap is not waited on at all:
   assert.ok(r.stderr.includes(`ship: github primary rate limit — rate limited until ${hhmm(reset)}`), r.stderr);
   assert.match(r.stderr, /ship: gh pr list failed: HTTP 403: API rate limit exceeded/);
 });
+
+// #347: a PR lands on the base while ship's tests run, so GitHub cannot build the merge commit of the tested head.
+// The test command itself pushes that commit from another clone (on its first `lands` runs), so the order is exact.
+function landing(env: ReturnType<typeof setup>, lands: number) {
+  const script = path.join(env.tmp, 'land.mjs'), count = path.join(env.tmp, 'runs.n');
+  writeFileSync(script, `import { execFileSync } from 'node:child_process';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+const n = (existsSync(${JSON.stringify(count)}) ? Number(readFileSync(${JSON.stringify(count)}, 'utf8')) : 0) + 1;
+writeFileSync(${JSON.stringify(count)}, String(n));
+if (n <= ${lands}) {
+  const g = (...a) => execFileSync('git', ['-C', ${JSON.stringify(env.other)}, '-c', 'user.email=t@t', '-c', 'user.name=t', ...a], { stdio: 'pipe' });
+  g('pull', '-q', '--rebase', 'origin', 'main');
+  writeFileSync(${JSON.stringify(path.join(env.other, 'landed.txt'))}, 'landed ' + n);
+  g('add', '-A'); g('commit', '-q', '-m', 'landed ' + n); g('push', '-q', 'origin', 'HEAD:main');
+}
+`);
+  writeFileSync(env.board, JSON.stringify({ ...board(env), mergeNeedsBase: env.origin }));
+  return { test: `node "${script.replace(/\\/g, '/')}"`, runs: () => Number(readFileSync(count, 'utf8')) };
+}
+const moved = (stdout: string) => stdout.split('\n').filter((l) => /^ship: origin\/main moved during the merge: rebasing and testing again \(\d\/3\)$/.test(l));
+
+test('ship: a commit lands on the base between the rebase and the merge: rebased, tested and merged again, exit 0 (#347)', E2E, () => {
+  const env = setup();
+  writeFileSync(path.join(env.wt, 'c.txt'), 'mine\n');
+  const l = landing(env, 1);
+  const r = shipWith(env, ['--repo', 'me/app', '--base', 'main', '--issue', '7', '--title', 'feat: thing', '--test', l.test],
+    { HX_SHIP_RETRY_MS: '10', GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' }, 300_000);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /SHIPPED #7 via PR #100/);
+  assert.deepEqual(moved(r.stdout), ['ship: origin/main moved during the merge: rebasing and testing again (1/3)']);
+  assert.equal(l.runs(), 2, 'the tests ran again on the new base');
+  const b = board(env);
+  assert.equal(b.mergeRefused, 1, 'the first merge was refused');
+  assert.equal(b.prs[0].state, 'MERGED');
+  assert.equal(b.prs[0].mergedHead, git(env.wt, 'rev-parse', 'HEAD'), 'merged at the head tested on the new base');
+  assert.match(git(env.wt, 'log', '--format=%s', '-2'), /feat: thing \(closes #7\)\nlanded 1/, 'rebased onto the commit that landed');
+  assert.equal(b.issues[0].state, 'CLOSED');
+});
+
+test('ship: a base that keeps moving is rebased and tested again 3 times, then exit 5 (#347)', E2E, () => {
+  const env = setup();
+  writeFileSync(path.join(env.wt, 'c.txt'), 'mine\n');
+  const l = landing(env, 99);
+  const r = shipWith(env, ['--repo', 'me/app', '--base', 'main', '--issue', '7', '--title', 'feat: thing', '--test', l.test],
+    { HX_SHIP_RETRY_MS: '10', GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' }, 300_000);
+  assert.equal(r.status, 5, r.stderr);
+  assert.equal(moved(r.stdout).length, 3);
+  assert.equal(l.runs(), 4, 'the first run and 3 more');
+  assert.match(r.stderr, /ship: merging PR #100 failed: .*the merge commit cannot be cleanly created/);
+  assert.equal(board(env).prs[0].state, 'OPEN');
+});
+
+test('ship: a merge that keeps failing with the head up to date with the base exits 5 without rebasing again (#347)', E2E, () => {
+  const env = setup();
+  writeFileSync(path.join(env.wt, 'c.txt'), 'mine\n');
+  writeFileSync(env.board, JSON.stringify({ ...board(env), mergeFails: true }));
+  const r = shipWith(env, SHIP_ARGS, { HX_SHIP_RETRY_MS: '10', GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' }, 300_000);
+  assert.equal(r.status, 5, r.stderr);
+  assert.deepEqual(moved(r.stdout), []);
+  assert.match(r.stderr, /ship: merging PR #100 failed: .*the merge commit cannot be cleanly created/);
+  const b = board(env);
+  assert.equal(b.mergeRefused, 6, 'five merges, then the auto-merge fallback');
+  assert.equal(b.prs[0].state, 'OPEN');
+  assert.equal(b.issues[0].state, 'OPEN');
+});

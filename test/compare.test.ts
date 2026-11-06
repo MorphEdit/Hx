@@ -48,6 +48,7 @@ test('stopCause: timed out, not mergeable or conflict, out of audit rounds, othe
   assert.equal(stopCause(stop('agent error: stalled: no output for 20 min')), 'timedOut');
   assert.equal(stopCause(stop('merging the audited PR failed: Pull request is not mergeable')), 'conflict');
   assert.equal(stopCause(stop('still not passing after 3 audit round(s); last findings: a conflict')), 'auditRounds');
+  assert.equal(stopCause(stop('still not merging after 3 merge round(s) (audit 1/3 passed); last: x')), 'conflict');
   assert.equal(stopCause(stop('no completion after 20 turns')), 'other');
 });
 

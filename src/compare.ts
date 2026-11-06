@@ -89,7 +89,7 @@ export function parseTime(s: string): number | undefined {
 export function stopCause(body: string): keyof Stops {
   const line = body.split('\n')[0];
   if (/still not passing after \d+ audit round/i.test(line)) return 'auditRounds';
-  if (/mergeable|conflict|merging the audited PR failed/i.test(line)) return 'conflict';
+  if (/mergeable|conflict|merging the audited PR failed|still not merging after/i.test(line)) return 'conflict';
   if (/timed out|stalled/i.test(line)) return 'timedOut';
   return 'other';
 }
