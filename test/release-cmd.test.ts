@@ -11,21 +11,23 @@ import { fileURLToPath } from 'node:url';
 import { DEFAULTS, saveConfig } from '../src/config.ts';
 import { writeGate } from '../src/gate.ts';
 import { writeLive } from '../src/runstate.ts';
+import { copyRepos, fwd } from './repo-copy.ts';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const HX = path.join(here, '..', 'bin', 'hx.mjs');
 const tmp = mkdtempSync(path.join(os.tmpdir(), 'hx-rel-'));
-const fwd = (p: string) => p.replace(/\\/g, '/');
 const git = (cwd: string, ...a: string[]) => execFileSync('git', a, { cwd, encoding: 'utf8', stdio: 'pipe' }).trim();
 const gitAt = (date: string, cwd: string, ...a: string[]) =>
   execFileSync('git', a, { cwd, encoding: 'utf8', stdio: 'pipe', env: { ...process.env, GIT_COMMITTER_DATE: date, GIT_AUTHOR_DATE: date } }).trim();
 
-// The gate: appends the sha it tests to argv[2]; red while argv[3] exists; when argv[4] exists, it first pushes a
-// new commit to origin from the clone named in that file (the branch moves after the gate's checkout).
+// The gate appends the sha it tests to the runs file. A shell command, so a gate run starts no node: the same line in
+// cmd and sh, red with `&& exit 1`. Only the test that moves main during the gate runs gate.mjs: when argv[3] exists,
+// it first pushes a new commit to origin from the clone named in that file (the branch moves after the gate's checkout).
+const shGate = (runs: string, red = false) => `git rev-parse HEAD >> "${fwd(runs)}"${red ? ' && exit 1' : ''}`;
 const gateScript = path.join(tmp, 'gate.mjs');
 writeFileSync(gateScript, `import { execFileSync } from 'node:child_process';
 import { appendFileSync, existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-const [runs, red, move] = process.argv.slice(2);
+const [runs, move] = process.argv.slice(2);
 appendFileSync(runs, execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim() + '\\n');
 if (existsSync(move)) {
   const w = readFileSync(move, 'utf8').trim(); rmSync(move);
@@ -34,7 +36,6 @@ if (existsSync(move)) {
   execFileSync('git', ['-C', w, 'commit', '-q', '-m', 'feat: landed during the gate (#50)']);
   execFileSync('git', ['-C', w, 'push', '-q', 'origin', 'HEAD:main']);
 }
-process.exit(existsSync(red) ? 1 : 0);
 `);
 // HX_GIT_BIN: plain git, except that while HX_TEST_MOVE names an existing file, the first ls-remote (the head the
 // release reads) moves origin's main right after answering — before the gate checks it out.
@@ -57,35 +58,53 @@ process.exit(r.status ?? 1);
 const TAG_DATE = '2026-01-01T00:00:00Z';
 const PKG = '{\n  "name": "app",\n  "version": "0.1.0",\n    "private": true\n}\n';
 
-interface Fixture { dir: string; origin: string; root: string; w: string; hxDir: string; board: string; runs: string; red: string; move: string }
+interface Fixture { dir: string; origin: string; root: string; w: string; hxDir: string; board: string; runs: string; move: string }
 
-/** origin with main at a tagged commit (v0.1.0, released), an hx checkout `root` and a second clone `w` for pushes. */
-function fixture(o: { pkg?: boolean; gateCommand?: string; config?: object; board?: object; tag?: boolean } = {}): Fixture {
-  const dir = mkdtempSync(path.join(tmp, 'f-'));
-  const origin = path.join(dir, 'origin.git'), root = path.join(dir, 'app'), w = path.join(dir, 'w');
+// The repos are built once per shape (with or without package.json, with or without the tag), then copied per test
+const templates = new Map<string, string>();
+function template(pkg: boolean, tag: boolean): string {
+  const key = `${pkg}/${tag}`;
+  const known = templates.get(key);
+  if (known) return known;
+  const dir = mkdtempSync(path.join(tmp, 't-'));
+  const origin = fwd(path.join(dir, 'origin.git')), root = path.join(dir, 'app'), w = path.join(dir, 'w');
   git(dir, 'init', '-q', '--bare', '-b', 'main', origin);
   git(dir, 'clone', '-q', origin, w);
   writeFileSync(path.join(w, 'README.md'), 'app\n');
-  if (o.pkg !== false) writeFileSync(path.join(w, 'package.json'), PKG);
+  if (pkg) writeFileSync(path.join(w, 'package.json'), PKG);
   git(w, 'add', '-A');
   git(w, 'commit', '-q', '-m', 'feat: the start (#1)');
-  if (o.tag !== false) gitAt(TAG_DATE, w, 'tag', '-a', 'v0.1.0', '-m', 'v0.1.0');
+  if (tag) gitAt(TAG_DATE, w, 'tag', '-a', 'v0.1.0', '-m', 'v0.1.0');
   git(w, 'push', '-q', '--follow-tags', 'origin', 'HEAD:main');
   git(dir, 'clone', '-q', origin, root);
-  const hxDir = path.join(root, '.hx');
-  const f: Fixture = { dir, origin, root, w, hxDir, board: path.join(dir, 'board.json'), runs: path.join(dir, 'runs'), red: path.join(dir, 'RED'), move: path.join(dir, 'MOVE') };
-  const gateCommand = o.gateCommand ?? `node "${fwd(gateScript)}" "${fwd(f.runs)}" "${fwd(f.red)}" "${fwd(f.move)}"`;
-  saveConfig(hxDir, { ...DEFAULTS, repo: 'me/app', defaultBranch: 'main', worktreeRoot: path.join(dir, 'wt'), gateCommand, ...o.config });
   const exclude = path.join(root, '.git', 'info', 'exclude');
   writeFileSync(exclude, readFileSync(exclude, 'utf8') + '/.hx/\n');
+  templates.set(key, dir);
+  return dir;
+}
+
+/** origin with main at a tagged commit (v0.1.0, released), an hx checkout `root` and a second clone `w` for pushes.
+ *  The gate records each run; `gate: 'red'` then fails, `gate: 'move'` is gate.mjs (main moves during the gate). */
+function fixture(o: { pkg?: boolean; gateCommand?: string; gate?: 'red' | 'move'; config?: object; board?: object; tag?: boolean } = {}): Fixture {
+  const dir = mkdtempSync(path.join(tmp, 'f-'));
+  copyRepos(template(o.pkg !== false, o.tag !== false), dir, ['w', 'app']);
+  const origin = path.join(dir, 'origin.git'), root = path.join(dir, 'app'), w = path.join(dir, 'w');
+  const hxDir = path.join(root, '.hx');
+  const f: Fixture = { dir, origin, root, w, hxDir, board: path.join(dir, 'board.json'), runs: path.join(dir, 'runs'), move: path.join(dir, 'MOVE') };
+  const gateCommand = o.gateCommand
+    ?? (o.gate === 'move' ? `node "${fwd(gateScript)}" "${fwd(f.runs)}" "${fwd(f.move)}"` : shGate(f.runs, o.gate === 'red'));
+  saveConfig(hxDir, { ...DEFAULTS, repo: 'me/app', defaultBranch: 'main', worktreeRoot: path.join(dir, 'wt'), gateCommand, ...o.config });
   writeFileSync(f.board, JSON.stringify({ comments: [], prs: [], issues: [], releases: o.tag !== false ? [{ tag: 'v0.1.0' }] : [], ...o.board }));
   return f;
 }
 
-function commit(f: Fixture, subject: string, body = '') {
-  writeFileSync(path.join(f.w, `c${Math.random().toString(36).slice(2)}.txt`), subject + '\n');
-  git(f.w, 'add', '-A');
-  git(f.w, 'commit', '-q', '-m', subject, ...(body ? ['-m', body] : []));
+/** One commit per subject on main, in order, then one push. */
+function commit(f: Fixture, ...subjects: string[]) {
+  for (const subject of subjects) {
+    writeFileSync(path.join(f.w, `c${Math.random().toString(36).slice(2)}.txt`), subject + '\n');
+    git(f.w, 'add', '-A');
+    git(f.w, 'commit', '-q', '-m', subject);
+  }
   git(f.w, 'push', '-q', 'origin', 'HEAD:main');
 }
 
@@ -109,9 +128,7 @@ test('hx release --yes: package.json bumped and committed on main, annotated tag
     prd(2, 'PRD: Older', '2025-12-01T00:00:00Z'), // closed before v0.1.0
     prd(4, 'PRD: Dropped', '2026-06-02T00:00:00Z', 'NOT_PLANNED'),
   ] } });
-  commit(f, 'feat: add a widget (closes #5) (#6)');
-  commit(f, 'fix: handle empty input (closes #7) (#8)');
-  commit(f, 'docs: explain widgets (#9)');
+  commit(f, 'feat: add a widget (closes #5) (#6)', 'fix: handle empty input (closes #7) (#8)', 'docs: explain widgets (#9)');
   const head = og(f, 'rev-parse', 'main');
 
   const r = hx(f, ['--yes']);
@@ -148,8 +165,7 @@ test('hx release --yes: package.json bumped and committed on main, annotated tag
 
 test('hx release --yes with no closed PRD: a patch bump; with no package.json the tag goes on the gated head itself', E2E, () => {
   const f = fixture({ pkg: false });
-  commit(f, 'fix(gate): a fix (closes #11) (#12)');
-  commit(f, 'chore: tidy (#13)');
+  commit(f, 'fix(gate): a fix (closes #11) (#12)', 'chore: tidy (#13)');
   const head = og(f, 'rev-parse', 'main');
   const r = hx(f, ['--yes']);
   assert.equal(r.code, 0, r.out);
@@ -209,10 +225,9 @@ test('a live runner in live.json: --yes exits 3 before anything (no gate, no tag
 });
 
 test('red gate → exit 1 with its output, no tag, no release; no gate command → exit 1, no tag, no release', E2E, () => {
-  const f = fixture();
+  const f = fixture({ gate: 'red' });
   commit(f, 'fix: a fix (#12)');
   const before = originRefs(f);
-  writeFileSync(f.red, 'x');
   let r = hx(f, ['--yes']);
   assert.equal(r.code, 1, r.out);
   assert.match(r.out, /gate red on main at [0-9a-f]{7}/);
@@ -248,7 +263,7 @@ test('the recorded gate result for the head is used (no gate run); a red one sto
 
 test('a gate run by hx release leaves gate.json unchanged (the learned command is used)', E2E, () => {
   const f = fixture({ gateCommand: '' });
-  const learned = `node "${fwd(gateScript)}" "${fwd(f.runs)}" "${fwd(f.red)}" "${fwd(f.move)}"`;
+  const learned = shGate(f.runs);
   writeGate(f.hxDir, { command: learned, last: { sha: 'f'.repeat(40), ok: true, command: learned, output: '', at: '2026-01-02T00:00:00.000Z' } });
   const before = readFileSync(path.join(f.hxDir, 'gate.json'), 'utf8');
   commit(f, 'fix: a fix (#12)');
@@ -275,7 +290,7 @@ test('an origin hook rejecting the branch push: the tag goes on G alone, the rel
 });
 
 test('main moves after the gate checked it out: the tag is on the sha the gate tested, never the newer head', E2E, () => {
-  const f = fixture();
+  const f = fixture({ gate: 'move' });
   commit(f, 'fix: a fix (#12)');
   const head = og(f, 'rev-parse', 'main');
   writeFileSync(f.move, f.w);
@@ -311,8 +326,7 @@ test('the last tag on origin has no release: only that release is made (no gate,
     prd(4, 'PRD: After the tag', '2026-06-01T00:00:00Z'),
     prd(2, 'PRD: Before', '2025-12-01T00:00:00Z'),
   ] } });
-  commit(f, 'feat: a feature (closes #5) (#6)');
-  commit(f, 'chore: release v0.1.0');
+  commit(f, 'feat: a feature (closes #5) (#6)', 'chore: release v0.1.0');
   gitAt('2026-04-01T00:00:00Z', f.w, 'tag', '-a', 'v0.2.0', '-m', 'v0.2.0');
   git(f.w, 'tag', 'latest'); // not semver: ignored
   git(f.w, 'push', '-q', 'origin', 'v0.2.0', 'latest');

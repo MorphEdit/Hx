@@ -569,3 +569,26 @@ test('docs: the gate reuses a tree that passed within 2 h while green (#352), th
     assert.ok(health.includes(w), w);
   assert.match(sec('## Where the time goes'), /Reused gate runs .* are left out of\s+every gate duration figure/);
 });
+
+test('docs/benchmark.md: Test suite speed has #369\'s rows after #354\'s: a run, the per-test rows with a reason each, release-cmd and ship per file (#369)', () => {
+  const b = read('docs/benchmark.md');
+  const at = b.indexOf('\n## Test suite speed\n');
+  const next = b.indexOf('\n## ', at + 1);
+  const sec = b.slice(at, next < 0 ? undefined : next);
+  const rows = (pr: string) => sec.split('\n').filter((l) => l.startsWith(`| ${pr} |`));
+  assert.equal(rows('#354').length, 1 + 21 + 5, "#354's rows are all still there");
+  // the PR that closes #369 names it in its paragraph
+  const pr = /\*\*(#\d+) \(#369\): what changed in release-cmd and ship\.\*\*/.exec(sec)?.[1];
+  assert.ok(pr && pr !== '#354', 'a "what changed" paragraph for the #369 PR');
+  const mine = rows(pr);
+  const run = mine.filter((l) => /^\| #\d+ \| \d{4}-\d\d-\d\d \| \d+ \| `[^`]+` \| `[^`]+` \|/.test(l));
+  assert.equal(run.length, 1, 'one runs row: date, concurrency, both workers lines');
+  const perFile = mine.filter((l) => /^\| #\d+ \| (release-cmd|ship) \| \d+ \| [\d.]+ \| [\d.]+ \| [−+]\d+% \|$/.test(l));
+  assert.deepEqual(perFile.map((l) => l.split('|')[2].trim()), ['release-cmd', 'ship']);
+  const perTest = mine.filter((l) => !run.includes(l) && !perFile.includes(l) && !l.includes('**sum'));
+  assert.ok(perTest.length >= 1 && perTest.every((l) => /^\| #\d+ \| (release-cmd|ship) \|/.test(l)), perTest.join('\n'));
+  for (const l of perTest) assert.ok(l.split('|')[7].trim().length > 0, `no reason: ${l}`);
+  // appended to each table right after #354's rows
+  const lines = sec.split('\n');
+  for (const l of mine) assert.ok(lines[lines.indexOf(l) - 1].startsWith('| #354 |') || mine.includes(lines[lines.indexOf(l) - 1]), l);
+});

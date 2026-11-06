@@ -242,6 +242,7 @@ rows alone.
 | PR | Date | `--test-concurrency` | `workers` line (before run) | `workers` line (after run) | Suite wall time (before → after) | Summed test time (before → after) |
 |---|---|---|---|---|---|---|
 | #354 | 2026-11-06 | 3 | `3/3 (auto: cpu 50%)` | `3/3 (auto: cpu 49%)` | 1173 s → 915 s | 11992 s → 9054 s (−25%) |
+| #382 | 2026-11-06 | 3 | `3/3 (auto: cpu 67%)` | `3/3 (auto: cpu 77%)` | 114 s → 86 s (release-cmd and ship only) | 216.5 s → 169.9 s (−22%) |
 
 **#354: what changed.** These three cuts apply to every end-to-end run:
 - the pool waited a fixed 2 s after a pass that only closed a PRD or labelled a child. `HX_ENGINE_RETRY_MS` now sets
@@ -284,6 +285,27 @@ calls per run, which would change what a test covers.
 | #354 | session-setup | a reused impl worktree: record ok → no setup run; record ok:false or missing → run again | 90.8 | 75.7 | −17% | two runs of three issues: a crash run, then the reuse |
 | #354 | selfupdate | new code that exits on start: rolled back, the old runner keeps running … | 89.8 | 58.3 | −35% | real restarts of a copied install. A 3 s pause checks that nothing happens, and no event marks that |
 | #354 | **sum of the 20** | | **2400.3** | **1695.0** | **−29%** | |
+| #382 | ship | ship: --test-timeout is remembered by --no-merge and reused by --resume; HX_SHIP_TEST_TIMEOUT_MS overrides it | 21.1 | 17.3 | −18% | two hung tests are killed at real timers, 6 s (the saved 0.1 min) and 7.2 s (HX_SHIP_TEST_TIMEOUT_MS): long enough for a loaded shell and node to write the pid first (#15) |
+| #382 | ship | ship: a base that keeps moving is rebased and tested again 3 times, then exit 5 (#347) | 17.2 | 11.3 | −34% | four test runs, each a node that commits and pushes to main, and four rebase + push + refused-merge rounds: the rounds are the case |
+| #382 | release-cmd | main moves after the head is read but before the gate checkout: the tag is on the sha the gate tested | 13.7 | 8.7 | −37% | HX_GIT_BIN is a node wrapper, so each of hx release's git calls is a node start too: the move must follow the ls-remote, and no git hook marks that call |
+| #382 | release-cmd | hx release --yes: package.json bumped and committed on main, annotated tag on it, release with the notes; minor with a closed PRD; then nothing to release | 12.4 | 26.5 | +114% | not improved: the file's first test also builds the template repos (about 2 s), and this run met a load spike (ship's first test spiked at the same moment). Alone it takes 8.4 s; in the second pair 8.5 → 10.5 s |
+| #382 | release-cmd | main moves after the gate checked it out: the tag is on the sha the gate tested, never the newer head | 10.2 | 5.3 | −48% | gate.mjs stays a node: it pushes the commit that moves main during the gate |
+| #382 | ship | ship: a test run past --test-timeout is killed with its whole tree and fails like a failing test | 9.5 | 7.8 | −18% | the hung test is killed at a real 6 s timer (0.1 min), long enough for a loaded shell and node to write its pid first (#15) |
+| #382 | release-cmd | an origin hook rejecting the branch push: the tag goes on G alone, the release is made, no release commit on main | 9.2 | 4.6 | −50% | a real hook refuses a real atomic push, then the tag is pushed on G |
+| #382 | release-cmd | an explicit bump overrides the default; a prompt answered with anything but y/yes changes nothing | 9.1 | 4.9 | −46% | three hx runs (no, yes, a bad bump), one of them a full release |
+| #382 | release-cmd | red gate → exit 1 with its output, no tag, no release; no gate command → exit 1, no tag, no release | 9.0 | 3.9 | −56% | two fixtures and two hx runs, one with a real gate worktree |
+| #382 | release-cmd | --dry-run: prints the plan and the recorded gate result, never runs the gate, changes nothing; also while a run is live | 8.4 | 2.5 | −70% | two hx runs, each a fetch of origin's tags and an ls-remote |
+| #382 | release-cmd | hx release --yes with no closed PRD: a patch bump; with no package.json the tag goes on the gated head itself | 8.3 | 6.6 | −21% | the first test without package.json: it builds that template; then a release with a gate worktree and a release worktree |
+| #382 | ship | ship: a commit lands on the base between the rebase and the merge: rebased, tested and merged again, exit 0 (#347) | 8.2 | 4.7 | −42% | two test runs and two rebase + push + merge rounds |
+| #382 | ship | ship: a merge limited twice (secondary, Retry-After: 1) waits, retries and ships, one stderr line per wait | 7.5 | 4.7 | −37% | the 1 s and 2 s rate-limit waits are real: the test checks they were slept (≥ 3 s) |
+| #382 | release-cmd | the recorded gate result for the head is used (no gate run); a red one stops the release | 7.3 | 3.7 | −50% | two hx runs, one a full release |
+| #382 | release-cmd | a gate run by hx release leaves gate.json unchanged (the learned command is used) | 7.2 | 3.7 | −49% | a full release with a gate run |
+| #382 | ship | ship: a merge that keeps failing with the head up to date with the base exits 5 without rebasing again (#347) | 5.6 | 3.1 | −45% | five refused merges, each followed by a real fetch of the base to see whether it moved |
+| #382 | release-cmd | the last tag on origin has no release: only that release is made (no gate, no tag); run again → nothing to release | 5.5 | 4.3 | −22% | two hx runs, after a tag push to origin |
+| #382 | release-cmd | no tag: the version comes from package.json and the notes link the commits | 5.5 | 4.5 | −18% | a full release with a gate run and a release worktree |
+| #382 | ship | ship: commits, rebases, tests, pushes, opens + merges the PR, deletes the branch, closes the issue | 5.4 | 23.5 | +332% | not improved: the file's first test also builds the template repos (about 1 s), and this run met the same load spike as release-cmd's first test. Alone it takes 4.5 s; in the second pair 3.9 → 4.8 s |
+| #382 | ship | ship: limited past HX_GH_WAIT_MAX_SECONDS fails with exit 5 and the reset time, without waiting past the cap | 4.7 | 2.4 | −49% | a real 1 s wait before the call that gives up |
+| #382 | **sum of the 20** | | **185.0** | **154.0** | **−17%** | |
 
 **Per file** (the 5 slowest files of the "before" profile; seconds of summed test time):
 
@@ -294,8 +316,38 @@ calls per run, which would change what a test covers.
 | #354 | selfupdate | 16 | 537.6 | 425.4 | −21% |
 | #354 | session-setup | 8 | 512.3 | 383.5 | −25% |
 | #354 | ship | 15 | 442.0 | 331.2 | −25% |
+| #382 | release-cmd | 16 | 113.5 | 84.8 | −25% |
+| #382 | ship | 15 | 102.9 | 85.1 | −17% |
 
 No cut is aimed at release-cmd or ship (`hx release` and `ship.mjs` run their own git and test commands). Their drop
 matches the rest of the suite's: it comes from the load.
 Cutting release-cmd and ship themselves is not in #354: release-cmd and ship are left to #369, the child issue
 filed when #354 was narrowed, which adds its own rows here.
+
+**#382 (#369): what changed in release-cmd and ship.** Both profiles ran only these two files, with the
+`test:profile` reporters and `--test-concurrency=3` (`node --test --disable-warning=ExperimentalWarning
+--test-concurrency=3 --test-reporter=spec --test-reporter-destination=<file> --test-reporter=./test/profile-reporter.mjs
+--test-reporter-destination=stdout test/release-cmd.test.ts test/ship.test.ts`: the script's glob is fixed, and
+`npm run test:profile -- <files>` would run the whole suite as well). The cuts:
+- each file builds its git repos once (`test/repo-copy.ts`: release-cmd one set per shape, with or without
+  package.json and the tag) and copies them for each test, then points the copied clones at the copy's own origin.
+  A copy is file I/O. The init, the two clones, the commit, the tag and the push it replaces were seven git commands,
+  plus the upload-pack and receive-pack each clone and push starts;
+- release-cmd's commits are pushed once per test, not once per commit;
+- release-cmd's gate is the shell line `git rev-parse HEAD >> "<runs>"` (`&& exit 1` for the red gate), so a gate
+  run starts no node; only the test that moves main during the gate keeps gate.mjs. ship's passing test command is
+  `exit 0` and its failing one `echo boom&& exit 1`, not a node start each;
+- ship's landing script no longer pulls before it commits: its clone is the only one that pushes main;
+- `hx release` makes two git calls fewer: `git commit -- package.json` without a `git add` first, and
+  `git tag -f -a` in place of `git tag -d` and `git tag -a`.
+
+No back-off was reached that needed a new override: `HX_SHIP_RETRY_MS` is already 10 ms in the three ship tests that
+retry a merge; the 5 s pipe timer after a timed-out test is not reached (the hung test's tree is killed with its
+pipes); `HX_PR_RETRY_MS` and `HX_LABEL_RETRY_MS` are in `src/pool.ts`, which neither file runs.
+
+The sum fell 22% (the top 20: 17%), short of the 40% aimed at. Most of what is left is waited for on purpose: the
+6 s, 6 s and 7.2 s test timeouts and the 1 s, 2 s and 1 s rate-limit waits are about 23 s of the 170 s. The rest is
+real work each test checks: every `hx release` runs about 35 git commands (two worktrees, fetches, the tag and push),
+and every `ship.mjs` a commit, a fetch, a rebase and a push. The first test of each file also builds its template
+repos, so those two tests are no faster. A second pair, run right after the first (`workers` `3/3 (auto: cpu 82%)`
+and `3/3 (auto: cpu 85%)`), gave 180.7 s → 138.7 s (−23%): release-cmd 93.6 → 71.9 s, ship 87.2 → 66.8 s.
