@@ -113,12 +113,12 @@ test('hx usage --machine: an empty .hx/ prints a plain note in each part and "fi
     'Recommendation: the current setting fits this machine', 'rule fits:']) assert.ok(r.stdout.includes(w), w);
 });
 
-test('hx help lists usage --machine [--days N] next to the other usage lines', () => {
+test('hx help lists usage --machine [--days N] next to the other usage lines', E2E, () => {
   const h = spawnSync(process.execPath, [path.join(here, '..', 'bin', 'hx.mjs'), 'help'], { encoding: 'utf8' }).stdout;
   assert.match(h, /usage --tests[^\n]*\n\s+usage --machine \[--days N\]/);
 });
 
-test('docs: Where the time goes says what each hx usage --machine number means', () => {
+test('docs: Where the time goes says what each hx usage --machine number means', E2E, () => {
   const g = readFileSync(path.join(here, '..', 'docs', 'guide.md'), 'utf8');
   const at = g.indexOf('## Where the time goes');
   const sec = g.slice(at, g.indexOf('\n## ', at + 1));
