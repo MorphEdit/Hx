@@ -9,7 +9,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { budgetLine } from './budget.ts';
-import { eventsFrom, timelineFrom } from './controlroom.ts';
+import { eventsFrom, issueStates, timelineFrom } from './controlroom.ts';
 import { loadProject, type Project, STATE_DIR } from './config.ts';
 import { DEFAULT_FLEET_WORKERS, type Fleet, fleetDir, fleetWorkers, type ListedRepo, listRepos, readFleet, readHold, readRepos, slotsInUse } from './fleet.ts';
 import { githubLine } from './ghlimit.ts';
@@ -165,10 +165,12 @@ export function dashboardState(p: Project, board: () => BoardSeen, now = Date.no
   // the Machine panel over the last 24 h; `workers` is the live runner's ceiling, else the config's
   const machine = analyseMachine({ load: readLoadLines(dir), gates, log: logLines, usage: recs,
     workers: running ? live.workers : p.config.workers, now });
+  const timeline = timelineFrom(recs, running ? live.sessions : [], gates, logLines, now);
+  const today = localDay(new Date(now).toISOString());
   return { repo: p.config.repo, waiting, runner, sessions, gate, health, supervised, autoStart, usage,
     time: testTime(recs, gates, now), machine, log: tailLines(logFile, LOG_LINES), outcomes,
-    timeline: timelineFrom(recs, running ? live.sessions : [], gates, logLines, now),
-    events: eventsFrom(logLines, localDay(new Date(now).toISOString()), p.config.labels.blocked) };
+    timeline, events: eventsFrom(logLines, today, p.config.labels.blocked),
+    issues: issueStates({ plan: b.plan, sessions, lines: logLines, timeline, auditRounds: p.config.auditRounds, today, repo: p.config.repo }) };
 }
 
 function send(res: ServerResponse, status: number, type: string, body: string, headers: Record<string, string> = {}): void {
