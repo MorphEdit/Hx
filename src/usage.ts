@@ -21,6 +21,7 @@ export interface UsageRecord {
   testMs?: number; // wall time the turn's test commands ran (overlaps merged); see src/timing.ts
   testRuns?: number;
   testFailedRuns?: number;
+  workersTarget?: number; // hx run's worker target when the turn was recorded: the auto-scaled one, else the fixed count
 }
 
 export function usageFile(stateDir: string): string {

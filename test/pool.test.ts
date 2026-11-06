@@ -84,6 +84,8 @@ test('pool drives the board to completion, respecting Blocked by', E2E, async ()
   assert.equal(u.filter((r) => r.issue === 3).length, 3);
   assert.equal(new Set(u.filter((r) => r.issue === 1).map((r) => r.sessionId)).size, 1, 'one session per issue, resumed');
   assert.equal(u[0].usage.cacheRead, 5000);
+  // autoWorkers off (isolate.ts): every record carries the fixed worker count as its target (#322)
+  assert.ok(u.length && u.every((r) => r.workersTarget === 2), JSON.stringify(u.map((r) => r.workersTarget)));
   // #2 only ran after #1 closed
   const first2 = u.findIndex((r) => r.issue === 2);
   const last1 = u.map((r) => r.issue).lastIndexOf(1);

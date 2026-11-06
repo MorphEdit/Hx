@@ -756,6 +756,7 @@ function printCompare(b: Period, a: Period): void {
   row(['board', 'before', 'after', 'change']);
   lines([
     ['hours of runs', b.hours, a.hours, (n) => (n === undefined ? '-' : n.toFixed(1)), 'pct'],
+    ['median target workers', b.medianWorkersTarget, a.medianWorkersTarget, (n) => (n === undefined ? '-' : Number.isInteger(n) ? String(n) : n.toFixed(1)), 'count'],
     ['issues closed', b.closed, a.closed, String, 'count'],
     ['tokens/closed issue', b.tokensPerClosed, a.tokensPerClosed, num, 'pct'],
     ['cost/closed issue', b.costPerClosed, a.costPerClosed, money, 'pct'],

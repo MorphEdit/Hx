@@ -20,10 +20,10 @@ const AT = '2026-11-04T00:00:00Z';
 const B = (h: number) => new Date(Date.parse(AT) - h * 3_600_000).toISOString(); // h hours before the split
 const A = (h: number) => new Date(Date.parse(AT) + h * 3_600_000).toISOString(); // h hours after
 
-const rec = (ts: string, role: string, sessionId: string, o: { durationMs?: number; testMs?: number; tokens?: number; output?: number; cost?: number; ok?: boolean } = {}) => ({
+const rec = (ts: string, role: string, sessionId: string, o: { durationMs?: number; testMs?: number; tokens?: number; output?: number; cost?: number; ok?: boolean; workersTarget?: number } = {}) => ({
   ts, issue: 1, role, sessionId, iteration: 1, model: 'm', ok: o.ok ?? true,
   usage: { input: o.tokens ?? 100, cacheWrite: 0, cacheRead: 0, output: o.output ?? 10 }, costUsd: o.cost ?? 1, durationMs: o.durationMs ?? 10 * M, numTurns: 1,
-  ...(o.testMs !== undefined ? { testMs: o.testMs, testRuns: 1, testFailedRuns: 0 } : {}) });
+  ...(o.testMs !== undefined ? { testMs: o.testMs, testRuns: 1, testFailedRuns: 0 } : {}), ...(o.workersTarget !== undefined ? { workersTarget: o.workersTarget } : {}) });
 
 const audit = (round: number, verdict: 'PASS' | 'FAIL') => `<!-- hx-audit -->\n**hx audit ${round}/3: ${verdict === 'PASS' ? 'PASS ✓' : 'FAIL ✗'}** (PR #9)\n\nfindings`;
 const stop = (reason: string) => `**hx:** impl stopped — ${reason} (2 turns).\n\nLast reply:\n\n> x`;
@@ -133,6 +133,27 @@ test('compare: audits, first-round FAILs, closed issues, gate-fix, stops, retrie
   assert.ok(before.smallSample && after.smallSample);
   const many = Array.from({ length: 10 }, (_, k) => issue(100 + k, { state: 'CLOSED', closedAt: A(1) }));
   assert.equal(compare([], many, OPTS).after.smallSample, false);
+});
+
+test('compare: median target workers per period, per turn, from workersTarget; records without it skipped; a session counts where it started (#322)', E2E, () => {
+  const recs = [
+    rec(B(5), 'impl', 's1', { workersTarget: 3 }),
+    rec(B(4), 'impl', 's1', { workersTarget: 3 }),
+    rec(B(3), 'review', 's2', { workersTarget: 1 }),
+    rec(B(2), 'impl', 's3'), // an older record without workersTarget: skipped, not 0
+    rec(B(0.1), 'impl', 's4', { workersTarget: 2 }), // s4 starts before the split: both its turns count before
+    rec(A(0.1), 'impl', 's4', { workersTarget: 1 }),
+    rec(A(1), 'impl', 's5', { workersTarget: Number.NaN }), // not finite: skipped
+    rec(A(2), 'impl', 's6', { workersTarget: 4 }),
+  ];
+  const { before, after } = compare(recs as any, [], OPTS);
+  assert.equal(before.medianWorkersTarget, 2); // 3, 3, 1, 2, 1 → 2
+  assert.equal(after.medianWorkersTarget, 4); // only s6's record
+  // a period with no record that has it: undefined
+  const none = compare([rec(B(1), 'impl', 'x'), rec(A(1), 'impl', 'y', { workersTarget: 3 })] as any, [], OPTS);
+  assert.equal(none.before.medianWorkersTarget, undefined);
+  assert.equal(none.after.medianWorkersTarget, 3);
+  assert.equal(compare([], [], OPTS).after.medianWorkersTarget, undefined);
 });
 
 test('compare --from: older runs, comments and issues are dropped', E2E, () => {
@@ -256,6 +277,19 @@ test('hx usage --compare prints questions asked and answered from the issue bodi
   assert.equal(r.status, 0, r.stdout + r.stderr);
   assert.deepEqual(cells(r.stdout, 'questions asked'), ['1', '1', '0'], r.stdout);
   assert.deepEqual(cells(r.stdout, 'questions answered'), ['0', '2', '+2'], r.stdout);
+});
+
+test('hx usage --compare prints the median target workers after hours of runs; - for a period without workersTarget (#322)', E2E, () => {
+  const { hx } = app('target', [rec(B(3), 'impl', 'b1', { workersTarget: 3 }), rec(B(2), 'impl', 'b2', { workersTarget: 3 }), rec(B(1), 'impl', 'b3', { workersTarget: 1 }),
+    rec(A(1), 'impl', 'a1', { workersTarget: 2 })], {});
+  const r = hx('usage', '--compare', AT);
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.deepEqual(cells(r.stdout, 'median target workers'), ['3', '2', '-1'], r.stdout);
+  const board = r.stdout.split(/\r?\n/).map((l) => l.trim().split(/\s{2,}/)[0]);
+  assert.equal(board.indexOf('median target workers'), board.indexOf('hours of runs') + 1, r.stdout);
+  const old = app('target-old', [rec(B(2), 'impl', 'b'), rec(A(2), 'impl', 'a', { workersTarget: 2 })], {}).hx('usage', '--compare', AT);
+  assert.equal(old.status, 0, old.stdout + old.stderr);
+  assert.deepEqual(cells(old.stdout, 'median target workers'), ['-', '2', '-'], old.stdout);
 });
 
 test('hx usage --compare: no small-sample note with 10 or more closed issues in each period', E2E, () => {

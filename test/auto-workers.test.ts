@@ -25,6 +25,7 @@ process.env.HX_FAKE_DIR = fakeDir;
 const { runPool } = await import('../src/pool.ts');
 const { DEFAULTS } = await import('../src/config.ts');
 const { readLive } = await import('../src/runstate.ts');
+const { readUsage } = await import('../src/usage.ts');
 
 const L = DEFAULTS.labels;
 const git = (cwd: string, ...a: string[]) => execFileSync('git', a, { cwd, encoding: 'utf8', stdio: 'pipe' }).trim();
@@ -127,6 +128,23 @@ test('autoWorkers: false — the reader is never called, workers sessions claime
   assert.equal(await done, 0, lines.join('\n'));
   assert.equal(reads, 0, 'nothing sampled or read');
   assert.deepEqual(workerLines(lines), []);
+  const u = readUsage(stateDir);
+  assert.ok(u.length && u.every((r) => r.workersTarget === 3), `usage records carry the fixed count: ${JSON.stringify(u.map((r) => r.workersTarget))}`);
+});
+
+test('autoWorkers: usage.jsonl records carry the auto-scaled target when they are written, not the ceiling (#322)', E2E, async () => {
+  const { p, lines, restore, release } = setup([{ number: 1 }]);
+  let reads = 0;
+  const done = pooled((signal) => runPool(p, { workers: 3, watch: false, dryRun: false, signal,
+    loadReader: () => { reads++; return { cpuPct: 95, freeMemGB: 32 }; }, loadClock: () => 0 })).finally(restore);
+  try {
+    await until(() => held() === 1, done);
+    assert.equal(readLive(stateDir)!.autoWorkers?.target, 2, lines.join('\n'));
+  } finally { release(); }
+  assert.equal(await done, 0, lines.join('\n'));
+  const u = readUsage(stateDir).filter((r) => r.issue === 1);
+  assert.ok(u.length, 'the session wrote usage records');
+  for (const r of u) assert.equal(r.workersTarget, 2, JSON.stringify(r));
 });
 
 test('autoWorkers: live.json carries the target alone before the first reading; no reading leaves the target at the ceiling', E2E, async () => {
