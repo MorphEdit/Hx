@@ -124,7 +124,7 @@ test('an invalid roleModels stops hx run with the message; nothing is claimed', 
 });
 
 test('roleModels {}: every session gets --model and --effort as before; no models: line; live.json.models is the default map', E2E, async () => {
-  board([issue(1), prd(11)]);
+  board([issue(1), { ...prd(11), body: 'make it fast DECOMPOSEONE' }]); // no part B: one more pass of roles already seen (#356)
   const r = await run();
   assert.equal(r.rc, 0, r.lines.join('\n'));
   assert.ok(r.turns.some((t) => t.role === 'review'), 'a review session ran');
@@ -134,7 +134,10 @@ test('roleModels {}: every session gets --model and --effort as before; no model
 });
 
 test('impl and audit set: their sessions get their model and effort, a PRD role the default; usage and the startup line follow', E2E, async () => {
-  board([issue(1), prd(11)]);
+  // the PRD alone, decomposed into one child: part A and the review's gap are the impl and audit sessions. A standalone
+  // issue and a part B beside them added two size/impl/audit/merge passes that check nothing more, and under a loaded
+  // gate the run went past E2E.timeout (#356)
+  board([{ ...prd(11), body: 'make it fast DECOMPOSEONE' }]);
   const seen = readUsage(stateDir).length;
   const r = await run({ roleModels: SET });
   assert.equal(r.rc, 0, r.lines.join('\n'));
@@ -146,7 +149,7 @@ test('impl and audit set: their sessions get their model and effort, a PRD role 
   for (const t of [...of('review'), ...of('decompose')]) assert.deepEqual([t.model, t.effort], [DEFAULTS.model, DEFAULTS.effort]);
   assert.ok(r.lines.some((l) => l.endsWith(` models: impl ${SONNET}/medium, audit ${SONNET}/high`)), r.lines.join('\n'));
   assert.deepEqual(r.models, { ...roleModelMap(DEFAULTS), impl: { model: SONNET, effort: 'medium' }, audit: { model: SONNET, effort: 'high' } });
-  const usage = readUsage(stateDir).slice(seen).filter((u) => u.issue === 1);
+  const usage = readUsage(stateDir).slice(seen).filter((u) => u.issue === 12); // part A
   assert.ok(usage.some((u) => u.role === 'impl') && usage.every((u) => u.role !== 'impl' && u.role !== 'audit' || u.model === SONNET));
 });
 
