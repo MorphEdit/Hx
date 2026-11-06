@@ -212,6 +212,10 @@ The page is laid out as a control room, light or dark with the system theme:
 - **Board**, **Pipeline** (Flow / Timeline), **Details** and **Event log** — four panels under it. The tabs (the
   board filter, Flow / Timeline, the event filter) and the selected issue stay as they are across refreshes.
   The raw tail of `.hx/run.log` sits under the event table, collapsed (open **RAW LOG**).
+- **Event log** — today's events from `.hx/run.log`, one row each: the local time, the issue (`#N`, `PRD #N`,
+  `gate` or `runner`), the step, what happened and the tokens (`2.5M`, `288K`). **Results** shows only the
+  results (DONE, PASS, PRD closed, gate green), **Problems** only the problems (gate RED, FAIL, timeouts, conflicts,
+  errors). The selected issue's rows are highlighted; with nothing to show, the table says `No events today.`
 - **More** — a section under the four panels that holds the four parts below (Now, Board, Machine, Stats):
 - **Now** — the runner ("not running", or its pid, uptime, workers, the auto-scaled target line
   `workers 2/3 (auto: cpu 88%)` when autoWorkers is on, paused/draining and the rate-limit window), the live sessions (issue, kind, title, turn, tokens, elapsed) and the CI gate (green/red,

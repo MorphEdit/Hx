@@ -570,7 +570,36 @@ function renderBoard() { fill($('groups')); }
 function renderFlow() { fill($('stages')); fill($('waiting')); }
 function renderTimeline() { fill($('lanes')); }
 function renderDetails() { fill($('details')); }
-function renderEvents() { fill($('events')); }
+// tokens in the short format: 2.5M (one decimal from a million), 288K (whole thousands from a thousand), else the number
+function shortTok(n) {
+  const v = Number(n);
+  if (n === null || n === undefined || !Number.isFinite(v)) return '';
+  if (v >= 999_500) return (v / 1e6).toFixed(1) + 'M';
+  if (v >= 1000) return Math.round(v / 1000) + 'K';
+  return String(v);
+}
+// ---- Event log: today's events, under the All / Results / Problems filter; the selected issue's rows highlighted ----
+function renderEvents() {
+  const badge = (kind) => 'display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:600;' +
+    (kind === 'problem' ? 'background:var(--orange-pale);color:var(--orange-deep)' : kind === 'result' ? 'background:var(--blue-pale);color:var(--blue-deep)' : 'background:var(--soft);color:var(--ink-2)');
+  const items = Array.isArray(snap?.issues?.items) ? snap.issues.items : [];
+  const prds = new Set(items.filter((it) => it && it.prd !== null && it.prd === it.number).map((it) => it.number));
+  const who = (e) => e.issue !== null && e.issue !== undefined ? (prds.has(e.issue) ? 'PRD #' : '#') + e.issue : e.step === 'Gate' ? 'gate' : 'runner';
+  const at = (t) => { const d = new Date(t); return Number.isNaN(d.getTime()) ? String(t ?? '') : clock(d); };
+  const rows = (Array.isArray(snap?.events) ? snap.events : []).filter((e) => e && typeof e === 'object')
+    .filter((e) => state.filter === 'results' ? e.kind === 'result' : state.filter === 'problems' ? e.kind === 'problem' : true)
+    .map((e) => {
+      const on = e.issue !== null && e.issue !== undefined && state.sel !== null && String(e.issue) === String(state.sel);
+      return el('tr', { style: 'border-top:1px solid var(--soft);' + (on ? 'background:var(--blue-select);box-shadow:inset 3px 0 0 var(--blue)' : 'background:var(--panel)') },
+        el('td', { class: 'mono', style: 'padding:9px 16px;font-size:12px;white-space:nowrap' }, at(e.t)),
+        el('td', { class: 'mono', style: 'padding:9px 8px;font-size:12px;white-space:nowrap' }, who(e)),
+        el('td', { style: 'padding:9px 8px;white-space:nowrap' }, el('span', { style: badge(e.kind) }, String(e.step ?? ''))),
+        el('td', { style: 'padding:9px 8px' }, String(e.text ?? '')),
+        el('td', { class: 'mono', style: 'padding:9px 16px;font-size:12px;text-align:right;white-space:nowrap' }, shortTok(e.tokens)));
+    });
+  fill($('events'), rows.length ? rows : el('tr', { style: 'border-top:1px solid var(--soft);background:var(--panel)' },
+    el('td', { colspan: 5, class: 'mute', style: 'padding:9px 16px' }, 'No events today.')));
+}
 function render() {
   for (const [id, key] of [['board-tabs', 'board'], ['view-tabs', 'view'], ['filter-tabs', 'filter']])
     for (const b of $(id).querySelectorAll('button')) b.setAttribute('aria-selected', String(b.dataset[key] === state[key]));
