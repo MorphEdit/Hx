@@ -71,7 +71,7 @@ describe what you want.
 | `hx issue "small task"` · `hx bug "what broke"` | add one task or one bug to the board |
 | `hx run --watch` | work the board and keep watching for new work |
 | `hx status` | what is running and what is next |
-| `hx dashboard --open` | the same, live, in your browser (localhost only) |
+| `hx dashboard --open` | the same, live, in your browser: a control room with the board, the workers, each issue's steps and today's events (localhost only) |
 | `hx pause` · `hx pause --now` · `hx resume` | stop after the current work · stop now and save it · carry on |
 | `hx service install` | start Hx at Windows logon, and restart it if it crashes |
 | `hx usage --compare "time"` | did a change make Hx faster, cheaper or better? |
@@ -89,7 +89,7 @@ asks you on the issue, labels it `needs-human`, and works on everything else mea
   words. Hx picks the issue up again from your answer.
 - **Never paste a secret** (a key, a password) in a comment. Put it where the steps say (a local file or
   an environment variable), then reply `done`.
-- **See what waits on you** at the top of `hx status` and in the dashboard's *Waiting on you* panel.
+- **See what waits on you** at the top of `hx status` and in the dashboard's *Waiting on you* card.
 - **Questions are rare.** At most `maxOpenQuestions` (3) are open at once. Anything with a sensible default
   is decided for you and listed in the PR under `## Decisions made for you`; your answers are quoted
   under `## Owner decisions`.

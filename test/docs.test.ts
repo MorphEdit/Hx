@@ -123,6 +123,18 @@ test('dashboard: README section, design #8 done, CLAUDE.md file map', () => {
   for (const f of ['dashboard.ts', 'dashboard.html', 'outcomes.ts']) assert.ok(map.includes(`\`${f}\``), f);
 });
 
+test('dashboard: the guide names each control-room panel, what a worker label is, the fonts and the themes (#378)', () => {
+  const g = readFileSync(path.join(root, 'docs/guide.md'), 'utf8');
+  const sec = g.slice(g.indexOf('## Dashboard'), g.indexOf('\n## ', g.indexOf('## Dashboard') + 1));
+  for (const w of ['**Header**', 'HX CONTROL ROOM', 'RUNNER', 'MACHINE', 'MAIN', 'WAITING ON YOU', 'TODAY', '**Waiting on you**',
+    '**Board**', '**All**', '**Building**', '**Done**', '`Other issues`', '`Closed today`',
+    '`done`', '`merging`', '`auditing`', '`implementing`', '`waiting`',
+    '**Pipeline**', '**Flow**', '**Timeline**', 'Waiting for another issue', 'not a fixed slot',
+    '**Details**', 'Claimed → Implement → Audit → Merge → Gate', 'Gauntlet → Decompose → Build → Review → Security', '**What happens next**',
+    '**Event log**', '**Results**', '**Problems**', '**RAW LOG**', '**More**',
+    'Google Fonts', 'system fonts', 'light or dark']) assert.ok(sec.includes(w), w);
+});
+
 test('skills: README section and config rows, design #5 done, .rtdd/ setup committed', () => {
   const r = read('README.md');
   const start = r.indexOf('## Skills for workers');
