@@ -30,6 +30,7 @@ import { cappedQuestion, cappedQuestionNote, IMPL_TOO_MANY_QUESTIONS, ownerAnswe
 import { HELD_STATUS, heldComment, mergeFailure, readHeld, setHeld } from './held.ts';
 import { decideTarget, initialTarget, loadReading, mayClaim, startSampler, type LoadReading, type LoadSnapshot } from './load.ts';
 import { concurrencyEnv, outsideTestEnv, testConcurrencyError, testConcurrencyValue } from './concurrency.ts';
+import { reuseTestedTreesError, testedTreesEnv } from './tested.ts';
 import { addBlockers, narrowedBody, narrowedComment, parseSizeReply, SIZE_FITS, SIZE_NARROWED, SIZE_SPLIT, withTrailers, type SizeChild } from './size.ts';
 import { appendSkills, resolveSkills, rtddCheck, rtddEnv, SKILL_CHECKS, skillNames, skillsLogLine, type Skill } from './skills.ts';
 
@@ -43,8 +44,9 @@ const SHIP = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'scri
 // how agents read an issue: it prints only the comments by accounts in HX_TRUSTED
 export const ISSUE_SCRIPT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'scripts', 'issue.mjs').replace(/\\/g, '/');
 
-/** A session's HX_TEST_CONCURRENCY from its runner (counted as in flight), else the n = 1 value. */
-const sessionTestEnv = (ctx: WorkContext, c: Config) => ctx.testEnv ? ctx.testEnv() : outsideTestEnv(c);
+/** A session's HX_TEST_CONCURRENCY from its runner (counted as in flight), else the n = 1 value; and its HX_TESTED_TREES (#351). */
+const sessionTestEnv = (ctx: WorkContext, p: Project) =>
+  ({ ...(ctx.testEnv ? ctx.testEnv() : outsideTestEnv(p.config)), ...testedTreesEnv(p.stateDir, p.config) });
 
 /** The env every Claude session gets: HX_TRUSTED = the trusted set, which scripts/issue.mjs filters comments by. */
 export function trustedEnv(trusted: Set<string>): { HX_TRUSTED: string } {
@@ -324,6 +326,8 @@ async function pool(p: Project, o: PoolOptions): Promise<number> {
   if (badAuto) { log(`STOPPED: ${badAuto}`); return 2; }
   const badConcurrency = testConcurrencyError(c.testConcurrency);
   if (badConcurrency) { log(`STOPPED: ${badConcurrency}`); return 2; }
+  const badReuse = reuseTestedTreesError(c.reuseTestedTrees);
+  if (badReuse) { log(`STOPPED: ${badReuse}`); return 2; }
   // who may put work on the board: looked up once per run; without it nothing is read or claimed
   let trusted: Set<string>, login: string;
   try { login = await gh.ghLogin(); trusted = trustedSet(login, c.trustedAuthors ?? []); } catch (e: any) { log(`STOPPED: ${e.message}`); return 2; }
@@ -1013,7 +1017,7 @@ async function selfReview(p: Project, ctx: WorkContext, o: { range: string; head
       prompt: appendSkills(render(readFileSync(path.join(PROMPTS, 'selfreview.md'), 'utf8'), v), skills, PROMPTS),
       continuePrompt: render(readFileSync(path.join(PROMPTS, 'continue.md'), 'utf8'), v),
       promise: SELFREVIEW_PROMISE, maxIterations: c.maxIterations, signal: ctx.signal,
-      env: rtddEnv({ ...trustedEnv(ctx.trusted), ...sessionTestEnv(ctx, c) }, skills.some((s) => s.name === 'rtdd'), effectiveRtddBin(c)),
+      env: rtddEnv({ ...trustedEnv(ctx.trusted), ...sessionTestEnv(ctx, p) }, skills.some((s) => s.name === 'rtdd'), effectiveRtddBin(c)),
       onEvent: (ev) => { appendFileSync(eventLog, JSON.stringify(ev) + '\n'); turnEvents.push(ev); },
       onRateLimit: (rl) => ctx.rateLimit(rl),
       onTurn: (i, sessionId, t) => {
@@ -1186,7 +1190,7 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
     const m = roleModel(c, role);
     let mismatched = false;
     const turnEvents: unknown[] = []; // this turn's events, for its test time
-    env = { ...trustedEnv(ctx.trusted), ...sessionTestEnv(ctx, c) };
+    env = { ...trustedEnv(ctx.trusted), ...sessionTestEnv(ctx, p) };
     return runGoal({
       agent, bin: agent.bin(c), cwd, model: m.model, effort: m.effort, extraArgs: workerArgs(c), timeoutMs: c.turnTimeoutMinutes * 60_000,
       stallMs: c.stallMinutes * 60_000, sweepRoot: c.worktreeRoot,
@@ -1634,7 +1638,7 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
 
     let feedback: string, why: string;
     if (v.pass) {
-      const m = await mergeAudited(wt.dir, c, c.gateCommand || readGate(p.stateDir).command || '', sessionTestEnv(ctx, c));
+      const m = await mergeAudited(wt.dir, c, c.gateCommand || readGate(p.stateDir).command || '', sessionTestEnv(ctx, p));
       // the repo only took an auto-merge: it lands within moments, wait for it rather than fail
       if (!m.ok && /AUTO-MERGE set/.test(m.output)) m.ok = await waitClosed(c.repo, n, 10 * 60_000);
       if (m.ok && (await gh.issueState(c.repo, n)) === 'CLOSED') {
@@ -1833,7 +1837,7 @@ export async function shipInfo(cwd: string): Promise<{ test?: string } | null> {
 }
 
 /** Rebase, re-test, push and merge the audited branch (ship.mjs --resume, run by hx, not by an agent). `env` is added to
- *  ship's env (HX_TEST_CONCURRENCY, #350), which hands it to the test command. */
+ *  ship's env (HX_TEST_CONCURRENCY, #350, which ship hands to the test command; HX_TESTED_TREES, #351). */
 export async function mergeAudited(cwd: string, c: Config, testCmd: string, env: Record<string, string> = {}): Promise<{ ok: boolean; retry: boolean; code: number; output: string }> {
   // no hx-ship.json (a PR opened outside ship): ship rebuilds it from the branch's PR with this repo and test command
   const fallback = (await shipInfo(cwd)) ? [] : ['--repo', c.repo, '--base', c.defaultBranch, ...(testCmd ? ['--test', testCmd] : [])];

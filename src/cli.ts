@@ -16,6 +16,7 @@ import { budgetLine, readBudgetWindows } from './budget.ts';
 import { githubLine } from './ghlimit.ts';
 import { workersLine } from './load.ts';
 import { outsideTestEnv, testConcurrencyError } from './concurrency.ts';
+import { reuseTestedTreesError, testedTreesEnv } from './tested.ts';
 import { DEFAULT_PORT, serveDashboard, serveFleetDashboard } from './dashboard.ts';
 import { fileBug, filePrd } from './prd.ts';
 import { agentFor } from './agents/index.ts';
@@ -178,7 +179,7 @@ export async function main(argv: string[]): Promise<number> {
 /** `hx health [--fix]`: one health pass, each check's line, then the summary line. */
 async function healthCmd(args: string[]): Promise<number> {
   const p = loadProject();
-  const bad = healthConfigError(p.config) ?? testConcurrencyError(p.config.testConcurrency);
+  const bad = healthConfigError(p.config) ?? testConcurrencyError(p.config.testConcurrency) ?? reuseTestedTreesError(p.config.reuseTestedTrees);
   if (bad) { console.error(bad); return 2; }
   const r = await healthPass(p, { repairs: args.includes('--fix') });
   for (const x of r.results) console.log(renderResult(x));
@@ -480,7 +481,7 @@ async function interview(args: string[], iv: Interview): Promise<{ code: number;
   const p = loadProject();
   const c = p.config;
   const agent = agentFor(c.agentCli);
-  const badConcurrency = testConcurrencyError(c.testConcurrency);
+  const badConcurrency = testConcurrencyError(c.testConcurrency) ?? reuseTestedTreesError(c.reuseTestedTrees);
   if (badConcurrency) { console.error(`hx: ${badConcurrency}`); return { code: 2, filed: false }; }
   // the session reads issues with scripts/issue.mjs, which needs the trusted set
   let trusted: Set<string>;
@@ -494,7 +495,7 @@ async function interview(args: string[], iv: Interview): Promise<{ code: number;
   // the user talks to this session directly: inherited stdio, no shell
   await new Promise<void>((resolve, reject) => {
     const child = spawn(...resolveCmd(agent.bin(c), agent.interactiveArgs(c.model, c.effort, prompt)), { cwd: p.root, stdio: 'inherit',
-      env: { ...process.env, ...trustedEnv(trusted), ...outsideTestEnv(c) } });
+      env: { ...process.env, ...trustedEnv(trusted), ...outsideTestEnv(c), ...testedTreesEnv(p.stateDir, c) } });
     child.on('error', reject).on('exit', () => resolve());
   });
   const text = existsSync(paths.out) ? readFileSync(paths.out, 'utf8') : '';

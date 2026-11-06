@@ -664,6 +664,13 @@ still FAIL. After `mergeRounds` failed merges the issue is `agent-blocked` (`sti
 the base between ship's rebase and its merge, `ship.mjs` rebases and tests again (up to 3 times) instead of failing; only a merge that still
 fails with the head up to date with the base exits 5.
 
+Each full run of ship's test command is recorded in `.hx/tested-trees.jsonl` (one line: the tested HEAD's tree, the
+command, pass or fail, the time). When hx's `ship --resume` rebases onto a base that did not move, the tree is the one
+the implementer's `ship --no-merge` already tested: if the latest record for that tree and command is a pass, ship skips
+the tests (`ship: tests: tree 1a2b3c4 already passed (<time>) — skipped`) and merges. A moved base, a failing latest
+record or another test command runs them as before; `--no-merge` and a plain ship always run them. `reuseTestedTrees: false`
+turns this off.
+
 ## CI gate
 
 After every merge (and when `hx run` starts) Hx runs the project's test command on a fresh checkout of
@@ -1006,6 +1013,7 @@ and the dashboard's per-model numbers use it). To spot one:
 | `gateCommand` | `""` | the gate's test command (empty: learned from the first audited merge) |
 | `gateMinutes` | `45` | the gate's test run is killed, with its process tree, after this long and counts as red |
 | `testConcurrency` | `"auto"` | the `HX_TEST_CONCURRENCY` hx sets for every session, gate run and `ship --resume`: `"auto"` = `max(1, floor((cpus - 1) / n))` with `n` the running work (see [Where the time goes](#where-the-time-goes)), a positive integer = that many test files whatever the load, `0` = not set; any other value is refused at start |
+| `reuseTestedTrees` | `true` | hx sets `HX_TESTED_TREES` (`.hx/tested-trees.jsonl`) for every session and its own `ship --resume`: ship records each full test run there, and `ship --resume` skips the tests on a tree whose latest record for the same command is a pass (see [Every PR is audited](#every-pr-is-audited-before-it-merges)); the gate's use of the same file (skipping a tree that passed within 2 h) comes in a later change; `false` = no records, no skips; any other value is refused at start |
 | `testPatterns` | `[]` | extra regexes (case-insensitive, matched anywhere in a worker's shell command) that mark it as a test run, on top of the defaults (see [Where the time goes](#where-the-time-goes)); an invalid one is refused |
 | `autoRelease` | `false` | `hx run` releases by itself, as `hx release` does: `minor` once a PRD closed since the last tag, `patch` once the last tag is older than `autoReleasePatchHours` and a `fix:` merged since; with `gate` on it uses the run's recorded gate result |
 | `autoReleasePatchHours` | 24 | how old the last tag must be before merged fixes make a patch release due |
@@ -1068,6 +1076,7 @@ it reads. So Hx only works on text from **trusted accounts**: your `gh` login pl
 - `.hx/held.json` — audited PRs held while the default branch is red: `{ "<issue>": { pr, round, at } }`, cleared when the merge is retried
 - `.hx/gate-runs.jsonl` — one line per pool gate run whose test command finished or timed out: `{ ts, sha, ok, durationMs, timedOut }`
   (`durationMs` is the test command only; the release gate is not recorded). `hx run` logs `gate is slow: …` once when the median of the last 5 is above 70% of `gateMinutes`
+- `.hx/tested-trees.jsonl` — one line per full run of ship's test command, while `reuseTestedTrees` is on: `{ tree, command, ok, at }` (`tree` = the tested commit's `git rev-parse <commit>^{tree}`, `ok` false for a fail or a timeout); appended, never rewritten, read by `ship --resume` to skip a tree that already passed
 - `.hx/health.json` — the health pass: when it first saw each `agent-working` issue with no live session, and the last pass's time and line (see [Self-check](#self-check))
 - `.hx/selfupdate.json` — the last self-update line, the shas (or tags) whose runner did not start (`bad`), the sha a rollback left the checkout at, the open watch window (`watch`), the last rollback (`rollback`) and the last good version (`good`); `.hx/selfupdate-ready` is the new runner's ready marker
 - `.hx/selfreview.json` — the head of `origin/<default>` the last self-review reviewed, and when: `{ sha, at }`

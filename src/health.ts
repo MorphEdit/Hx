@@ -10,6 +10,7 @@ import { readGate, readGateRuns, remoteSha, writeGate, type GateRun } from './ga
 import * as gh from './github.ts';
 import { AUDIT_MARKER, mergeAudited, shipInfo } from './pool.ts';
 import { outsideTestEnv } from './concurrency.ts';
+import { testedTreesEnv } from './tested.ts';
 import { pidAlive, readLive } from './runstate.ts';
 import { trustedSet } from './state.ts';
 import { addWorktree, implWorktree, removeWorktree } from './worktree.ts';
@@ -408,7 +409,7 @@ async function repair(p: Project, a: Repair, o: HealthOptions): Promise<{ fix: s
   } else if (a.kind === 'resume') {
     // the same path as a merge right after the audit: ship.mjs --resume in i<N> (state rebuilt from the PR when missing)
     const wt = await addWorktree(p.root, c.worktreeRoot, implWorktree(a.issue, c.defaultBranch));
-    const m = await mergeAudited(wt.dir, c, c.gateCommand || readGate(p.stateDir).command || '', o.testEnv ? o.testEnv() : outsideTestEnv(c));
+    const m = await mergeAudited(wt.dir, c, c.gateCommand || readGate(p.stateDir).command || '', { ...(o.testEnv ? o.testEnv() : outsideTestEnv(c)), ...testedTreesEnv(p.stateDir, c) });
     if (m.code !== 0) {
       const why = m.code === 3 ? 'its branch conflicts with the base after a rebase' : m.code === 4 ? 'the tests fail after rebasing it' : `merging it failed (ship exit ${m.code})`;
       await sendBack(p, a.issue, why, m.output);

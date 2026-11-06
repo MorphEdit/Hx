@@ -90,7 +90,7 @@ if (session) {
   const full = ptr ? readFileSync(ptr[1], 'utf8') : grillPrompt;
   const output = /Write the (?:PRD|issue) to `([^`]+)`/.exec(full)[1];
   if (process.env.HX_FAKE_DIR) writeFileSync(path.join(process.env.HX_FAKE_DIR, `${session}-args.json`), JSON.stringify({ args: a, cwd: process.cwd(), full, trusted: process.env.HX_TRUSTED ?? null,
-    testConcurrency: process.env.HX_TEST_CONCURRENCY ?? null }));
+    testConcurrency: process.env.HX_TEST_CONCURRENCY ?? null, testedTrees: process.env.HX_TESTED_TREES ?? null }));
   if (process.env.FAKE_GRILL_NOWRITE === 'blank') writeFileSync(output, '  \n\t\n');
   else if (!process.env.FAKE_GRILL_NOWRITE) writeFileSync(output, session === 'grill' ? '# Grilled feature\n\n## Goals\nShip it.\n'
     : '# Small task\n\n## What to do\nDo it.\n\n## Blocked by\nnone\n');
@@ -140,9 +140,9 @@ process.stdin.on('data', (d) => (prompt += d)).on('end', () => {
   st.turns++;
   writeFileSync(counter, JSON.stringify(st));
   writeFileSync(path.join(process.env.HX_FAKE_DIR, `${sid}.prompt-${st.turns}.txt`), prompt);
-  // the session's HX_TRUSTED, HX_TEST_CONCURRENCY, PATH, --model and --effort, for the tests of what every session gets
+  // the session's HX_TRUSTED, HX_TEST_CONCURRENCY, HX_TESTED_TREES, PATH, --model and --effort, for the tests of what every session gets
   writeFileSync(path.join(process.env.HX_FAKE_DIR, `${sid}.env-${st.turns}.json`), JSON.stringify({ role: st.role, checkpoint: /HX CHECKPOINT/.test(prompt), trusted: process.env.HX_TRUSTED ?? null,
-    testConcurrency: process.env.HX_TEST_CONCURRENCY ?? null, path: process.env.PATH ?? null,
+    testConcurrency: process.env.HX_TEST_CONCURRENCY ?? null, testedTrees: process.env.HX_TESTED_TREES ?? null, path: process.env.PATH ?? null,
     model: a.includes('--model') ? a[a.indexOf('--model') + 1] : null, effort: a.includes('--effort') ? a[a.indexOf('--effort') + 1] : null }));
   if (a.includes('--resume') !== st.turns > 1) { process.stderr.write('resume flag mismatch'); process.exit(4); }
   // FAKE_CLAUDE_NEED=<file>: a session's first turn fails unless the worktree setup wrote <file> in this cwd, holding the cwd

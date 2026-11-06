@@ -80,6 +80,6 @@ export function alive(pid: number): boolean {
 }
 
 /** What the fake claude recorded of every session turn in fakeDir: its role, whether it was a checkpoint, its HX_TRUSTED, PATH, --model and --effort. */
-export function sessionEnvs(fakeDir: string): { role: string; checkpoint: boolean; trusted: string | null; testConcurrency: string | null; path: string | null; model: string | null; effort: string | null }[] {
+export function sessionEnvs(fakeDir: string): { role: string; checkpoint: boolean; trusted: string | null; testConcurrency: string | null; testedTrees?: string | null; path: string | null; model: string | null; effort: string | null }[] {
   return readdirSync(fakeDir).filter((f) => /\.env-\d+\.json$/.test(f)).map((f) => JSON.parse(readFileSync(path.join(fakeDir, f), 'utf8')));
 }
