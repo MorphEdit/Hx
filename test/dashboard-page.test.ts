@@ -698,7 +698,10 @@ test('the four panels in the reference\'s order with their empty containers, the
   const sections = p.root.all().filter((e) => e.tag === 'section' && e.hasAttribute('aria-label')).map((e) => e.getAttribute('aria-label'));
   assert.deepEqual(sections, ['Waiting on you', 'Board', 'Pipeline', 'Issue details', 'Event log', 'More']);
   assert.ok(html.indexOf('</header>') < html.indexOf('aria-label="Board"'));
-  for (const id of ['groups', 'stages', 'waiting', 'lanes', 'details', 'ticks']) assert.deepEqual(p.ids.get(id)!.childNodes, [], `#${id} is empty`);
+  for (const id of ['groups', 'waiting', 'lanes', 'details', 'ticks']) assert.deepEqual(p.ids.get(id)!.childNodes, [], `#${id} is empty`);
+  // the Flow's six columns are always there (#376): with no session each is idle and has no chip
+  assert.equal(p.ids.get('stages')!.childNodes.length, 6);
+  assert.equal(p.ids.get('stages')!.all().filter((e) => e.tag === 'button').length, 0, 'no chip');
   assert.deepEqual(p.ids.get('events')!.childNodes.map(text), ['No events today.'], 'the Event log with no events (#377)');
   const row = p.ids.get('groups')!.closest('section')!.parentNode as E;
   assert.equal(row.style.flexWrap, 'wrap', 'the panels stack');

@@ -567,8 +567,76 @@ let snap = null, boardSnap = null;
 const state = { sel: null, board: 'all', view: 'flow', filter: 'all' };
 // the four panels: their slices of PRD #367 fill them from `snap` and `state`
 function renderBoard() { fill($('groups')); }
-function renderFlow() { fill($('stages')); fill($('waiting')); }
-function renderTimeline() { fill($('lanes')); }
+const snapItems = () => (Array.isArray(snap?.issues?.items) ? snap.issues.items : []).filter((it) => it && typeof it === 'object');
+const itemId = (it) => (it.prd !== null && it.prd === it.number ? 'PRD #' : '#') + Math.trunc(Number(it.number));
+const isSel = (n) => n !== null && n !== undefined && state.sel !== null && String(n) === String(state.sel);
+// ---- Pipeline → Flow: the six stage columns with each live session's chip, the waiting lane, the legend's tests line ----
+const COLUMNS = [['01', 'Gauntlet', 'PRD critic'], ['02', 'Decompose', 'PRD → issues'], ['03', 'Implement', 'issue → PR'],
+  ['04', 'Audit', 'independent check'], ['05', 'Merge', 'PR → main'], ['06', 'Gate', null]];
+function renderFlow() {
+  const items = snapItems(), g = snap?.gate;
+  fill($('stages'), COLUMNS.map(([num, name, what]) => {
+    const chips = what === null ? [] : items.filter((it) => it.chip && it.chip.column === name);
+    const busy = chips.length > 0;
+    const sub = what === null ? (!g ? 'main · no run yet' : (g.ok ? 'main green ✓ ' : 'main RED ✗ ') + String(g.sha ?? '').slice(0, 7))
+      : busy ? chips.length + (chips.length === 1 ? ' session' : ' sessions') : what + ' · idle';
+    return el('div', { style: 'display:flex;flex-direction:column;gap:10px' },
+      el('div', { style: 'display:flex;flex-direction:column;gap:3px;padding:12px;border-radius:8px;background:var(--panel);border:' + (busy ? '2px solid var(--ink)' : '1px solid var(--border)') },
+        el('span', { class: 'mono', style: 'font-size:11px;color:var(--muted)' }, num),
+        el('span', { class: 'head', style: 'font-weight:600;font-size:15px' }, name),
+        el('span', { style: 'font-size:12px;color:var(--muted)' }, sub)),
+      chips.map((it) => {
+        const on = isSel(it.number), edge = it.status === 'merging' ? 'var(--blue)' : 'var(--orange)';
+        return el('button', { type: 'button', 'data-sel': String(it.number), 'aria-pressed': String(on),
+          style: 'display:flex;flex-direction:column;gap:4px;padding:10px;border-radius:8px;cursor:pointer;background:var(--panel);text-align:left;min-height:44px;border:' + (on ? '2px solid var(--ink)' : '1px solid var(--border)') + ';border-left:4px solid ' + edge },
+          el('span', { style: 'display:flex;justify-content:space-between;gap:6px' },
+            el('span', { class: 'mono', style: 'font-size:12px;font-weight:500' }, String(it.worker ?? '')),
+            el('span', { class: 'mono', style: 'font-size:12px' }, itemId(it))),
+          el('span', { style: 'font-size:12px;color:var(--ink-2);text-align:left' }, String(it.chip.note ?? '')));
+      }));
+  }));
+  // WAITING FOR ANOTHER ISSUE: every waiting item with at least one open blocker
+  fill($('waiting'), items.filter((it) => it.status === 'waiting' && Array.isArray(it.waitsOn) && it.waitsOn.length).map((it) => {
+    const on = isSel(it.number);
+    return el('button', { type: 'button', 'data-sel': String(it.number), 'aria-pressed': String(on),
+      style: 'display:flex;gap:8px;align-items:baseline;padding:10px 12px;border-radius:8px;cursor:pointer;min-height:44px;background:var(--panel);border:' + (on ? '2px solid var(--ink)' : '1px dashed var(--grey)') },
+      el('span', { class: 'mono', style: 'font-size:12px;font-weight:500' }, itemId(it)),
+      el('span', { style: 'font-size:12px;color:var(--muted)' }, 'waits on ' + it.waitsOn.map(String).join(', ')));
+  }));
+  const r = snap?.runner, line = $('tests-line');
+  const show = !!r && r.running === true && r.testConcurrency !== null && r.testConcurrency !== undefined;
+  line.textContent = show ? 'tests run ' + r.testConcurrency + ' files at a time per session (' + r.cpus + ' CPUs shared by ' + r.workers + ' sessions + the gate)' : '';
+  line.hidden = !show;
+}
+// ---- Pipeline → Timeline: one row per lane (W1, …, then gate), its bars placed over [from, to], six HH:MM ticks ----
+const BAR_STYLE = { audit: 'audit', critic: 'audit', review: 'audit', security: 'audit', 'bar-judge': 'audit', merge: 'merge' };
+const BAR_TEXT = { impl: 'implement', audit: 'audit', merge: 'merge' };
+function renderTimeline() {
+  const tl = snap?.timeline, from = Number(tl?.from), to = Number(tl?.to);
+  const ok = Number.isFinite(from) && Number.isFinite(to) && to > from;
+  const hhmm = (t) => { const d = new Date(t); return pad(d.getHours()) + ':' + pad(d.getMinutes()); };
+  fill($('ticks'), ok ? [0, 1, 2, 3, 4, 5].map((k) => el('span', {}, hhmm(from + (to - from) * k / 5))) : []);
+  const pct = (v) => Math.round((v / (to - from)) * 100000) / 1000;
+  const lanes = ok && Array.isArray(tl.lanes) ? tl.lanes.filter((l) => l && typeof l === 'object') : [];
+  fill($('lanes'), lanes.map((lane) => {
+    const gate = lane.worker === 'gate';
+    return el('div', { style: 'display:flex;gap:12px;align-items:center' },
+      el('span', { class: 'mono', style: 'width:64px;flex:none;font-size:12px;font-weight:500' }, String(lane.worker ?? '')),
+      el('div', { style: 'flex:1;position:relative;height:40px;background:var(--ground);border-radius:6px' },
+        (Array.isArray(lane.bars) ? lane.bars : []).filter((b) => b && typeof b === 'object').map((b) => {
+          const kind = gate ? 'gate' : BAR_STYLE[b.role] ?? 'impl';
+          const n = gate || b.issue === null || b.issue === undefined ? null : Math.trunc(Number(b.issue));
+          const label = gate ? (b.ok ? 'green' : 'RED') : n === null ? '' : '#' + n + ' ' + (BAR_TEXT[b.role] ?? String(b.role ?? ''));
+          const on = isSel(n);
+          const bg = kind === 'audit' ? 'var(--blue)' : kind === 'merge' ? 'var(--blue-pale)' : kind === 'gate' ? 'var(--ink)' : 'var(--orange-pale)';
+          const fg = kind === 'audit' || kind === 'gate' ? 'var(--panel)' : 'var(--ink)';
+          const bd = kind === 'impl' ? 'var(--orange)' : kind === 'merge' ? 'var(--blue)' : bg;
+          return el('button', { type: 'button', 'data-sel': n === null ? null : String(n), 'aria-label': label || String(b.role ?? kind), class: 'mono',
+            style: 'position:absolute;top:4px;bottom:4px;left:' + pct(Number(b.startMs) - from) + '%;width:' + pct(Number(b.endMs) - Number(b.startMs)) + '%;border-radius:5px;font-size:11px;overflow:hidden;white-space:nowrap;padding:0 6px;text-align:left;cursor:pointer;background:' + bg + ';color:' + fg + ';border:' + (on ? '2px solid var(--ink)' : '1px solid ' + bd) },
+          label);
+        })));
+  }));
+}
 function renderDetails() { fill($('details')); }
 // tokens in the short format: 2.5M (one decimal from a million), 288K (whole thousands from a thousand), else the number
 function shortTok(n) {

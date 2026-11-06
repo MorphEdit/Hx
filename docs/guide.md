@@ -212,6 +212,14 @@ The page is laid out as a control room, light or dark with the system theme:
 - **Board**, **Pipeline** (Flow / Timeline), **Details** and **Event log** — four panels under it. The tabs (the
   board filter, Flow / Timeline, the event filter) and the selected issue stay as they are across refreshes.
   The raw tail of `.hx/run.log` sits under the event table, collapsed (open **RAW LOG**).
+- **Pipeline** — **Flow** shows the six steps an issue goes through (Gauntlet, Decompose, Implement, Audit, Merge,
+  Gate) with a card in its column for each session at work: the worker (`W1`, …), the issue and a short note
+  (`turn 2`, `audit 1/3 · PR #366`, `audit PASS · rebasing`). An idle column says what it does (`issue → PR · idle`);
+  the Gate column shows main (`main green ✓ <sha>`). Under the columns, **Waiting for another issue** lists each issue
+  that waits on another (`waits on #351`), and the legend says how many test files each session runs at once.
+  **Timeline** shows the last 6 hours: one row per worker with a bar per session (`#351 implement`, `#351 audit`,
+  `#351 merge`), and a gate row with each full test run on main (`green` or `RED`). Clicking a card or a bar
+  selects its issue.
 - **Event log** — today's events from `.hx/run.log`, one row each: the local time, the issue (`#N`, `PRD #N`,
   `gate` or `runner`), the step, what happened and the tokens (`2.5M`, `288K`). **Results** shows only the
   results (DONE, PASS, PRD closed, gate green), **Problems** only the problems (gate RED, FAIL, timeouts, conflicts,
