@@ -11,6 +11,7 @@ import { fileURLToPath } from 'node:url';
 import { change, compare, parseTime, stopCause, type CompareIssue } from '../src/compare.ts';
 import { DEFAULTS, saveConfig } from '../src/config.ts';
 import { barMarker } from '../src/bar.ts';
+import { fmtDuration } from '../src/gate.ts';
 import { docsText } from './docs-text.ts';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -156,6 +157,25 @@ test('compare: median target workers per period, per turn, from workersTarget; r
   assert.equal(compare([], [], OPTS).after.medianWorkersTarget, undefined);
 });
 
+test('compare: gate runs reused and the median gate duration per period by ts; reused lines never in the median; --from drops older lines (#353)', E2E, () => {
+  const g = (ts: string, durationMs: number, reused = false) => ({ ts, sha: 'a', ok: true, durationMs, timedOut: false, ...(reused ? { reused: true as const } : {}) });
+  const gates = [
+    g(B(30), 1 * M), g(B(30), 0, true), // before --from below: dropped
+    g(B(5), 10 * M), g(B(4), 0, true), g(B(3), 20 * M), g(B(2), 0, true), g(B(1), 30 * M), // before: 10, 20, 30 real, 2 reused
+    g(A(1), 0, true), g(A(2), 0, true), g(A(3), 0, true), // after: only reused
+  ];
+  const { before, after } = compare([], [], { ...OPTS, gates });
+  assert.deepEqual([before.gateReused, after.gateReused], [3, 3]);
+  assert.equal(before.medianGateMs, 10 * M); // 1, 10, 20, 30 (nearest rank): the reused 0s are not in it
+  const cut = compare([], [], { ...OPTS, from: Date.parse(B(10)), gates });
+  assert.deepEqual([cut.before.gateReused, cut.after.gateReused], [2, 3]);
+  assert.equal(cut.before.medianGateMs, 20 * M); // 10, 20, 30: the reused 0s do not pull it down
+  assert.equal(cut.after.medianGateMs, undefined); // no real run after the split
+  // no gate lines at all: 0 reused, no median
+  const none = compare([], [], OPTS);
+  assert.deepEqual([none.before.gateReused, none.before.medianGateMs, none.after.medianGateMs], [0, undefined, undefined]);
+});
+
 test('compare --from: older runs, comments and issues are dropped', E2E, () => {
   const from = Date.parse(B(10));
   const recs = [rec(B(20), 'impl', 'old'), rec(B(5), 'impl', 'new')];
@@ -290,6 +310,25 @@ test('hx usage --compare prints the median target workers after hours of runs; -
   const old = app('target-old', [rec(B(2), 'impl', 'b'), rec(A(2), 'impl', 'a', { workersTarget: 2 })], {}).hx('usage', '--compare', AT);
   assert.equal(old.status, 0, old.stdout + old.stderr);
   assert.deepEqual(cells(old.stdout, 'median target workers'), ['-', '2', '-'], old.stdout);
+});
+
+test('hx usage --compare prints gate runs reused and the median gate duration from .hx/gate-runs.jsonl after gate-fix issues (#353)', E2E, () => {
+  const { hx } = app('gate', [], {});
+  const g = (ts: string, durationMs: number, reused = false) => JSON.stringify({ ts, sha: 'a', ok: true, durationMs, timedOut: false, ...(reused ? { reused: true } : {}) });
+  writeFileSync(path.join(tmp, 'gate', '.hx', 'gate-runs.jsonl'), [g(B(3), 10 * M), g(B(2), 0, true), g(B(1), 10 * M),
+    g(A(1), 0, true), g(A(2), 5 * M), g(A(3), 0, true), g(A(4), 0, true), g(A(5), 5 * M), 'not json'].join('\n') + '\n');
+  const r = hx('usage', '--compare', AT);
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.deepEqual(cells(r.stdout, 'gate runs reused'), ['1', '3', '+2'], r.stdout);
+  assert.deepEqual(cells(r.stdout, 'median gate duration'), [fmtDuration(10 * M), fmtDuration(5 * M), '-50%'], r.stdout);
+  const board = r.stdout.split(/\r?\n/).map((l) => l.trim().split(/\s{2,}/)[0]);
+  assert.equal(board.indexOf('gate runs reused'), board.indexOf('gate-fix issues') + 1, r.stdout);
+  // a period with only reused lines: - and no change
+  writeFileSync(path.join(tmp, 'gate', '.hx', 'gate-runs.jsonl'), [g(B(1), 0, true), g(A(1), 5 * M)].join('\n') + '\n');
+  const only = hx('usage', '--compare', AT);
+  assert.deepEqual(cells(only.stdout, 'median gate duration'), ['-', fmtDuration(5 * M), '-'], only.stdout);
+  const docs = docsText();
+  assert.ok(docs.includes('gate runs reused') && docs.includes('median gate duration'), 'docs/guide.md names both rows');
 });
 
 test('hx usage --compare: no small-sample note with 10 or more closed issues in each period', E2E, () => {
