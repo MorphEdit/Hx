@@ -123,3 +123,18 @@ test('ghwait (ship.mjs, issue.mjs): the gh HX_GH_INPROC names answers in-process
   assert.deepEqual(on.env, { status: 0, stdout: 'program' });
   assert.deepEqual(go({ HX_GH_INPROC: '' }).inp, { status: 0, stdout: 'program' });
 });
+
+test('doctor probe (hx run\'s startup gate, the health pass): the gh HX_GH_INPROC names answers in-process; a null answer or no HX_GH_INPROC runs a program (#354)', E2E, async () => {
+  const { probe: doctorProbe } = await import('../src/doctor.ts');
+  const p = probe(), saved = process.env.HX_GH_INPROC;
+  try {
+    process.env.HX_GH_INPROC = p.file;
+    const r = await doctorProbe(p.file, ['auth', 'status'], p.dir);
+    assert.equal(r.code, 3);
+    assert.equal(r.stderr, 'e');
+    assert.deepEqual(JSON.parse(r.stdout), { pid: process.pid, a: ['auth', 'status'], input: '', cwd: p.dir });
+    assert.deepEqual(await doctorProbe(p.file, ['program'], p.dir), { code: 0, stdout: 'program', stderr: '' }, 'null: run as a program');
+    delete process.env.HX_GH_INPROC;
+    assert.equal((await doctorProbe(p.file, ['auth'], p.dir)).stdout, 'program', 'unset');
+  } finally { if (saved === undefined) delete process.env.HX_GH_INPROC; else process.env.HX_GH_INPROC = saved; }
+});

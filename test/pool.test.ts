@@ -17,7 +17,7 @@ process.env.HX_FAKE_STATE = stateFile;
 process.env.HX_FAKE_DIR = path.join(tmp, 'sessions');
 mkdirSync(process.env.HX_FAKE_DIR);
 
-const { runPool } = await import('../src/pool.ts');
+const { runPool, engineRetryMs } = await import('../src/pool.ts');
 const { DEFAULTS } = await import('../src/config.ts');
 const { readUsage } = await import('../src/usage.ts');
 const { runGoal } = await import('../src/agent.ts');
@@ -161,4 +161,16 @@ test('runGoal: usage limit and crash stop the loop with the right reason', E2E, 
   assert.equal(crash.iterations, 1);
   assert.match(crash.last?.error ?? '', /exited 3/);
   delete process.env.FAKE_CLAUDE_MODE;
+});
+
+test('engineRetryMs: 2 s after a pass that only closed a PRD or labelled a child; HX_ENGINE_RETRY_MS (≥ 0) overrides it, the tests set 50 (#354)', E2E, () => {
+  const at = (v?: string) => engineRetryMs(v === undefined ? {} : { HX_ENGINE_RETRY_MS: v });
+  assert.equal(at(), 2000);
+  assert.equal(at(''), 2000);
+  assert.equal(at('soon'), 2000);
+  assert.equal(at('-5'), 2000);
+  assert.equal(at('0'), 0);
+  assert.equal(at('75'), 75);
+  assert.equal(process.env.HX_ENGINE_RETRY_MS, '50', 'test/isolate.ts sets it for every e2e test');
+  assert.equal(engineRetryMs(), 50);
 });

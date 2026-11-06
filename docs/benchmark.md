@@ -227,3 +227,75 @@ Measured on 2026-11-06 with `hx usage --compare "2026-11-05 13:19"`, over 53.9 h
 - **Escaped defects:** no reverts and no `security` issues. The one `bug` issue, #328 (leftover test processes
   after a timeout), was filed by hand. It is about older code, not a change merged after the cutover.
 
+
+## Test suite speed
+
+How long `npm test` takes, test by test, before and after a change that targets it. Each change measures its two
+profiles back to back on the same machine, while `hx run` works next to it: the "before" in a worktree of `origin/main`,
+the "after" on the change's branch. The command is `npm run test:profile -- --test-concurrency=<k>`, the same both times.
+The times are summed test time from `test-profile.json`. On a shared machine they change with the load, so a row
+is a direction, not an exact saving. Each change appends its own rows below, under its PR number, and leaves earlier
+rows alone.
+
+**Runs:**
+
+| PR | Date | `--test-concurrency` | `workers` line (before run) | `workers` line (after run) | Suite wall time (before → after) | Summed test time (before → after) |
+|---|---|---|---|---|---|---|
+| #354 | 2026-11-06 | 3 | `3/3 (auto: cpu 50%)` | `3/3 (auto: cpu 49%)` | 1173 s → 915 s | 11992 s → 9054 s (−25%) |
+
+**#354: what changed.** These three cuts apply to every end-to-end run:
+- the pool waited a fixed 2 s after a pass that only closed a PRD or labelled a child. `HX_ENGINE_RETRY_MS` now sets
+  this wait, and `test/isolate.ts` sets it to 50 ms. Every PRD run ends with one such pass;
+- `hx doctor`'s probes (`gh auth status`, `gh repo view`, `gh label list`) ran the fake gh as a node process. Now they
+  answer in-process, like every other gh call in the tests. That saves three node starts at each `hx run` start and
+  each health pass, including in child runners;
+- the fake claude's ship test command was `node -e "process.exit(0)"`. It is now the shell builtin `exit 0`, which
+  saves one node start per `ship --no-merge`, `ship --resume` and gate run.
+
+The rest of the suite, which these cuts barely touch, also fell 23% in the same pair of runs (9592 s → 7359 s): the
+machine was less busy during the "after" run. Measured against that, the cuts are worth roughly 6 points of the top
+20's 29%. The rest of the time in these tests is real work. A PRD run starts about 200 processes: git (worktree add,
+fetch, push, rebase), a fake claude per session and a `ship.mjs` per merge. A loaded machine makes each start several
+times slower: one test took 24 s alone and 135 s in the suite. Cutting further means fewer sessions or fewer git
+calls per run, which would change what a test covers.
+
+**Per test** (the 20 slowest of the "before" profile; seconds of test time):
+
+| PR | Test file | Test | Before | After | Change | Why not more |
+|---|---|---|---|---|---|---|
+| #354 | pool | PRD flow: decompose → build → review (gap, then sign-off) → close, PRDs sequenced | 177.5 | 117.8 | −34% | the full flow of two PRDs is what it tests: every session and merge in it is real git work |
+| #354 | session-setup | every session worktree is set up before its first turn: impl, audit, triage, gauntlet critic + reviser, decompose | 160.8 | 91.6 | −43% | each role must run once, in its own set-up worktree |
+| #354 | role-models | roleModels {}: every session gets --model and --effort as before … | 155.0 | 111.1 | −28% | already lightened (#361): one PRD child, one standalone issue for the size turn |
+| #354 | merge-held | a PASSed PR failing only test X, which main fails too: held … | 154.6 | 104.0 | −33% | runs a real red gate and a real held merge, then a green gate and the merge |
+| #354 | audit | auditRounds 1: an audit PASS then two merge failures is still retried, not failed | 144.2 | 98.6 | −32% | three impl + audit + ship rounds are the case it tests |
+| #354 | audit | audit PASS but the merge hits a rebase conflict: a merge round … then merged | 127.7 | 85.8 | −33% | two full impl + audit + ship rounds |
+| #354 | bug-note | bugTriage false: a bug runs impl without triage, both prompts carry their note, it merges … | 126.7 | 81.2 | −36% | two runs (triage on and off), each through impl, audit and merge |
+| #354 | role-models | impl and audit set: their sessions get their model and effort … | 123.5 | 82.2 | −33% | already lightened (#361) to one PRD child |
+| #354 | actual-model | records carry actualModel when the CLI reports it … | 122.2 | 86.8 | −29% | each case needs a session per role, each a real worktree |
+| #354 | merge-held | a PASSed PR failing test Y, which main does not fail: back to the implementer … | 118.7 | 74.8 | −37% | two impl + audit + ship rounds |
+| #354 | size-check | no size session: a parent, a bug, a gate fix, a resumed worktree, sizeCheck false | 110.5 | 62.2 | −44% | five cases, each a run that must reach impl |
+| #354 | stall | through the pool: a stalled issue is handed back as after a timed-out turn … | 108.3 | 70.7 | −35% | the stall and the timeout are real 1.2 s timers, and each has three turns and an exit-time health pass |
+| #354 | audit | mergeRounds merge failures in a row: failed, the reason naming the merge rounds | 103.8 | 66.3 | −36% | two impl + audit + failed-merge rounds |
+| #354 | session-setup | the audit's and the triage's notes come from their own worktree's setup | 102.9 | 78.0 | −24% | an impl, an audit and a triage, each with a real setup command |
+| #354 | health | healthPass blocked after PASS: CONFLICTING, ship exit 3 and exit 4 → back to ready-for-agent … | 102.9 | 66.7 | −35% | three real ship runs (a conflict, a red test, a pass) |
+| #354 | session-setup | worktreeSetup "" and no worktreeCopy: no setup line, no setup-* file, prompts as before | 94.8 | 75.0 | −21% | an issue and a triaged bug, each through impl, audit and merge |
+| #354 | skills-run | roleSkills: {} → no skill sections, prompts byte-identical … | 94.1 | 76.9 | −18% | two full runs (roleSkills {} and empty lists), compared byte for byte |
+| #354 | fleet-run | hx fleet run: every output line carries the [owner/name] prefix of its repo | 91.4 | 131.2 | +44% | not improved: two child `hx run` processes, each its own node with a full issue run. The doctor cut reaches them, but the run met more load |
+| #354 | session-setup | a reused impl worktree: record ok → no setup run; record ok:false or missing → run again | 90.8 | 75.7 | −17% | two runs of three issues: a crash run, then the reuse |
+| #354 | selfupdate | new code that exits on start: rolled back, the old runner keeps running … | 89.8 | 58.3 | −35% | real restarts of a copied install. A 3 s pause checks that nothing happens, and no event marks that |
+| #354 | **sum of the 20** | | **2400.3** | **1695.0** | **−29%** | |
+
+**Per file** (the 5 slowest files of the "before" profile; seconds of summed test time):
+
+| PR | Test file | Tests | Before | After | Change |
+|---|---|---|---|---|---|
+| #354 | audit | 12 | 814.6 | 601.5 | −26% |
+| #354 | release-cmd | 16 | 604.5 | 436.2 | −28% |
+| #354 | selfupdate | 16 | 537.6 | 425.4 | −21% |
+| #354 | session-setup | 8 | 512.3 | 383.5 | −25% |
+| #354 | ship | 15 | 442.0 | 331.2 | −25% |
+
+No cut is aimed at release-cmd or ship (`hx release` and `ship.mjs` run their own git and test commands). Their drop
+matches the rest of the suite's: it comes from the load.
+Cutting release-cmd and ship themselves is not in #354: release-cmd and ship are left to #369, the child issue
+filed when #354 was narrowed, which adds its own rows here.

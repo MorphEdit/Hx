@@ -34,6 +34,8 @@ Object.assign(process.env, FAKE_SCHTASKS);
 // autoWorkers off in every hx run a test starts, in-process and in child hx processes: the machine's real load never
 // changes a test's claims (a test of auto-scaling deletes it and injects its own load reader)
 process.env.HX_AUTO_WORKERS = '0';
+// the 2 s board re-read after a pass that only closed a PRD or labelled a child: every PRD run ends with one (#354)
+process.env.HX_ENGINE_RETRY_MS = '50';
 process.env.HX_GH_INPROC = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fakes', 'gh.mjs');
 process.env.NODE_COMPILE_CACHE ??= path.join(os.tmpdir(), 'hx-test-compile-cache');
 Object.assign(process.env, {

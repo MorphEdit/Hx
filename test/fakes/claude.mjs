@@ -275,7 +275,7 @@ function finish(st, checkpoint, prompt) {
     // FAILSONBROKEN=X,Y in the issue body: the test command prints `not ok` for X and Y and fails while a BROKEN file exists
     const fails = /FAILSONBROKEN=(\S+)/.exec(loadBoard().issues.find((i) => i.number === st.n)?.body ?? '')?.[1].split(',');
     const test = process.env.FAKE_SHIP_TEST || (fails ? `node -e "if (require('fs').existsSync('BROKEN')) { ${fails.map((t, i) => `console.log('not ok ${i + 1} - ${t}');`).join(' ')} process.exit(1) }"`
-      : 'node -e "process.exit(0)"');
+      : 'exit 0'); // a shell builtin (cmd and sh): no node start per ship and gate run
     const r = spawnSync(process.execPath, [ship, '--repo', repo, '--base', 'main', '--issue', String(st.n), '--title', `feat: issue ${st.n}`,
       '--test', test, '--no-merge'], { encoding: 'utf8', env: { ...process.env, ...GIT_ID } });
     // SHIPNOSTATE in the issue body: the PR is open but hx-ship.json is gone, as after a PR opened outside ship
