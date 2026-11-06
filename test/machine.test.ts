@@ -77,13 +77,29 @@ test('slowdown: idle baseline is the p10 of green runs over the last 7 days; red
   // 20 green runs (90, then 100 × 19) and the period's 2: p10 of the 22 is the 3rd, 100 — not the fastest run
   for (let k = 1; k <= 20; k++) gs.push(gate(NOW - 2 * DAY - k * HOUR, k === 1 ? 90 : 100));
   gs.push(gate(NOW - 3 * DAY, 10, false));   // red: not in the baseline
-  gs.push(gate(NOW - 8 * DAY, 20));          // older than 7 days: not in the baseline
+  gs.push(gate(NOW - 8 * DAY, 20), gate(NOW - 9 * DAY, 20), gate(NOW - 10 * DAY, 20)); // older than 7 days: counted, the p10 would be 20
   gs.push(gate(NOW - 2 * HOUR, 270), gate(NOW - HOUR, 250, false), gate(NOW - 3 * HOUR, 300)); // the period: median 270
   const s = slowdown(gs, NOW - DAY, NOW, NOW);
   assert.equal(s.baselineMs, 100);
   assert.equal(s.medianMs, 270);
   assert.equal(s.factor, 2.7);
   assert.equal(s.text, 'tests run 2.7× slower than at idle');
+});
+
+test('slowdown: reused greens (durationMs 0) are in neither the baseline nor the period median', () => {
+  const reused = (t: number): GateRun => ({ ...gate(t, 0), reused: true });
+  const gs: GateRun[] = [];
+  for (let k = 1; k <= 9; k++) gs.push(gate(NOW - 2 * DAY - k * HOUR, 100));
+  gs.push(reused(NOW - 2 * DAY), reused(NOW - 3 * HOUR), reused(NOW - 2 * HOUR), reused(NOW - 90 * MIN));
+  gs.push(gate(NOW - HOUR, 270), gate(NOW - 30 * MIN, 270));
+  const s = slowdown(gs, NOW - DAY, NOW, NOW);
+  assert.equal(s.baselineMs, 100);
+  assert.equal(s.medianMs, 270);
+  assert.equal(s.factor, 2.7);
+  assert.equal(s.text, 'tests run 2.7× slower than at idle');
+  // only reused lines in the period: no run there
+  const only = slowdown([...gs.slice(0, 9), reused(NOW - HOUR)], NOW - DAY, NOW, NOW);
+  assert.equal(only.medianMs, undefined); assert.equal(only.factor, undefined);
 });
 
 test('slowdown: undefined with no green run, or no gate run in the period', () => {
@@ -96,11 +112,12 @@ test('slowdown: undefined with no green run, or no gate run in the period', () =
 
 test('session split: per role the median share of session time in tests, and the rest', () => {
   const r = (role: string, durationMs: number, testMs?: number, ts = iso(NOW - HOUR)) => ({ ts, role, durationMs, testMs });
-  const recs = [r('impl', 100, 80), r('impl', 100, 20), r('impl', 100, 50), r('review', 200, 50),
+  // impl shares 0.9 / 0.1 / 0.2: median 0.2, mean 0.4
+  const recs = [r('impl', 100, 90), r('impl', 100, 10), r('impl', 100, 20), r('review', 200, 50),
     r('review', 100), r('impl', 0, 0), r('impl', 100, 100, iso(NOW - 2 * DAY))]; // no testMs, no time, outside: left out
   const s = sessionSplit(recs, NOW - DAY, NOW);
   assert.deepEqual(s, [
-    { role: 'impl', sessions: 3, testShare: 0.5, otherShare: 0.5 },
+    { role: 'impl', sessions: 3, testShare: 0.2, otherShare: 0.8 },
     { role: 'review', sessions: 1, testShare: 0.25, otherShare: 0.75 },
   ]);
 });

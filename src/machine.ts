@@ -83,10 +83,12 @@ export function throughput(load: LoadLine[], done: number[], from: number, to: n
 export interface Slowdown { baselineMs?: number; medianMs?: number; factor?: number; text?: string }
 
 /** The idle baseline (p10 of green gate runs over the 7 days before `now`), the median gate run of [from, to) and their
- *  ratio; factor and text are undefined with no green run, no run in the period or a zero baseline. */
+ *  ratio; factor and text are undefined with no green run, no run in the period or a zero baseline. Reused greens
+ *  (`reused`, durationMs 0) ran no tests and are left out of both. */
 export function slowdown(gates: GateRun[], from: number, to: number, now: number): Slowdown {
-  const baselineMs = percentile(gates.filter((g) => g.ok && within(Date.parse(g.ts), now - MAX_DAYS * DAY, now)).map((g) => g.durationMs), 0.1);
-  const medianMs = median(gates.filter((g) => within(Date.parse(g.ts), from, to)).map((g) => g.durationMs));
+  const runs = gates.filter((g) => !g.reused);
+  const baselineMs = percentile(runs.filter((g) => g.ok && within(Date.parse(g.ts), now - MAX_DAYS * DAY, now)).map((g) => g.durationMs), 0.1);
+  const medianMs = median(runs.filter((g) => within(Date.parse(g.ts), from, to)).map((g) => g.durationMs));
   if (baselineMs === undefined || medianMs === undefined || !(baselineMs > 0)) return { baselineMs, medianMs };
   const factor = medianMs / baselineMs;
   return { baselineMs, medianMs, factor, text: `tests run ${factor.toFixed(1)}× slower than at idle` };
