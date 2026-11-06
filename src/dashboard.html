@@ -3,56 +3,188 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>hx dashboard</title>
+<title>Hx Control Room</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&amp;family=JetBrains+Mono:wght@400;500&amp;family=Space+Grotesk:wght@500;600;700&amp;display=swap" rel="stylesheet">
 <style>
-:root { --bg: #fff; --fg: #1b1f24; --mute: #656d76; --line: #d0d7de; --card: #f6f8fa; --ok: #1a7f37; --bad: #cf222e; --warn: #9a6700; --link: #0969da; --bar: #0969da; }
-@media (prefers-color-scheme: dark) {
-  :root { --bg: #0d1117; --fg: #e6edf3; --mute: #8d96a0; --line: #30363d; --card: #161b22; --ok: #3fb950; --bad: #f85149; --warn: #d29922; --link: #4493f8; --bar: #4493f8; }
+/* every colour of docs/design/control-room.html is one property here, set to its exact hex; the dark block re-sets each to the
+   dark counterpart of its role. --ok / --bad / --warn are the More area's own badge and chart colours. */
+:root {
+  --ground: #F3F5F8; --panel: #FFFFFF; --ink: #0E1A2B; --ink-2: #2D3748; --muted: #4A5568; --muted-2: #5B6472; --grey: #8A94A3;
+  --border: #D6DCE5; --border-soft: #E5E9EF; --soft: #EEF1F5; --flow-bg: #FAFBFD;
+  --blue: #1D4ED8; --blue-deep: #1E3A8A; --blue-pale: #DBEAFE; --blue-select: #EEF3FF;
+  --orange: #C2410C; --orange-text: #B23B0A; --orange-pale: #FFEDD5; --orange-deep: #9A3412;
+  --ok: #1a7f37; --bad: #cf222e; --warn: #9a6700;
 }
-* { box-sizing: border-box; }
-html, body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
-body { padding: 12px; max-width: 1100px; margin: 0 auto; overflow-x: hidden; }
-header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 16px; }
-h1 { font-size: 20px; margin: 0; }
-h2 { font-size: 16px; margin: 0 0 8px; }
-h3 { font-size: 14px; margin: 12px 0 6px; color: var(--mute); }
-section { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 12px; margin: 12px 0; min-width: 0; }
-a { color: var(--link); }
-.mute { color: var(--mute); }
-.note { font-size: 12px; color: var(--mute); }
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ground: #0B1220; --panel: #131C2B; --ink: #E6EDF5; --ink-2: #C9D3E0; --muted: #A3AFBF; --muted-2: #98A3B3; --grey: #6B7686;
+    --border: #2C3A4F; --border-soft: #233046; --soft: #1E2A3B; --flow-bg: #0F1726;
+    --blue: #6EA8FE; --blue-deep: #A9C8FF; --blue-pale: #1B3160; --blue-select: #18294A;
+    --orange: #F28C4B; --orange-text: #FFA36B; --orange-pale: #3D2413; --orange-deep: #FFBE8F;
+    --ok: #3fb950; --bad: #f85149; --warn: #d29922;
+  }
+}
+body{margin:0;background:var(--ground)}
+a{color:var(--blue)}a:hover{color:var(--blue-deep)}
+button{font:inherit;color:inherit}
+.mono{font-family:'JetBrains Mono',ui-monospace,Consolas,monospace}
+.head{font-family:'Space Grotesk',system-ui,sans-serif}
+.panel{background:var(--panel);border:1px solid var(--border);border-radius:10px}
+.label{font-size:11px;color:var(--muted);letter-spacing:0.08em}
+.h2{margin:0;font-family:'Space Grotesk',system-ui,sans-serif;font-size:16px;letter-spacing:0.08em}
+.tabs{display:flex;border:1px solid var(--border);border-radius:8px;overflow:hidden}
+.tab{border:0;padding:8px 14px;min-height:36px;cursor:pointer;font-size:13px;font-weight:600;background:var(--panel);color:var(--ink-2)}
+.tab[aria-selected="true"]{background:var(--ink);color:var(--panel)}
+/* the More area and the raw log: today's sections, in the reference's colours */
+.mute { color: var(--muted); }
+.note { font-size: 12px; color: var(--muted); }
 .note.offline { color: var(--bad); }
 .kv { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 0 0 8px; }
 .kv span b { font-weight: 600; }
-.badge { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 12px; font-weight: 600; color: #fff; }
-.badge.ok { background: var(--ok); } .badge.bad { background: var(--bad); } .badge.warn { background: var(--warn); } .badge.mute { background: var(--mute); }
+.badge { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 12px; font-weight: 600; color: var(--panel); }
+.badge.ok { background: var(--ok); } .badge.bad { background: var(--bad); } .badge.warn { background: var(--warn); } .badge.mute { background: var(--muted); }
 .scroll { overflow-x: auto; max-width: 100%; }
-table { border-collapse: collapse; width: 100%; font-size: 13px; }
-th, td { text-align: left; padding: 4px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
-td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
-td.wrap { white-space: normal; min-width: 12em; }
 .err { color: var(--bad); white-space: pre-wrap; overflow-wrap: anywhere; }
-svg { display: block; max-width: 100%; height: auto; }
-svg text { fill: var(--mute); font-size: 10px; }
-svg rect { fill: var(--bar); }
-svg .test { stroke: var(--bar); fill: var(--bar); } svg .gate { stroke: var(--warn); fill: var(--warn); } svg polyline { fill: none; stroke-width: 2; }
-svg .cpu { stroke: var(--bar); } svg .mem { stroke: var(--ok); } svg .target { stroke: var(--warn); } svg .running { stroke: var(--fg); stroke-width: 1; }
-svg line { stroke: var(--line); stroke-width: 1; }
-#log { margin: 0; max-height: 360px; overflow: auto; font: 12px/1.4 ui-monospace, Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 8px; }
+#more section > div h3 { font-size: 14px; margin: 12px 0 6px; color: var(--muted); }
+#more table { border-collapse: collapse; width: 100%; font-size: 13px; }
+#more th, #more td { text-align: left; padding: 4px 8px; border-bottom: 1px solid var(--border-soft); white-space: nowrap; }
+#more th { font-size: 11px; color: var(--muted); letter-spacing: 0.08em; font-weight: 600; }
+#more td.num, #more th.num { text-align: right; font-variant-numeric: tabular-nums; }
+#more td.wrap { white-space: normal; min-width: 12em; }
+#more svg { display: block; max-width: 100%; height: auto; }
+#more svg text { fill: var(--muted); font-size: 10px; }
+#more svg rect { fill: var(--blue); }
+#more svg .test { stroke: var(--blue); fill: var(--blue); } #more svg .gate { stroke: var(--warn); fill: var(--warn); } #more svg polyline { fill: none; stroke-width: 2; }
+#more svg .cpu { stroke: var(--blue); } #more svg .mem { stroke: var(--ok); } #more svg .target { stroke: var(--warn); } #more svg .running { stroke: var(--ink); stroke-width: 1; }
+#more svg line { stroke: var(--border); stroke-width: 1; }
+#log { margin: 0 16px 14px; max-height: 360px; overflow: auto; font: 12px/1.4 'JetBrains Mono', ui-monospace, Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; background: var(--ground); border: 1px solid var(--border); border-radius: 6px; padding: 8px; }
 </style>
 </head>
 <body>
+<div style="min-height: 100vh; background: var(--ground); color: var(--ink); font-family: Inter, system-ui, sans-serif; font-size: 14px; padding: 20px 16px; box-sizing: border-box">
+<div style="max-width: 1440px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px">
 <nav id="back" class="note" hidden></nav>
-<header>
-  <h1>hx dashboard</h1>
-  <span id="repo" class="mute"></span>
-  <span id="status" class="note">loading…</span>
+
+<header class="panel" style="padding: 14px 18px; display: flex; flex-wrap: wrap; align-items: center; gap: 16px 28px">
+  <div style="display: flex; align-items: center; gap: 12px">
+    <svg width="34" height="34" viewBox="0 0 34 34" aria-hidden="true"><path d="M17 2 L30 9.5 L30 24.5 L17 32 L4 24.5 L4 9.5 Z" fill="none" style="stroke: var(--blue)" stroke-width="2.5"></path><path d="M11 11 L11 23 M23 11 L23 23 M11 17 L23 17" style="stroke: var(--ink)" stroke-width="2.5" stroke-linecap="round"></path></svg>
+    <div style="display: flex; flex-direction: column">
+      <span class="head" style="font-weight: 700; font-size: 20px; letter-spacing: 0.04em">HX CONTROL ROOM</span>
+      <span style="font-size: 12px; color: var(--muted)"><span id="repo"></span> · <span id="status" class="note">loading…</span></span>
+    </div>
+  </div>
+  <div style="display: flex; flex-wrap: wrap; gap: 10px 22px; flex: 1 1 520px; justify-content: flex-end">
+    <div style="display: flex; flex-direction: column; gap: 2px"><span class="label">RUNNER</span><span style="font-weight: 600; display: flex; align-items: center; gap: 6px"><span id="hd-runner-dot" style="width: 8px; height: 8px; border-radius: 50%; background: var(--grey)"></span><span id="hd-runner">–</span></span></div>
+    <div style="display: flex; flex-direction: column; gap: 2px"><span class="label">MACHINE</span><span id="hd-machine" style="font-weight: 600">–</span></div>
+    <div style="display: flex; flex-direction: column; gap: 2px"><span class="label">MAIN</span><span id="hd-main" class="mono" style="font-weight: 600; font-size: 13px">–</span></div>
+    <div style="display: flex; flex-direction: column; gap: 2px"><span class="label">WAITING ON YOU</span><span id="hd-questions" style="font-weight: 600">–</span></div>
+    <div style="display: flex; flex-direction: column; gap: 2px"><span class="label">TODAY</span><span id="hd-today" style="font-weight: 600">–</span></div>
+  </div>
 </header>
-<section id="waiting"><h2>Waiting on you</h2><div id="waiting-body" class="mute">loading…</div></section>
-<section id="now"><h2>Now</h2><div id="now-body" class="mute">loading…</div></section>
-<section id="board"><h2>Board</h2><div id="board-body" class="mute">loading…</div></section>
-<section id="machine"><h2>Machine</h2><div id="machine-body" class="mute">loading…</div></section>
-<section id="stats"><h2>Stats</h2><div id="stats-body" class="mute">loading…</div></section>
-<section id="logbox"><h2>Log</h2><pre id="log"></pre></section>
+
+<section id="questions" aria-label="Waiting on you" class="panel" style="padding: 14px 16px; background: var(--blue-select); border-color: var(--blue)" hidden>
+  <h2 class="h2">WAITING ON YOU</h2>
+  <div id="waiting-body" class="mute">loading…</div>
+</section>
+
+<div style="display: flex; flex-wrap: wrap; gap: 16px; align-items: stretch">
+
+  <section aria-label="Board" class="panel" style="flex: 1 1 280px; max-width: 100%; display: flex; flex-direction: column; min-width: 0">
+    <div style="padding: 14px 16px 10px; display: flex; flex-direction: column; gap: 10px">
+      <h2 class="h2">BOARD</h2>
+      <div role="tablist" aria-label="Board filter" class="tabs" id="board-tabs">
+        <button type="button" role="tab" class="tab" data-board="all">All</button>
+        <button type="button" role="tab" class="tab" data-board="building">Building</button>
+        <button type="button" role="tab" class="tab" data-board="done">Done</button>
+      </div>
+    </div>
+    <div id="groups" style="display: flex; flex-direction: column; gap: 4px; padding: 0 10px 14px"></div>
+  </section>
+
+  <section aria-label="Pipeline" class="panel" style="flex: 999 1 560px; min-width: 0; display: flex; flex-direction: column">
+    <div style="padding: 14px 16px; display: flex; flex-wrap: wrap; gap: 10px; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-soft)">
+      <h2 class="h2">PIPELINE</h2>
+      <div role="tablist" aria-label="Pipeline view" class="tabs" id="view-tabs">
+        <button type="button" role="tab" class="tab" data-view="flow">Flow</button>
+        <button type="button" role="tab" class="tab" data-view="timeline">Timeline</button>
+      </div>
+    </div>
+    <div id="flow" style="padding: 20px 16px; display: flex; flex-direction: column; gap: 22px; background-color: var(--flow-bg); background-image: linear-gradient(var(--soft) 1px, transparent 1px), linear-gradient(90deg, var(--soft) 1px, transparent 1px); background-size: 24px 24px; flex: 1">
+      <div style="overflow-x: auto">
+        <div id="stages" style="display: grid; grid-template-columns: repeat(6, minmax(120px, 1fr)); gap: 14px; min-width: 780px"></div>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 10px">
+        <span class="label">WAITING FOR ANOTHER ISSUE</span>
+        <div id="waiting" style="display: flex; flex-wrap: wrap; gap: 10px"></div>
+      </div>
+      <div style="display: flex; flex-wrap: wrap; gap: 8px 18px; font-size: 12px; color: var(--muted)">
+        <span style="display: flex; align-items: center; gap: 6px"><span style="width: 10px; height: 10px; border-radius: 50%; background: var(--blue)"></span>done</span>
+        <span style="display: flex; align-items: center; gap: 6px"><span style="width: 10px; height: 10px; border-radius: 50%; border: 2px solid var(--blue); background: var(--blue-pale); box-sizing: border-box"></span>merging</span>
+        <span style="display: flex; align-items: center; gap: 6px"><span style="width: 10px; height: 10px; border-radius: 50%; border: 2px solid var(--orange); background: var(--orange-pale); box-sizing: border-box"></span>implementing</span>
+        <span style="display: flex; align-items: center; gap: 6px"><span style="width: 10px; height: 10px; border-radius: 50%; border: 2px solid var(--grey); box-sizing: border-box"></span>waiting</span>
+        <span id="tests-line" hidden></span>
+      </div>
+    </div>
+    <div id="timeline" style="display: none; padding: 20px 16px; flex-direction: column; gap: 12px; flex: 1">
+      <div style="display: flex; gap: 12px; align-items: center">
+        <span style="width: 64px; flex: none"></span>
+        <div id="ticks" class="mono" style="flex: 1; display: flex; justify-content: space-between; font-size: 11px; color: var(--muted)"></div>
+      </div>
+      <div id="lanes" style="display: flex; flex-direction: column; gap: 12px"></div>
+      <p style="margin: 6px 0 0; font-size: 12px; color: var(--muted)">Each bar is one session. Click one to see its issue. The gate row is the full test suite on main.</p>
+    </div>
+  </section>
+
+  <section aria-label="Issue details" class="panel" style="flex: 1 1 300px; max-width: 100%; padding: 16px; box-sizing: border-box; display: flex; flex-direction: column; gap: 14px; min-width: 0">
+    <h2 class="h2">DETAILS</h2>
+    <div id="details" style="display: contents"></div>
+  </section>
+</div>
+
+<section aria-label="Event log" class="panel" style="display: flex; flex-direction: column">
+  <div style="padding: 14px 16px; display: flex; flex-wrap: wrap; gap: 10px 20px; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--border-soft)">
+    <div style="display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 16px">
+      <h2 class="h2">EVENT LOG</h2>
+      <span style="font-size: 12px; color: var(--muted)">today, from .hx/run.log · the selected issue is highlighted</span>
+    </div>
+    <div role="tablist" aria-label="Event filter" class="tabs" id="filter-tabs">
+      <button type="button" role="tab" class="tab" data-filter="all">All</button>
+      <button type="button" role="tab" class="tab" data-filter="results">Results</button>
+      <button type="button" role="tab" class="tab" data-filter="problems">Problems</button>
+    </div>
+  </div>
+  <div style="overflow-x: auto">
+    <table style="width: 100%; min-width: 720px; border-collapse: collapse; font-size: 13px">
+      <thead>
+        <tr class="label" style="text-align: left">
+          <th scope="col" style="padding: 10px 16px; font-weight: 600">TIME</th>
+          <th scope="col" style="padding: 10px 8px; font-weight: 600">ISSUE</th>
+          <th scope="col" style="padding: 10px 8px; font-weight: 600">STEP</th>
+          <th scope="col" style="padding: 10px 8px; font-weight: 600">WHAT HAPPENED</th>
+          <th scope="col" style="padding: 10px 16px; font-weight: 600; text-align: right">TOKENS</th>
+        </tr>
+      </thead>
+      <tbody id="events"></tbody>
+    </table>
+  </div>
+  <details style="border-top: 1px solid var(--border-soft)">
+    <summary class="label" style="padding: 10px 16px; cursor: pointer; font-weight: 600">RAW LOG</summary>
+    <pre id="log"></pre>
+  </details>
+</section>
+
+<section aria-label="More" id="more" class="panel" style="padding: 16px; box-sizing: border-box; display: flex; flex-direction: column; gap: 14px; min-width: 0">
+  <h2 class="h2">MORE</h2>
+  <section id="now" style="display: flex; flex-direction: column; gap: 8px; min-width: 0"><h3 class="h2" style="font-size: 14px">NOW</h3><div id="now-body" class="mute">loading…</div></section>
+  <section id="board" style="display: flex; flex-direction: column; gap: 8px; min-width: 0; border-top: 1px solid var(--border-soft); padding-top: 14px"><h3 class="h2" style="font-size: 14px">BOARD</h3><div id="board-body" class="mute">loading…</div></section>
+  <section id="machine" style="display: flex; flex-direction: column; gap: 8px; min-width: 0; border-top: 1px solid var(--border-soft); padding-top: 14px"><h3 class="h2" style="font-size: 14px">MACHINE</h3><div id="machine-body" class="mute">loading…</div></section>
+  <section id="stats" style="display: flex; flex-direction: column; gap: 8px; min-width: 0; border-top: 1px solid var(--border-soft); padding-top: 14px"><h3 class="h2" style="font-size: 14px">STATS</h3><div id="stats-body" class="mute">loading…</div></section>
+</section>
+
+</div>
+</div>
+
 <script>
 'use strict';
 // Every string from GitHub or the log enters the DOM as a text node or a safe attribute: never as markup.
@@ -120,8 +252,8 @@ function renderNow(s) {
   const parts = [];
   if (!r.running) parts.push(el('p', {}, badge('mute', 'not running'), ' ', el('span', { class: 'mute' }, 'no hx run is active')));
   else {
-    const state = r.paused ? badge('warn', 'paused (' + r.paused + ')') : r.draining ? badge('warn', 'draining') : badge('ok', 'running');
-    const kv = [el('span', {}, state), el('span', {}, 'pid ', el('b', {}, String(r.pid))), el('span', {}, 'uptime ', el('b', { 'data-since': r.startedAt }, dur(r.uptimeMs))),
+    const run = r.paused ? badge('warn', 'paused (' + r.paused + ')') : r.draining ? badge('warn', 'draining') : badge('ok', 'running');
+    const kv = [el('span', {}, run), el('span', {}, 'pid ', el('b', {}, String(r.pid))), el('span', {}, 'uptime ', el('b', { 'data-since': r.startedAt }, dur(r.uptimeMs))),
       el('span', {}, 'workers ', el('b', {}, String(r.workers)))];
     if (r.workersLine) kv.push(el('span', {}, String(r.workersLine)));
     if (r.pausedUntil) kv.push(el('span', {}, 'paused until ', el('b', {}, when(r.pausedUntil)), r.pauseReason ? ' (' + r.pauseReason + ')' : ''));
@@ -172,7 +304,7 @@ function barText(q) {
   if (!q.result) return 'not run yet';
   return 'round ' + num(q.round) + '/' + num(q.rounds) + ' · last: ' + String(q.result) + (q.gap ? ' — ' + String(q.gap) : '');
 }
-function renderBoard(b) {
+function renderBoardTable(b) {
   const body = $('board-body');
   body.className = '';
   if (b.error !== undefined) { fill(body, el('p', { class: 'err' }, 'board unavailable: ' + String(b.error))); return; }
@@ -395,6 +527,69 @@ function renderLog(lines) {
   if (atBottom) box.scrollTop = box.scrollHeight;
 }
 
+// ---- Header strip ----
+const RUN_DOT = 'width: 8px; height: 8px; border-radius: 50%; background: ';
+function renderHeader(s) {
+  const r = s.runner || {}, busy = Array.isArray(s.sessions) ? s.sessions.length : 0; // the self-review session counts as busy
+  const until = Date.parse(String(r.pausedUntil ?? ''));
+  const paused = !!(r.paused || r.draining || (Number.isFinite(until) && until > Date.now()));
+  $('hd-runner-dot').setAttribute('style', RUN_DOT + (r.running && !paused ? 'var(--blue)' : 'var(--grey)'));
+  $('hd-runner').textContent = !r.running ? 'stopped' : (paused ? 'paused · ' : 'running · ') + busy + '/' + num(r.workers) + ' workers';
+  const cpu = /\bcpu (\d+)%/.exec(String(r.workersLine ?? '')); // workersLine: `workers 2/3 (auto: cpu 88%)` or `… (auto: no reading yet)`
+  $('hd-machine').textContent = !r.running ? '–' : !r.workersLine ? 'auto-scale off' : 'CPU ' + (cpu ? cpu[1] + '%' : '–') + ' · auto-scale on';
+  const g = s.gate;
+  $('hd-main').textContent = !g ? 'no run yet' : (g.ok ? 'green ✓ ' : 'RED ✗ ') + String(g.sha ?? '').slice(0, 7);
+  const closed = (Array.isArray(s.events) ? s.events : []).filter((e) => String(e?.text ?? '').startsWith('PRD closed ✓')).length;
+  $('hd-today').textContent = closed + (closed === 1 ? ' PRD closed' : ' PRDs closed');
+}
+// the Waiting on you list, its count in the header and its card (shown only with a question); null before the first board read
+function showQuestions(qs) {
+  renderWaiting(qs);
+  const n = Array.isArray(qs) ? qs.length : null;
+  $('hd-questions').textContent = n === null ? '–' : n === 1 ? '1 question' : n + ' questions';
+  $('questions').hidden = !(n > 0);
+}
+
+// ---- the control room: the reference's tables, the page state, the panels ----
+// docs/design/control-room.html's status dots, words and word colours, each colour a custom property; the panels reuse them
+const DOT = {
+  done: 'width:10px;height:10px;border-radius:50%;background:var(--blue);flex:none;margin-top:4px',
+  merging: 'width:10px;height:10px;border-radius:50%;border:2px solid var(--blue);background:var(--blue-pale);box-sizing:border-box;flex:none;margin-top:4px',
+  working: 'width:10px;height:10px;border-radius:50%;border:2px solid var(--orange);background:var(--orange-pale);box-sizing:border-box;flex:none;margin-top:4px',
+  waiting: 'width:10px;height:10px;border-radius:50%;border:2px solid var(--grey);box-sizing:border-box;flex:none;margin-top:4px',
+};
+const LABEL = { done: 'done', merging: 'merging', working: 'implementing', waiting: 'waiting' };
+const LCOLOR = { done: 'var(--blue)', merging: 'var(--blue)', working: 'var(--orange-text)', waiting: 'var(--muted-2)' };
+const statusStyle = (st) => 'font-size:12px;font-weight:600;color:' + LCOLOR[st];
+
+// the last api/state and api/board read, for the panels; the selection, filters and view survive each refresh
+let snap = null, boardSnap = null;
+const state = { sel: null, board: 'all', view: 'flow', filter: 'all' };
+// the four panels: their slices of PRD #367 fill them from `snap` and `state`
+function renderBoard() { fill($('groups')); }
+function renderFlow() { fill($('stages')); fill($('waiting')); }
+function renderTimeline() { fill($('lanes')); }
+function renderDetails() { fill($('details')); }
+function renderEvents() { fill($('events')); }
+function render() {
+  for (const [id, key] of [['board-tabs', 'board'], ['view-tabs', 'view'], ['filter-tabs', 'filter']])
+    for (const b of $(id).querySelectorAll('button')) b.setAttribute('aria-selected', String(b.dataset[key] === state[key]));
+  // style.display, not the hidden attribute: both panes set display:flex inline, which beats [hidden]
+  $('flow').style.display = state.view === 'flow' ? 'flex' : 'none';
+  $('timeline').style.display = state.view === 'timeline' ? 'flex' : 'none';
+  renderBoard(); renderFlow(); renderTimeline(); renderDetails(); renderEvents();
+}
+document.addEventListener('click', (ev) => {
+  const b = ev.target && ev.target.closest ? ev.target.closest('button') : null;
+  if (!b) return;
+  if (b.dataset.sel) state.sel = b.dataset.sel;
+  else if (b.dataset.board) state.board = b.dataset.board;
+  else if (b.dataset.view) state.view = b.dataset.view;
+  else if (b.dataset.filter) state.filter = b.dataset.filter;
+  else return;
+  render();
+});
+
 // ---- polling ----
 let lastOk = null, failing = false, waitingSeen = false;
 function status() {
@@ -412,15 +607,16 @@ async function pollState() {
     const s = await getJson('api/state');
     repo = String(s.repo ?? '');
     $('repo').textContent = repo;
-    if (Array.isArray(s.waiting) || !waitingSeen) renderWaiting(s.waiting);
+    if (Array.isArray(s.waiting) || !waitingSeen) showQuestions(s.waiting);
     renderNow(s); renderMachine(s.machine); renderStats(s); renderLog(s.log);
+    snap = s; renderHeader(s); render();
     lastOk = new Date(); failing = false;
   } catch { failing = true; }
   status();
 }
 async function pollBoard() {
-  try { const b = await getJson('api/board'); if (!repo) repo = String(b.repo ?? ''); renderBoard(b);
-    if (b.error === undefined && Array.isArray(b.questions)) { waitingSeen = true; renderWaiting(b.questions); } }
+  try { const b = await getJson('api/board'); if (!repo) repo = String(b.repo ?? ''); boardSnap = b; renderBoardTable(b);
+    if (b.error === undefined && Array.isArray(b.questions)) { waitingSeen = true; showQuestions(b.questions); } }
   catch { failing = true; status(); }
 }
 // Mounted under /repo/<k>/ of the fleet dashboard: a link back to the overview. At / nothing shows.
@@ -429,6 +625,7 @@ if (/^\/repo\/\d+\/$/.test(location.pathname)) {
   fill(back, el('a', { href: '../../' }, '← all repos'));
   back.hidden = false;
 }
+render();
 pollState().then(pollBoard);
 setInterval(pollState, 5000);
 setInterval(pollBoard, 30000);

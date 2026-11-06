@@ -8,7 +8,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import vm from 'node:vm';
+import { type E, page } from './fakedom.ts';
 import { classifyLimit, githubLine, parseRateLimit, type GhBudget } from '../src/ghlimit.ts';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -213,32 +213,11 @@ test('hx run: live.json.github holds the budget read from gh; a failed read neve
 
 // the dashboard
 const html = readFileSync(path.join(here, '..', 'src', 'dashboard.html'), 'utf8');
-const script = html.slice(html.indexOf('<script>') + 8, html.lastIndexOf('</script>'));
-// the minimal DOM of dashboard-page.test.ts: elements, text nodes, attributes; no HTML parser
-class N { childNodes: N[] = []; parentNode: N | null = null;
-  appendChild(c: N) { c.parentNode = this; this.childNodes.push(c); return c; }
-  replaceChildren(...cs: N[]) { this.childNodes = []; for (const c of cs) this.appendChild(c); }
-  get textContent(): string { return this.childNodes.map((c) => c.textContent).join(''); }
-  set textContent(v: string) { this.childNodes = []; this.appendChild(new T(String(v))); }
-}
-class T extends N { data: string; constructor(data: string) { super(); this.data = data; }
-  override get textContent() { return this.data; } override set textContent(v: string) { this.data = v; } }
-class E extends N {
-  attrs = new Map<string, string>(); className = ''; scrollTop = 0; scrollHeight = 100; clientHeight = 100;
-  tag: string; ns?: string;
-  constructor(tag: string, ns?: string) { super(); this.tag = tag; this.ns = ns; }
-  setAttribute(k: string, v: string) { this.attrs.set(k, String(v)); }
-  getAttribute(k: string) { return this.attrs.get(k) ?? null; }
-  all(): E[] { return this.childNodes.flatMap((c) => (c instanceof E ? [c, ...c.all()] : [])); }
-}
+// the page script runs against the shared fake DOM of test/fakedom.ts
 async function render(state: any): Promise<E> {
-  const ids = new Map<string, E>();
-  for (const id of ['back', 'repo', 'status', 'waiting-body', 'now-body', 'board-body', 'stats-body', 'log']) ids.set(id, new E('div'));
-  const document = { getElementById: (id: string) => ids.get(id) ?? null, createElement: (t: string) => new E(t),
-    createElementNS: (ns: string, t: string) => new E(t, ns), createTextNode: (x: string) => new T(x), querySelectorAll: () => [] };
-  const fetchFake = async (url: string) => ({ ok: true, status: 200, json: async () => (url.endsWith('api/state') ? state : { prds: [], board: [] }) });
-  vm.runInNewContext(script, { document, fetch: fetchFake, location: { pathname: '/' }, Node: N, setInterval: () => 0, console });
-  await new Promise((r) => setTimeout(r, 20));
+  const p = page(html, state, { prds: [], board: [] });
+  await p.flush();
+  const ids = p.ids;
   return ids.get('now-body')!;
 }
 const spans = (e: E) => e.all().filter((x) => x.tag === 'span').map((x) => x.textContent);

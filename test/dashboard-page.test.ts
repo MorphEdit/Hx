@@ -9,6 +9,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
+import { E, links, N, page as fakePage, type Payload, T, text } from './fakedom.ts';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const src = path.join(here, '..', 'src');
@@ -52,14 +53,104 @@ test('src/dashboard* never uses innerHTML, outerHTML, insertAdjacentHTML or docu
   }
 });
 
-test('dashboard.html loads no external resource; its only absolute URLs are github.com issue links and the SVG namespace', E2E, () => {
-  assert.doesNotMatch(html, /\b(?:src|href)\s*=\s*["']?\s*(?:https?:)?\/\//i);
+// the reference's two Google Fonts <link> elements, exactly (docs/design/control-room.html)
+const FONT_LINKS = ['<link rel="preconnect" href="https://fonts.googleapis.com">',
+  '<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&amp;family=JetBrains+Mono:wght@400;500&amp;family=Space+Grotesk:wght@500;600;700&amp;display=swap" rel="stylesheet">'];
+const FONT_URLS = ['https://fonts.googleapis.com', 'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&amp;family=JetBrains+Mono:wght@400;500&amp;family=Space+Grotesk:wght@500;600;700&amp;display=swap'];
+
+test('dashboard.html loads only the reference\'s two Google Fonts links; its other absolute URLs are github.com issue links and the SVG namespace', E2E, () => {
+  for (const l of FONT_LINKS) assert.ok(reference.includes(l), `the reference has ${l}`);
+  assert.deepEqual(html.match(/<link\b[^>]*>/gi), FONT_LINKS, 'the only <link> elements are the reference\'s two');
+  const rest = FONT_LINKS.reduce((t, l) => t.replace(l, ''), html);
+  assert.doesNotMatch(rest, /\b(?:src|href)\s*=\s*["']?\s*(?:https?:)?\/\//i, 'no other external src or href');
+  assert.doesNotMatch(html, /\bsrc\s*=\s*["']?\s*(?:https?:)?\/\//i);
   assert.doesNotMatch(html, /@import/i);
   assert.doesNotMatch(html, /url\(/i);
-  assert.doesNotMatch(html, /<link\b/i);
   const urls = html.match(/https?:\/\/[^\s'"`)]*/g) ?? [];
-  assert.ok(urls.length > 0);
-  for (const u of urls) assert.ok(u === 'https://github.com/' || u === 'http://www.w3.org/2000/svg', u);
+  assert.ok(urls.includes('https://github.com/'));
+  for (const u of urls) assert.ok(u === 'https://github.com/' || u === 'http://www.w3.org/2000/svg' || FONT_URLS.includes(u), u);
+});
+
+test('every font-family names a system fallback, so the page works offline', E2E, () => {
+  const fams = [...html.matchAll(/font-family\s*:\s*([^;}"]+)/gi)].map((m) => m[1].trim());
+  const fonts = [...html.matchAll(/\bfont\s*:\s*([^;}"]+)/gi)].map((m) => m[1].trim()).filter((f) => f !== 'inherit');
+  assert.ok(fams.length >= 4, String(fams));
+  for (const f of [...fams, ...fonts]) assert.match(f, /(?:^|,)\s*(?:sans-serif|monospace|serif)\s*$/, f);
+  for (const name of ['Inter', "'JetBrains Mono'", "'Space Grotesk'"]) assert.ok(fams.some((f) => f.startsWith(name)), name);
+});
+
+// every distinct hex colour of the reference, upper case: all have six digits (its three-digit #N are issue numbers)
+const reference = readFileSync(path.join(here, '..', 'docs', 'design', 'control-room.html'), 'utf8');
+const refHexes = [...new Set((reference.match(/#[0-9A-Fa-f]{6}\b/g) ?? []).map((h) => h.toUpperCase()))];
+const lightRoot = () => {
+  const media = html.indexOf('@media (prefers-color-scheme: dark)');
+  const m = /:root\s*\{([^}]*)\}/.exec(html.slice(0, media));
+  return { at: m!.index, body: m![1], end: m!.index + m![0].length };
+};
+const darkRoot = () => {
+  const media = html.indexOf('@media (prefers-color-scheme: dark)');
+  return /^@media \(prefers-color-scheme: dark\)\s*\{\s*:root\s*\{([^}]*)\}\s*\}/.exec(html.slice(media))![1];
+};
+const props = (body: string) => new Map([...body.matchAll(/(--[\w-]+)\s*:\s*([^;]+);/g)].map((m) => [m[1], m[2].trim()]));
+
+test('dark theme: each reference hex is only a custom property value in :root, every one re-set for prefers-color-scheme: dark, no !important', E2E, () => {
+  assert.ok(refHexes.length >= 19, String(refHexes));
+  const light = lightRoot(), lp = props(light.body), dp = props(darkRoot());
+  for (const h of refHexes) {
+    const at = [...html.matchAll(new RegExp(h + '\\b', 'gi'))].map((m) => m.index!);
+    assert.equal(at.length, 1, `${h} is written once: ${at.length}`);
+    assert.ok(at[0] > light.at && at[0] < light.end, `${h} sits in the :root rule`);
+    assert.ok([...lp.values()].some((v) => v.toUpperCase() === h), `${h} is the value of a custom property`);
+  }
+  // no colour anywhere else in the file, today's own included: no hex as a CSS or script value, no rgb() / hsl()
+  const outside = html.slice(0, light.at) + html.slice(light.end).replace(/@media \(prefers-color-scheme: dark\)\s*\{\s*:root\s*\{[^}]*\}\s*\}/, '');
+  assert.ok(outside.length < html.length && outside.includes('<script>'));
+  assert.doesNotMatch(outside, /(?:[:,('"`]\s*|\bsolid\s+)#[0-9A-Fa-f]{3,8}\b/, 'no hex colour outside the two :root rules');
+  assert.doesNotMatch(html, /\brgba?\(|\bhsla?\(/i);
+  assert.ok(lp.size >= refHexes.length);
+  for (const k of lp.keys()) assert.ok(dp.has(k), `${k} is set again in the dark block`);
+  for (const [k, v] of dp) assert.notEqual(v.toUpperCase(), lp.get(k)?.toUpperCase(), `${k} has a dark value of its own`);
+  assert.doesNotMatch(html, /!important/i);
+  // SVG strokes are styles, not attributes; the script's tables use the properties
+  assert.doesNotMatch(html, /\bstroke="#/i);
+  for (const name of ['DOT', 'LCOLOR']) assert.match(html, new RegExp(`const ${name} = \\{[^}]*var\\(--`), name);
+});
+
+// text / background pairs of the reference's roles, in both themes
+const PAIRS = [['ink', 'panel'], ['ink-2', 'panel'], ['muted', 'panel'], ['muted-2', 'panel'], ['blue', 'panel'], ['blue-deep', 'panel'],
+  ['orange-text', 'panel'], ['bad', 'panel'], ['ink', 'ground'], ['muted', 'ground'], ['ink', 'flow-bg'], ['muted', 'flow-bg'],
+  ['ink', 'blue-select'], ['ink-2', 'blue-select'], ['muted', 'blue-select'], ['muted-2', 'blue-select'], ['blue', 'blue-select'],
+  ['orange-text', 'blue-select'], ['blue-deep', 'blue-select'], ['ink-2', 'soft'], ['blue-deep', 'blue-pale'], ['ink', 'blue-pale'],
+  ['orange-deep', 'orange-pale'], ['ink', 'orange-pale'], ['panel', 'blue'], ['panel', 'ink'], ['panel', 'ok'], ['panel', 'bad'],
+  ['panel', 'warn'], ['panel', 'muted']];
+function contrast(a: string, b: string): number {
+  const lum = (h: string) => {
+    const c = [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16) / 255).map((v) => (v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
+    return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+  };
+  const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p);
+  return (x + 0.05) / (y + 0.05);
+}
+
+test('every text / background pair keeps 4.5:1 in the light and the dark theme, the small grey labels included', E2E, () => {
+  for (const [name, p] of [['light', props(lightRoot().body)], ['dark', props(darkRoot())]] as const) {
+    for (const [fg, bg] of PAIRS) {
+      const r = contrast(p.get(`--${fg}`)!, p.get(`--${bg}`)!);
+      assert.ok(r >= 4.5, `${name}: --${fg} on --${bg} is ${r.toFixed(2)}:1`);
+    }
+  }
+});
+
+test('the CSP of a repo page adds only the Google Fonts origins; the fleet overview keeps its own', E2E, async () => {
+  const d = await serveDashboard(project as any, { port: 0 });
+  servers.push(d);
+  const head = (p: string) => new Promise<string>((resolve, reject) => {
+    request({ host: '127.0.0.1', port: d.port, path: p, headers: { Host: `127.0.0.1:${d.port}` }, agent: false }, (res) => {
+      res.resume().on('end', () => resolve(String(res.headers['content-security-policy'])));
+    }).on('error', reject).end();
+  });
+  assert.equal(await head('/'), "default-src 'none'; style-src 'unsafe-inline' https://fonts.googleapis.com; script-src 'unsafe-inline'; " +
+    "connect-src 'self'; img-src 'self' data:; font-src https://fonts.gstatic.com");
 });
 
 test('/ with no hx run: 200 text/html with the "not running" path; a hostile title is JSON in /api/board, never in the page', E2E, async () => {
@@ -77,46 +168,8 @@ test('/ with no hx run: 200 text/html with the "not running" path; a hostile tit
   assert.equal(s.runner.running, false);
 });
 
-// ---- a minimal DOM: elements, text nodes, attributes; no HTML parser at all, so markup cannot appear ----
-class N { childNodes: N[] = []; parentNode: N | null = null;
-  appendChild(c: N) { c.parentNode = this; this.childNodes.push(c); return c; }
-  replaceChildren(...cs: N[]) { this.childNodes = []; for (const c of cs) this.appendChild(c); }
-  get textContent(): string { return this.childNodes.map((c) => c.textContent).join(''); }
-  set textContent(v: string) { this.viaTextContent = true; this.childNodes = []; this.appendChild(new T(String(v))); }
-  viaTextContent = false; // set by the textContent setter
-}
-class T extends N { data: string; constructor(data: string) { super(); this.data = data; }
-  override get textContent() { return this.data; } override set textContent(v: string) { this.data = v; } }
-class E extends N {
-  attrs = new Map<string, string>(); className = ''; scrollTop = 0; scrollHeight = 100; clientHeight = 100;
-  tag: string; ns?: string;
-  constructor(tag: string, ns?: string) { super(); this.tag = tag; this.ns = ns; }
-  setAttribute(k: string, v: string) { this.attrs.set(k, String(v)); }
-  getAttribute(k: string) { return this.attrs.get(k) ?? null; }
-  all(): E[] { return this.childNodes.flatMap((c) => (c instanceof E ? [c, ...c.all()] : [])); }
-}
-function page(state: object | (() => object | null), board: object | null, pathname = '/') {
-  const root = new E('body');
-  const ids = new Map<string, E>();
-  for (const id of ['back', 'repo', 'status', 'waiting-body', 'now-body', 'board-body', 'machine-body', 'stats-body', 'log']) ids.set(id, root.appendChild(new E('div')) as E);
-  const timers: (() => void)[] = [];
-  const document = {
-    getElementById: (id: string) => ids.get(id) ?? null,
-    createElement: (t: string) => new E(t), createElementNS: (ns: string, t: string) => new E(t, ns), createTextNode: (s: string) => new T(s),
-    querySelectorAll: (sel: string) => root.all().filter((e) => sel === '[data-since]' && e.attrs.has('data-since')),
-  };
-  const fetched: string[] = [];
-  const fetch = async (url: string) => {
-    fetched.push(url);
-    const body = url === 'api/state' ? (typeof state === 'function' ? state() : state) : board;
-    if (!body) throw new Error('offline');
-    return { ok: true, status: 200, json: async () => JSON.parse(JSON.stringify(body)) };
-  };
-  vm.runInNewContext(script, { document, fetch, location: { pathname }, Node: N, setInterval: (f: () => void) => { timers.push(f); return 0; }, console });
-  return { root, ids, fetched, tick: () => timers.forEach((f) => f()), flush: () => new Promise((r) => setTimeout(r, 20)) };
-}
-const text = (e: E) => e.textContent;
-const links = (e: E) => e.all().filter((x) => x.tag === 'a').map((a) => a.getAttribute('href'));
+// ---- the page script against the shared fake DOM (test/fakedom.ts): no HTML parser for the script, so markup cannot appear ----
+const page = (state: Payload, board: Payload, pathname = '/') => fakePage(html, state, board, pathname);
 
 test('the page script renders hostile strings as text, links issues by integer, and degrades on board errors', E2E, async () => {
   const d = await serveDashboard(project as any, { port: 0 });
@@ -434,8 +487,10 @@ test('a running hx supervise shows supervised and its last line as text; a stopp
   assert.ok(!text(none.ids.get('now-body')!).includes('supervis'), 'never supervised: no line');
 });
 
-test('Waiting on you: a section before Now; dashboardState and /api/board carry the open needs-human list; the page renders it as text', E2E, async () => {
-  assert.ok(html.indexOf('<h2>Waiting on you</h2>') >= 0 && html.indexOf('<h2>Waiting on you</h2>') < html.indexOf('<h2>Now</h2>'), 'before Now');
+test('Waiting on you: a card above the panels, before Now; dashboardState and /api/board carry the open needs-human list; the page renders it as text', E2E, async () => {
+  const card = html.indexOf('<h2 class="h2">WAITING ON YOU</h2>');
+  assert.ok(card >= 0 && card < html.indexOf('>NOW</h3>'), 'before Now');
+  assert.ok(card > html.indexOf('</header>') && card < html.indexOf('aria-label="Board"'), 'between the header and the four panels');
   assert.ok(html.indexOf('id="waiting-body"') < html.indexOf('id="now-body"'));
   const { dashboardState } = await import('../src/dashboard.ts');
   const before = readFileSync(stateFile, 'utf8');
@@ -498,7 +553,7 @@ test('a held issue renders as held (main red); /api/board carries held from .hx/
 });
 
 test('Machine: the chart of CPU, free memory and workers, avg and p90 CPU, throughput rows with "not enough data", slowdown, role split, recommendation and its rule', E2E, async () => {
-  assert.ok(html.indexOf('<h2>Machine</h2>') > html.indexOf('<h2>Board</h2>') && html.indexOf('<h2>Machine</h2>') < html.indexOf('<h2>Stats</h2>'));
+  assert.ok(html.indexOf('>MACHINE</h3>') > html.indexOf('>BOARD</h3>') && html.indexOf('>MACHINE</h3>') < html.indexOf('>STATS</h3>'));
   const base = { repo: 'me/app', runner: { running: false }, sessions: [], gate: null, usage: {}, outcomes: {}, log: [] };
   const from = '2026-11-05T12:00:00.000Z', to = '2026-11-06T12:00:00.000Z';
   const series = [0, 1, 2].map((k) => ({ ts: `2026-11-06T0${k + 1}:00:00.000Z`, cpuPct: 30 + 30 * k, freeMemGB: 8 - k, target: 2 + (k > 1 ? 1 : 0), running: k }));
@@ -550,4 +605,226 @@ test('Machine: the chart of CPU, free memory and workers, avg and p90 CPU, throu
   await o.flush();
   assert.equal(text(o.ids.get('machine-body')!), 'no machine data');
   assert.match(text(o.ids.get('stats-body')!), /Outcomes/, 'the rest still renders');
+});
+
+// ---- the control-room shell (#374): header strip, Waiting on you card, panels, More, raw log, tabs ----
+const quiet = { repo: 'me/app', runner: { running: false }, sessions: [], gate: null, health: null, log: [], waiting: [], events: [],
+  usage: { total: null, byRole: [], byModel: [], byDay: [], byPrd: null } };
+const header = (p: ReturnType<typeof page>) => Object.fromEntries(['hd-runner', 'hd-machine', 'hd-main', 'hd-questions', 'hd-today']
+  .map((id) => [id.slice(3), text(p.ids.get(id)!)]));
+const dot = (p: ReturnType<typeof page>) => /background: (var\(--[\w-]+\))/.exec(p.ids.get('hd-runner-dot')!.getAttribute('style')!)?.[1];
+
+test('header strip: RUNNER running / paused / stopped with its dot, MACHINE from workersLine, MAIN, WAITING ON YOU and TODAY', E2E, async () => {
+  const run = { running: true, pid: 1, startedAt: new Date().toISOString(), uptimeMs: 0, workers: 3, paused: null, draining: false, pausedUntil: null,
+    workersLine: 'workers 2/3 (auto: cpu 88%)' };
+  const two = [{ number: 4, kind: 'impl', title: 'a', turn: 1, tokens: 0, since: run.startedAt, elapsedMs: 0 },
+    { number: 0, kind: 'selfreview', title: '', turn: 1, tokens: 0, since: run.startedAt, elapsedMs: 0 }];
+  const show = async (s: object, board: Payload = null) => { const p = page({ ...quiet, ...s }, board); await p.flush(); return p; };
+
+  let p = await show({ runner: run, sessions: two, gate: { sha: 'abcdef1234567', ok: true, at: run.startedAt } });
+  assert.deepEqual(header(p), { runner: 'running · 2/3 workers', machine: 'CPU 88% · auto-scale on', main: 'green ✓ abcdef1',
+    questions: '0 questions', today: '0 PRDs closed' });
+  assert.equal(dot(p), 'var(--blue)', 'blue while running');
+  p = await show({ runner: { ...run, workersLine: 'workers 3/3 (auto: no reading yet)' }, sessions: [], gate: { sha: '1234567890', ok: false, at: run.startedAt } });
+  assert.deepEqual([header(p).runner, header(p).machine, header(p).main], ['running · 0/3 workers', 'CPU – · auto-scale on', 'RED ✗ 1234567']);
+  p = await show({ runner: { ...run, workersLine: null } });
+  assert.equal(header(p).machine, 'auto-scale off');
+  assert.equal(header(p).main, 'no run yet');
+
+  for (const paused of [{ paused: 'now' }, { draining: true }, { pausedUntil: new Date(Date.now() + 3_600_000).toISOString() }]) {
+    p = await show({ runner: { ...run, ...paused }, sessions: two });
+    assert.equal(header(p).runner, 'paused · 2/3 workers', JSON.stringify(paused));
+    assert.equal(dot(p), 'var(--grey)', 'grey while paused');
+  }
+  p = await show({ runner: { ...run, pausedUntil: new Date(Date.now() - 3_600_000).toISOString() } });
+  assert.equal(header(p).runner, 'running · 0/3 workers', 'a pausedUntil in the past is no pause');
+
+  p = await show({ runner: { running: false } });
+  assert.deepEqual([header(p).runner, header(p).machine], ['stopped', '–']);
+  assert.equal(dot(p), 'var(--grey)');
+
+  // questions: – before the first board read, then the count from the state or the board read
+  p = await show({ waiting: null });
+  assert.equal(header(p).questions, '–');
+  p = await show({ waiting: null }, { repo: 'me/app', prds: [], board: [], questions: [{ number: 5, title: 'q' }] });
+  assert.equal(header(p).questions, '1 question');
+  p = await show({ waiting: [{ number: 5, title: 'q' }, { number: 6, title: 'r' }] });
+  assert.equal(header(p).questions, '2 questions');
+
+  // today: the count of today's `PRD closed ✓` events
+  const ev = (issue: number | null, step: string, text: string, kind = 'result') => ({ t: new Date().toISOString(), issue, step, text, tokens: null, kind });
+  const events = [ev(8, 'Close', 'PRD closed ✓'), ev(7, 'Merge', 'DONE ✓ audited and merged'), ev(null, 'Gate', 'gate green ✓ at abc'), ev(9, 'Close', 'PRD closed ✓')];
+  p = await show({ events });
+  assert.equal(header(p).today, '2 PRDs closed');
+  p = await show({ events: events.slice(0, 3) }, { repo: 'me/app', prds: [], board: [], questions: [] });
+  assert.equal(header(p).today, '1 PRD closed');
+
+  // under HX CONTROL ROOM: <repo> · <status>
+  const under = p.ids.get('repo')!.parentNode as E;
+  assert.match(text(under), /^me\/app · last updated \d\d:\d\d:\d\d$/);
+  assert.ok(html.indexOf('<nav id="back"') < html.indexOf('<header'), '← all repos stays above the header');
+});
+
+test('Waiting on you card: hidden at 0 questions and before a board read, shown with questions, its list in #waiting-body', E2E, async () => {
+  const card = (p: ReturnType<typeof page>) => p.ids.get('questions')!;
+  assert.equal(card(page(quiet, null)).hidden, true, 'hidden in the markup');
+  for (const waiting of [[], null]) {
+    const p = page({ ...quiet, waiting }, null);
+    await p.flush();
+    assert.equal(card(p).hidden, true, JSON.stringify(waiting));
+  }
+  const p = page({ ...quiet, waiting: [{ number: 5, title: XSS }] }, null);
+  await p.flush();
+  assert.equal(card(p).hidden, false);
+  assert.ok(p.ids.get('waiting-body')!.closest('#questions'), '#waiting-body is in the card');
+  assert.ok(text(p.ids.get('waiting-body')!).includes(XSS));
+  assert.ok(p.ids.get('waiting-body')!.all().every((e) => e.tag !== 'img'));
+  // the board read shows it when the state has no list yet, and hides it again when the questions are answered
+  let qs = [{ number: 5, title: 'q' }];
+  const q = page({ ...quiet, waiting: null }, () => ({ repo: 'me/app', prds: [], board: [], questions: qs }));
+  await q.flush();
+  assert.equal(card(q).hidden, false);
+  qs = [];
+  q.tick();
+  await q.flush();
+  assert.equal(card(q).hidden, true);
+  assert.equal(text(q.ids.get('hd-questions')!), '0 questions');
+  assert.doesNotMatch(card(q).getAttribute('style')!, /display/, 'no inline display, so the hidden attribute hides it');
+});
+
+test('the four panels in the reference\'s order with their empty containers, then More; panels stack and scroll at phone width', E2E, async () => {
+  const p = page(quiet, null);
+  await p.flush();
+  const sections = p.root.all().filter((e) => e.tag === 'section' && e.hasAttribute('aria-label')).map((e) => e.getAttribute('aria-label'));
+  assert.deepEqual(sections, ['Waiting on you', 'Board', 'Pipeline', 'Issue details', 'Event log', 'More']);
+  assert.ok(html.indexOf('</header>') < html.indexOf('aria-label="Board"'));
+  for (const id of ['groups', 'stages', 'waiting', 'lanes', 'details', 'events', 'ticks']) assert.deepEqual(p.ids.get(id)!.childNodes, [], `#${id} is empty`);
+  const row = p.ids.get('groups')!.closest('section')!.parentNode as E;
+  assert.equal(row.style.flexWrap, 'wrap', 'the panels stack');
+  assert.equal((p.ids.get('stages')!.parentNode as E).style.overflowX, 'auto', 'the Flow columns scroll sideways in their own box');
+  assert.equal((p.ids.get('events')!.closest('table')!.parentNode as E).style.overflowX, 'auto', 'the event table scrolls in its own box');
+  for (const h of ['HX CONTROL ROOM', 'RUNNER', 'MACHINE', 'MAIN', 'WAITING ON YOU', 'TODAY', 'BOARD', 'PIPELINE', 'DETAILS', 'EVENT LOG', 'MORE', 'WAITING FOR ANOTHER ISSUE',
+    'today, from .hx/run.log · the selected issue is highlighted', 'Each bar is one session. Click one to see its issue. The gate row is the full test suite on main.',
+    'TIME', 'ISSUE', 'STEP', 'WHAT HAPPENED', 'TOKENS']) assert.ok(text(p.root).includes(h), h);
+});
+
+test('the panel row and the Event log are the reference\'s markup, each colour as its property, sample values left out', E2E, () => {
+  const lp = props(lightRoot().body);
+  const byHex = new Map([...lp].map(([k, v]) => [v.toUpperCase(), k]));
+  const cut = (t: string) => t.slice(t.indexOf('<div style="display: flex; flex-wrap: wrap; gap: 16px; align-items: stretch">'), t.indexOf('</section>', t.indexOf('aria-label="Event log"')));
+  const want = cut(reference).replace(/#[0-9A-Fa-f]{6}\b/g, (h) => `var(${byHex.get(h.toUpperCase())})`)
+    .replace(/<span>tests run [^<]*<\/span>/, '<span id="tests-line" hidden></span>')
+    .replace(/<div class="mono" (style="flex: 1; display: flex; justify-content: space-between[^"]*")>(?:<span>\d\d:\d\d<\/span>)+<\/div>/, '<div id="ticks" class="mono" $1></div>');
+  const got = cut(html).replace(/\s*<details[\s\S]*<\/details>\n/, '\n');
+  assert.equal(got, want);
+});
+
+test('More holds Now, Board, Machine and Stats whole, after the Event log; the raw log sits in a collapsed <details> under the event table', E2E, async () => {
+  const since = new Date(Date.now() - 60_000).toISOString();
+  const s = { ...quiet, runner: { running: true, pid: 42, startedAt: since, uptimeMs: 60_000, workers: 3, paused: null, draining: false,
+      pausedUntil: new Date(Date.now() + 3_600_000).toISOString(), pauseReason: 'usage', workersLine: 'workers 2/3 (auto: cpu 88%)',
+      rateLimit: { status: 'allowed_warning', utilization: 0.5, type: 'five_hour' },
+      budget: { windows: [{ line: 'budget five_hour 40%' }] }, github: { line: 'github core 1200/5000' } },
+    sessions: [{ number: 4, kind: 'impl', title: 'a task', turn: 2, tokens: 10, since, elapsedMs: 60_000 }],
+    gate: { sha: 'abcdef1234567', ok: false, at: since, fixIssue: 14 }, health: { at: since, line: 'health: 3 ✓' },
+    supervised: { running: true, pid: 7, last: { at: since, line: 'supervise: started hx run (pid 8)' } },
+    autoStart: { enabled: true, text: 'on (logon task)', at: since },
+    usage: { total: { tokens: 5, sessions: 1, durationMs: 0 }, byRole: [{ key: 'impl', tokens: 5, turns: 1, sessions: 1, durationMs: 0 }],
+      byModel: [{ key: 'claude-opus-5-5', tokens: 5, turns: 1, sessions: 1, durationMs: 0 }], byDay: [{ key: '2026-11-07', tokens: 5 }],
+      byPrd: [{ key: '8', tokens: 5, turns: 1, sessions: 1, durationMs: 0 }] },
+    time: { last24h: { share: 0.5, testRunMedian: 1000, gateMedian: 2000, gateP90: 3000 }, days: { from: '2026-10-25', testRun: [], gate: [] } },
+    outcomes: { audit: { pass: 1, fail: 0 } }, machine: { from: since, to: since, days: 1, use: { series: [], avgCpu: 10, p90Cpu: 20 }, throughput: [],
+      slowdown: {}, sessions: [], recommendation: { rule: 'fits', text: 'the current setting fits this machine' } },
+    log: ['2026-11-07T10:00:00.000Z [#4] impl: a task'] };
+  const b = { at: since, repo: 'me/app', questions: [], prds: [{ number: 8, title: 'a PRD', status: 'building', open: 1, closed: 1, waitingOn: [] }],
+    board: [{ number: 4, title: 'a task', status: 'working', waitingOn: [] }] };
+  const p = page(s, b);
+  await p.flush();
+  const more = p.root.all().find((e) => e.getAttribute('aria-label') === 'More')!;
+  assert.ok(more.matches('.panel'));
+  assert.equal(text(more.all().find((e) => e.tag === 'h2')!), 'MORE');
+  for (const id of ['now-body', 'board-body', 'machine-body', 'stats-body']) assert.equal(p.ids.get(id)!.closest('#more'), more, `#${id} is in More`);
+  assert.deepEqual(more.all().filter((e) => e.tag === 'h3' && e.parentNode!.parentNode === more).map(text), ['NOW', 'BOARD', 'MACHINE', 'STATS']);
+  assert.ok(html.indexOf('aria-label="More"') > html.indexOf('aria-label="Event log"'), 'under the four panels');
+  const t = text(more);
+  for (const w of [
+    'pid 42', 'uptime', 'workers 3', 'workers 2/3 (auto: cpu 88%)', 'paused until', '(usage)', 'five_hour: allowed_warning 50%', // the runner line
+    'budget five_hour 40%', 'github core 1200/5000', // the budget and GitHub lines
+    'RED', 'abcdef1', 'health: 3 ✓', 'supervised', 'supervise: started hx run (pid 8)', 'autoStart', 'on (logon task)', // gate, health, supervise, autoStart
+    'a task', 'impl', // the sessions table
+    'PRDs', 'a PRD', '1/2 done', 'Issues', 'working', 'board fetched', // the PRD and issue tables
+    'CPU average 10%', 'the current setting fits this machine', // the Machine panel
+    'Tokens per day', 'Test time', 'last 24 h: tests 50%', 'Outcomes', '1 PASS', 'By PRD', 'By role', 'By model', 'claude-opus-5-5', // Stats
+  ]) assert.ok(t.includes(w), w);
+  assert.deepEqual(links(more).filter((h) => h!.endsWith('/14')), ['https://github.com/me/app/issues/14'], 'the gate fix issue link');
+  assert.ok(more.all().some((e) => e.getAttribute('data-time') === 'share'), 'the time / tests line');
+
+  const log = p.ids.get('log')!;
+  const details = log.closest('details')!;
+  assert.ok(details, 'the raw log is in a <details>');
+  assert.equal(details.hasAttribute('open'), false, 'collapsed');
+  assert.equal(details.closest('section')!.getAttribute('aria-label'), 'Event log');
+  assert.ok(html.indexOf('<details') > html.indexOf('<tbody id="events">'), 'below the event table');
+  assert.equal(text(log), '2026-11-07T10:00:00.000Z [#4] impl: a task');
+});
+
+test('tabs: one click handler sets state and aria-selected, Flow / Timeline toggle with style.display, the state survives each poll', E2E, async () => {
+  const p = page(quiet, null);
+  await p.flush();
+  const sel = (key: string) => ['all', 'building', 'done', 'flow', 'timeline', 'results', 'problems']
+    .map((v) => p.button(key, v)).filter((b) => b).map((b) => [b!.getAttribute(`data-${key}`), b!.getAttribute('aria-selected')]);
+  assert.deepEqual(sel('board'), [['all', 'true'], ['building', 'false'], ['done', 'false']]);
+  assert.deepEqual(sel('view'), [['flow', 'true'], ['timeline', 'false']]);
+  assert.deepEqual(sel('filter'), [['all', 'true'], ['results', 'false'], ['problems', 'false']]);
+  assert.equal(p.ids.get('flow')!.style.display, 'flex');
+  assert.equal(p.ids.get('timeline')!.style.display, 'none');
+  assert.deepEqual({ ...p.evaluate('state') }, { sel: null, board: 'all', view: 'flow', filter: 'all' });
+
+  p.click(p.button('board', 'building')!);
+  p.click(p.button('view', 'timeline')!);
+  p.click(p.button('filter', 'problems')!);
+  // a click on something inside a button counts; a click outside every button changes nothing
+  const inner = p.document.createElement('span');
+  p.button('board', 'done')!.appendChild(inner);
+  p.click(inner);
+  p.click(p.ids.get('groups')!);
+  const chip = p.document.createElement('button');
+  chip.setAttribute('data-sel', '351');
+  p.ids.get('lanes')!.appendChild(chip);
+  p.click(chip);
+  const after = () => {
+    assert.deepEqual({ ...p.evaluate('state') }, { sel: '351', board: 'done', view: 'timeline', filter: 'problems' });
+    assert.deepEqual(sel('board'), [['all', 'false'], ['building', 'false'], ['done', 'true']]);
+    assert.deepEqual(sel('view'), [['flow', 'false'], ['timeline', 'true']]);
+    assert.deepEqual(sel('filter'), [['all', 'false'], ['results', 'false'], ['problems', 'true']]);
+    assert.equal(p.ids.get('flow')!.style.display, 'none');
+    assert.equal(p.ids.get('timeline')!.style.display, 'flex');
+  };
+  after();
+  assert.deepEqual(p.ids.get('lanes')!.childNodes, [], 'the click re-rendered the panels (stubs: empty)');
+  p.ids.get('groups')!.appendChild(p.document.createElement('div'));
+  p.tick();
+  await p.flush();
+  after();
+  assert.deepEqual(p.ids.get('groups')!.childNodes, [], 'each api/state poll re-renders the panels');
+  p.click(p.button('view', 'flow')!);
+  assert.equal(p.ids.get('flow')!.style.display, 'flex');
+  assert.equal(p.ids.get('timeline')!.style.display, 'none');
+  assert.ok(p.fetched.filter((u) => u === 'api/state').length >= 2);
+  assert.match(script, /setInterval\(pollState, 5000\)/);
+  assert.match(script, /setInterval\(pollBoard, 30000\)/);
+});
+
+test('the reference\'s DOT, LABEL and LCOLOR tables are in the page script for the panels, every colour a custom property', E2E, () => {
+  const p = page(quiet, null);
+  const DOT = p.evaluate('DOT'), LABEL = p.evaluate('LABEL'), LCOLOR = p.evaluate('LCOLOR');
+  assert.deepEqual(Object.keys(DOT), ['done', 'merging', 'working', 'waiting']);
+  assert.deepEqual({ ...LABEL }, { done: 'done', merging: 'merging', working: 'implementing', waiting: 'waiting' });
+  assert.deepEqual({ ...LCOLOR }, { done: 'var(--blue)', merging: 'var(--blue)', working: 'var(--orange-text)', waiting: 'var(--muted-2)' });
+  assert.equal(p.evaluate("statusStyle('working')"), 'font-size:12px;font-weight:600;color:var(--orange-text)');
+  // the light values are the reference's: DOT / LCOLOR read back through :root give its strings
+  const lp = props(lightRoot().body);
+  const hex = (s: string) => s.replace(/var\((--[\w-]+)\)/g, (_, k) => lp.get(k)!);
+  for (const k of Object.keys(DOT)) assert.ok(reference.includes(`${k}: '${hex(DOT[k])}'`), k);
+  assert.ok(reference.includes(`const LCOLOR = { done: '${hex(LCOLOR.done)}', merging: '${hex(LCOLOR.merging)}', working: '${hex(LCOLOR.working)}', waiting: '${hex(LCOLOR.waiting)}' };`));
 });
