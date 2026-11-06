@@ -29,6 +29,7 @@ import { parseQualityBar } from './prd.ts';
 import { cappedQuestion, cappedQuestionNote, IMPL_TOO_MANY_QUESTIONS, ownerAnswer, ownerAnswerNote, questionFromReply, TOO_MANY_QUESTIONS } from './question.ts';
 import { HELD_STATUS, heldComment, mergeFailure, readHeld, setHeld } from './held.ts';
 import { decideTarget, initialTarget, loadReading, mayClaim, startSampler, type LoadReading, type LoadSnapshot } from './load.ts';
+import { appendLoadLine, loadLineOf, pruneLoadLines } from './loadlog.ts';
 import { concurrencyEnv, outsideTestEnv, testConcurrencyError, testConcurrencyValue } from './concurrency.ts';
 import { reuseTestedTreesError, testedTreesEnv } from './tested.ts';
 import { addBlockers, narrowedBody, narrowedComment, parseSizeReply, SIZE_FITS, SIZE_NARROWED, SIZE_SPLIT, withTrailers, type SizeChild } from './size.ts';
@@ -79,8 +80,8 @@ export interface PoolOptions {
   dryRun: boolean;
   only?: number[]; // issue or PRD numbers
   signal: AbortSignal;
-  // test-only (autoWorkers): the pass's load reading instead of the os sampler (which is then not started), and the
-  // decision clock (default Date.now)
+  // test-only (autoWorkers, the load history): the load reading instead of the os sampler (which is then not started),
+  // and the decision and load-history clock (default Date.now)
   loadReader?: () => LoadReading | null;
   loadClock?: () => number;
 }
@@ -815,7 +816,17 @@ async function pool(p: Project, o: PoolOptions): Promise<number> {
     if (m && !live.draining) { live.draining = true; save(); log(m === 'now' ? 'pause --now: checkpointing running sessions…' : 'pause: finishing running sessions, claiming nothing new'); wake(); }
     if (m === 'now' && !stop.signal.aborted) stop.abort();
   };
-  const watcher = setInterval(checkPause, 1000);
+  // the load history (#362): one line per minute of loadClock in .hx/load.jsonl, none while there is no reading yet
+  let loadAt = loadClock();
+  const loadTick = () => {
+    const now = loadClock();
+    if (now - loadAt < 60_000) return;
+    loadAt = now;
+    const line = loadLineOf(now, o.loadReader ? o.loadReader() : loadReading(snapshots, now),
+      { target: ctx.workersTarget(), running: sessionsNow(), gate: gateRunning !== null });
+    if (line) appendLoadLine(p.stateDir, line);
+  };
+  const watcher = setInterval(() => { checkPause(); loadTick(); }, 1000);
   // a filing command (hx bug, …) touches .hx/wake: re-read the board now instead of after pollSeconds.
   // Latched: a wake that lands while the loop is not waiting (reading the board, claiming) is not lost.
   const wakeFile = path.join(p.stateDir, 'wake');
@@ -827,13 +838,16 @@ async function pool(p: Project, o: PoolOptions): Promise<number> {
   };
   try { watchFile(wakeFile, { interval: 2000, persistent: false }, onWake); } catch {}
 
-  // the os sampler: a snapshot now and every 5 s (unref'd), stopped in the finally below
-  const sampler = auto && !o.loadReader ? startSampler(snapshots, loadClock) : null;
+  // the os sampler: a snapshot now and every 5 s (unref'd), stopped in the finally below; it feeds autoWorkers and the
+  // load history, so it runs with autoWorkers off too. The history's lines older than 7 days go first
+  const sampler = !o.loadReader ? startSampler(snapshots, loadClock) : null;
+  pruneLoadLines(p.stateDir, loadClock());
   log(`hx pool up — ${c.repo} · ${o.workers} worker(s) · model ${c.model}${c.effort ? ` (${c.effort} effort)` : ''} · max ${c.maxIterations} iterations/session`);
   try {
     while (!stop.signal.aborted && !fatal) {
       if (ho) { try { writeFileSync(ho.ready, String(process.pid)); } catch {} ho = null; await startGate; }
       watchCheck(); // the window passed (good), or a rollback is due
+      loadTick();
       if (stop.signal.aborted) break;
       let actions: Action[] = [];
       let stuck: number[] = []; // labelled agent-working with no live session: hx never claims them again
