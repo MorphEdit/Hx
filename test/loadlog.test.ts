@@ -148,7 +148,8 @@ test('hx run: a minute while the gate runs has gate: true, the auto-scaled targe
   // #1 merges and starts a gate run that waits; #2 and #3 become ready while it runs
   const { p, lines, restore, release } = setup([{ number: 1, body: '' }, { number: 2, body: 'HOLD\n\n## Blocked by\n#1' }, { number: 3, body: 'HOLD\n\n## Blocked by\n#1' }]);
   const gateRelease = path.join(tmp, `gate-release-${run}`), gateHeld = path.join(tmp, `gate-held-${run}`);
-  p.config = { ...p.config, gate: true, gateCommand: gateScript(gateRelease, gateHeld) };
+  // the fake session leaves the head's tree as it was: reuseTestedTrees off, so the gate re-runs it rather than reuse the first run (#352)
+  p.config = { ...p.config, gate: true, gateCommand: gateScript(gateRelease, gateHeld), reuseTestedTrees: false };
   let now = T0;
   const auto = process.env.HX_AUTO_WORKERS;
   delete process.env.HX_AUTO_WORKERS; // autoWorkers on: a high reading steps the target 3 → 2

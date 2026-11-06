@@ -52,7 +52,7 @@ export type HealthAction =
   | { kind: 'unblock'; issue: number; comment: string; result: HealthResult; would: string }
   | { kind: 'file'; key: string; title: string; body: string; result: HealthResult; would: string } // a `health:` bug issue
   | { kind: 'close-issue'; issue: number; comment: string; result: HealthResult; would: string } // closed as not planned
-  | { kind: 'request-gate'; issue: number; result: HealthResult } // one more gate run: only a runner with a gate applies it
+  | { kind: 'request-gate'; issue?: number; result: HealthResult } // one more gate run: only a runner with a gate applies it
   | { kind: 'first-seen'; issue: number; at: string } // bookkeeping: applied with repairs on or off
   | { kind: 'forget-seen'; issue: number };
 
@@ -185,11 +185,13 @@ export const transientBlockCheck: HealthCheck = (s, seen) => {
 
 export const WAITING_GATE = 'waiting for a second green gate run';
 
-/** An open gate-fix issue: closed when the last two gate runs are green at origin's head; one more gate run asked for
- *  while only the last is green there; left alone while the last is red or there is none (the issue is real). */
+/** An open gate-fix issue: closed when the last two real gate runs (reused lines left out, #352) are green at origin's
+ *  head; one more gate run asked for while only the last is green there; left alone while the last is red or there is
+ *  none (the issue is real). */
 export const gateFixCheck: HealthCheck = (s, seen) => {
   const results: HealthResult[] = [], actions: HealthAction[] = [];
-  const last = s.gateRuns.at(-1), prev = s.gateRuns.length > 1 ? s.gateRuns.at(-2) : undefined;
+  const runs = s.gateRuns.filter((r) => !r.reused);
+  const last = runs.at(-1), prev = runs.length > 1 ? runs.at(-2) : undefined;
   const greenAtHead = (r?: GateRun) => !!r && r.ok && !!s.headSha && r.sha === s.headSha;
   for (const i of s.issues) {
     if (i.state !== 'OPEN' || !i.labels.includes(s.config.labels.gateFix) || s.live.has(i.number) || seen.has(i.number)) continue;
@@ -212,6 +214,16 @@ export const gateFixCheck: HealthCheck = (s, seen) => {
   }
   if (!results.length) results.push({ mark: '✓', text: 'gate-fix issues — none' });
   return { results, actions };
+};
+
+/** The newest gate run a reused green at origin's head (#352): one full run asked for, so a flaky test cannot hide
+ *  behind reused results. */
+export const reusedGateCheck: HealthCheck = (s) => {
+  const last = s.gateRuns.at(-1);
+  if (!last?.reused || !last.ok || !s.headSha || last.sha !== s.headSha)
+    return { results: [{ mark: '✓', text: 'reused gate run at head — none' }], actions: [] };
+  const result: HealthResult = { mark: '✗', text: `gate green at ${s.headSha.slice(0, 7)} reused a tested tree — waiting for a full gate run` };
+  return { results: [result], actions: [{ kind: 'request-gate', result }] };
 };
 
 /** An open issue or PRD labelled agent-working in no live session: released once a pass saw it so for stallMinutes. */
@@ -279,6 +291,7 @@ export const CHECKS: { name: string; check: HealthCheck | null }[] = [
   { name: 'stale-pr', check: stalePrCheck },
   { name: 'blocked-after-pass', check: blockedAfterPassCheck },
   { name: 'gate-fix', check: gateFixCheck },
+  { name: 'gate-reuse', check: reusedGateCheck },
   { name: 'transient-block', check: transientBlockCheck },
   { name: 'leftover-worktree', check: leftoverWorktreeCheck },
   { name: 'stuck-label', check: stuckLabelCheck },
@@ -440,7 +453,7 @@ export async function healthPass(p: Project, o: HealthOptions): Promise<HealthPa
     if (a.kind === 'first-seen') { h.stuck![String(a.issue)] = a.at; continue; }
     if (a.kind === 'forget-seen') { delete h.stuck![String(a.issue)]; continue; }
     if (a.kind === 'request-gate') {
-      // one gate run per pass, whatever the number of gate-fix issues; the next pass decides
+      // one gate run per pass, whatever the number of gate-fix issues and a reused green; the next pass decides
       if (o.repairs && o.requestGate && (gateAsked || o.requestGate())) { a.result.text += ' — gate run requested'; gateAsked = changed = true; }
       continue;
     }

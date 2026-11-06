@@ -177,7 +177,8 @@ for (const workers of [2, 1]) test(`autoWorkers: a running gate counts as one se
   // #1 merges and starts a gate run that waits; #2 and #3 become ready while it runs
   const { p, lines, restore, release } = setup([{ number: 1, body: '' }, { number: 2, body: 'HOLD\n\n## Blocked by\n#1' }, { number: 3, body: 'HOLD\n\n## Blocked by\n#1' }]);
   const gateRelease = path.join(tmp, `gate-release-${run}`), gateHeld = path.join(tmp, `gate-held-${run}`);
-  p.config = { ...p.config, gate: true, gateCommand: gateScript(gateRelease, gateHeld) };
+  // the fake session leaves the head's tree as it was: reuseTestedTrees off, so the gate re-runs it rather than reuse the first run (#352)
+  p.config = { ...p.config, gate: true, gateCommand: gateScript(gateRelease, gateHeld), reuseTestedTrees: false };
   let reads = 0;
   const done = pooled((signal) => runPool(p, { workers, watch: false, dryRun: false, signal,
     loadReader: () => { reads++; return { cpuPct: 5, freeMemGB: 32 }; }, loadClock: () => 0 })).finally(restore);

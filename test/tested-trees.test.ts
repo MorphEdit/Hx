@@ -14,7 +14,7 @@ const SHIP = path.join(here, '..', 'scripts', 'ship.mjs');
 const FAKE_GH = path.join(here, 'fakes', 'gh.mjs');
 const tmp = mkdtempSync(path.join(os.tmpdir(), 'hx-tt-'));
 
-const { appendTestedTree, latestTreeRecord, passedTree, readTestedTrees, reuseTestedTreesError, testedTreesEnv } = await import('../src/tested.ts');
+const { appendTestedTree, latestTreeRecord, passedTree, readTestedTrees, REUSE_GATE_MS, reusableTree, reuseTestedTreesError, testedTreesEnv } = await import('../src/tested.ts');
 const { DEFAULTS } = await import('../src/config.ts');
 
 const git = (cwd: string, ...a: string[]) => execFileSync('git', a, { cwd, encoding: 'utf8', stdio: 'pipe' }).trim();
@@ -41,6 +41,24 @@ test('readTestedTrees skips malformed lines; only the latest record for a tree a
   assert.equal(passedTree(f, 'ddd', 'npm test'), null);
   // appended, never rewritten: the first line is still there
   assert.match(readFileSync(f, 'utf8').split('\n')[0], /"tree":"aaa"/);
+});
+
+test('reusableTree (the gate, #352): the latest record for the tree and command, a pass, at most 2 h old', E2E, () => {
+  const now = Date.parse('2026-11-06T12:00:00.000Z');
+  const ago = (ms: number) => new Date(now - ms).toISOString();
+  const r = (tree: string, ok: boolean, at: string, command = 'npm test') => ({ tree, command, ok, at });
+  assert.equal(REUSE_GATE_MS, 2 * 3_600_000);
+  const recs = [r('aaa', true, ago(60_000)), r('bbb', false, ago(60_000)), r('ccc', true, ago(120_000)), r('ccc', false, ago(60_000)),
+    r('ddd', true, ago(REUSE_GATE_MS)), r('eee', true, ago(REUSE_GATE_MS + 1)), r('fff', true, 'not a time'), r('ggg', false, ago(120_000)), r('ggg', true, ago(60_000))];
+  assert.deepEqual(reusableTree(recs, 'aaa', 'npm test', now), recs[0]);
+  assert.equal(reusableTree(recs, 'aaa', 'npm run test', now), null, 'another command');
+  assert.equal(reusableTree(recs, 'bbb', 'npm test', now), null, 'a failing record');
+  assert.equal(reusableTree(recs, 'ccc', 'npm test', now), null, 'a pass followed by a later fail');
+  assert.deepEqual(reusableTree(recs, 'ddd', 'npm test', now), recs[4], 'exactly 2 h old');
+  assert.equal(reusableTree(recs, 'eee', 'npm test', now), null, 'older than 2 h');
+  assert.equal(reusableTree(recs, 'fff', 'npm test', now), null, 'an unreadable time');
+  assert.deepEqual(reusableTree(recs, 'ggg', 'npm test', now), recs[8], 'a fail followed by a later pass');
+  assert.equal(reusableTree(recs, 'zzz', 'npm test', now), null);
 });
 
 test('reuseTestedTrees: default true; true → HX_TESTED_TREES the absolute path, false → none; a non-boolean is refused', E2E, () => {

@@ -246,6 +246,8 @@ script (e.g. `node scripts/check.mjs`) are not counted unless the repo adds a pa
 - Every pool gate run is recorded in `.hx/gate-runs.jsonl` (see Files). `hx run` logs
   `gate is slow: median … of a … timeout — tests may time out under load` once when the median of the last 5
   gate runs is above 70% of `gateMinutes`.
+- Reused gate runs (a `reused: true` line: the tree had already passed, see [CI gate](#ci-gate)) are left out of
+  every gate duration figure: the median and p90 in `hx status`, the dashboard and `hx usage --tests`, and the slow-gate warning.
 
 **Test concurrency.** Three workers and the gate each running `node --test` (which starts
 `os.availableParallelism() - 1` test files at once) fight over the same CPUs, and timing-sensitive tests then
@@ -678,6 +680,19 @@ the default branch. If it fails, Hx files one `hx-gate-fix` issue with the outpu
 else** until a later run is green — no worker builds on a broken base. The command is `gateCommand`,
 or the test command the first audited merge used. `hx status` shows the gate.
 
+**A tree that already passed.** With `reuseTestedTrees` on (the default), every full gate run (one whose test
+command ran to an end or timed out) is a line of `.hx/tested-trees.jsonl` with the tested commit's tree and the gate
+command; a failed worktree setup or a Ctrl+C writes none. A squash merge of a branch ship just rebased and tested on
+the current main gives that same tree, so while the gate is green (its last result passed) hx first fetches
+`origin/<default>` and looks up its head's tree: when the latest record for that tree and the gate command is a pass
+at most 2 h old, the gate runs neither the worktree setup nor the test command. It records green (`gate.json`,
+`live.json`), appends a `reused: true` line with `durationMs: 0` to `.hx/gate-runs.jsonl`, writes no
+`tested-trees.jsonl` line and logs `gate green ✓ at <sha7> (tree already tested)`. This holds for every gate run,
+the one at `hx run`'s start included (also after a self-update restart). It never happens while the gate is red, for a
+failing latest record (a pass followed by a later fail included), a record older than 2 h or for another command, nor
+for a run the health pass asked for: those run the full suite. `hx release`'s own gate run neither reads nor writes the
+file. `reuseTestedTrees: false` turns this off.
+
 A hung test run cannot block anything: `ship.mjs` gives the tests `--test-timeout` minutes (default 45,
 remembered for `--resume`) and the gate `gateMinutes` (default 45); past that the whole process tree is killed and the
 run counts as failed (exit 4 / a red gate marked "timed out").
@@ -861,17 +876,23 @@ accounts only.
 3. **Gate-fix issue on a green main** — an open `hx-gate-fix` issue is closed as not planned once the last
    two lines of `.hx/gate-runs.jsonl` are green at the head of `origin/<default>`. With only the last one
    green there, a pass in `hx run` asks its gate for one more run (never while one runs); `hx health`
-   reports `waiting for a second green gate run`. A red or empty record leaves the issue alone.
-4. **Blocked by a transient error** — `agent-blocked` whose last hx comment is a stop with a transient
+   reports `waiting for a second green gate run`. A red or empty record leaves the issue alone. Reused gate runs
+   (`reused: true` lines) do not count: the last two are the last two real runs.
+4. **Reused green at the head** — when the newest line of `.hx/gate-runs.jsonl` is a reused green at the head of
+   `origin/<default>`, the pass reports `✗ gate green at <sha7> reused a tested tree — waiting for a full gate run`
+   and, in `hx run` with repairs on, asks its gate for one more run (` — gate run requested`; that run never reuses),
+   so a flaky test cannot hide behind reused results. At most one gate run is asked for per pass, shared with the
+   gate-fix check; `hx health` only reports it. Otherwise: `✓ reused gate run at head — none`.
+5. **Blocked by a transient error** — `agent-blocked` whose last hx comment is a stop with a transient
    reason (`stalled: no output`, `turn timed out after`, `claude exited <code> with no result`, `API 429`,
    `API 5xx`, `rate limit`; never `merging the audited PR failed`): unblocked with a comment starting
    `<!-- hx:health unblock <time> -->` (ISO UTC). Once per issue per 24 h, read from that marker.
-5. **Leftover worktrees** — `i<N>`, `a<N>`, `t<N>` or `p<N>` under `worktreeRoot`, N not open, untouched
+6. **Leftover worktrees** — `i<N>`, `a<N>`, `t<N>` or `p<N>` under `worktreeRoot`, N not open, untouched
    for 24 h: removed (`git worktree remove`, then `git worktree prune`). The local branch is kept; any other
    name (`gate`, `r`, `sr`) is never touched.
-6. **Stuck labels** — `agent-working` in no live session: `.hx/health.json` records when a pass first saw it,
+7. **Stuck labels** — `agent-working` in no live session: `.hx/health.json` records when a pass first saw it,
    and a pass more than `stallMinutes` later removes the label.
-7. **Environment** — the `hx doctor` checks and less than 5 GB free on the worktree drive: reported only.
+8. **Environment** — the `hx doctor` checks and less than 5 GB free on the worktree drive: reported only.
 
 **What files a `health:` issue.** Only an issue blocked again after its resume repair: one `bug` issue titled
 `health: …` whose body carries `<!-- hx:health <key> -->` (`<key>` = `resume:<N>`). hx looks for the marker
@@ -1013,7 +1034,7 @@ and the dashboard's per-model numbers use it). To spot one:
 | `gateCommand` | `""` | the gate's test command (empty: learned from the first audited merge) |
 | `gateMinutes` | `45` | the gate's test run is killed, with its process tree, after this long and counts as red |
 | `testConcurrency` | `"auto"` | the `HX_TEST_CONCURRENCY` hx sets for every session, gate run and `ship --resume`: `"auto"` = `max(1, floor((cpus - 1) / n))` with `n` the running work (see [Where the time goes](#where-the-time-goes)), a positive integer = that many test files whatever the load, `0` = not set; any other value is refused at start |
-| `reuseTestedTrees` | `true` | hx sets `HX_TESTED_TREES` (`.hx/tested-trees.jsonl`) for every session and its own `ship --resume`: ship records each full test run there, and `ship --resume` skips the tests on a tree whose latest record for the same command is a pass (see [Every PR is audited](#every-pr-is-audited-before-it-merges)); the gate's use of the same file (skipping a tree that passed within 2 h) comes in a later change; `false` = no records, no skips; any other value is refused at start |
+| `reuseTestedTrees` | `true` | hx sets `HX_TESTED_TREES` (`.hx/tested-trees.jsonl`) for every session and its own `ship --resume`: ship records each full test run there, and `ship --resume` skips the tests on a tree whose latest record for the same command is a pass (see [Every PR is audited](#every-pr-is-audited-before-it-merges)); the gate records its full runs there too and, while green, skips a head whose tree passed the gate command within 2 h (see [CI gate](#ci-gate)); `false` = no records, no skips; any other value is refused at start |
 | `testPatterns` | `[]` | extra regexes (case-insensitive, matched anywhere in a worker's shell command) that mark it as a test run, on top of the defaults (see [Where the time goes](#where-the-time-goes)); an invalid one is refused |
 | `autoRelease` | `false` | `hx run` releases by itself, as `hx release` does: `minor` once a PRD closed since the last tag, `patch` once the last tag is older than `autoReleasePatchHours` and a `fix:` merged since; with `gate` on it uses the run's recorded gate result |
 | `autoReleasePatchHours` | 24 | how old the last tag must be before merged fixes make a patch release due |
@@ -1025,7 +1046,7 @@ and the dashboard's per-model numbers use it). To spot one:
 | `turnTimeoutMinutes` | 60 | wall-clock limit for one turn; above ship's test timeout, since one shell command may run ship's test timeout + 5 min (`BASH_MAX_TIMEOUT_MS`) |
 | `stallMinutes` | 15 | a turn with no stdout for this long is killed (0 = off) |
 | `pollSeconds` | 60 | how often the board is re-read |
-| `selfHeal` | `true` | `hx run` runs a health pass when the board is idle (`--watch`: at most every `healthEveryMinutes`; a plain run: once before it exits; never during a usage hold or a low GitHub budget) and applies its repairs, asking its gate for one more run when a gate-fix issue has only one green run at the head; `false`: the pass only reports (`hx health --fix` repairs even then). Its lines go to the run log |
+| `selfHeal` | `true` | `hx run` runs a health pass when the board is idle (`--watch`: at most every `healthEveryMinutes`; a plain run: once before it exits; never during a usage hold or a low GitHub budget) and applies its repairs, asking its gate for one more run when a gate-fix issue has only one green run at the head or the newest gate run is a reused green at the head; `false`: the pass only reports (`hx health --fix` repairs even then). Its lines go to the run log |
 | `healthEveryMinutes` | 60 | minutes between `hx run --watch`'s health passes |
 | `selfReviewEveryHours` | 12 | after a health pass in `hx run` that changed nothing (`selfHeal` on, nothing claimable), a `selfreview` session reviews what merged on the default branch since the head in `.hx/selfreview.json`, at most this often; its findings become `bug` issues carrying `<!-- hx:selfreview <sha> -->`. With no `selfreview.json` (or a sha the head does not descend from) the head is recorded and no session runs. A session that does not finish records nothing |
 | `selfReviewMaxFindings` | 5 | findings of one self-review filed as `bug` issues; the rest are dropped |
@@ -1074,9 +1095,9 @@ it reads. So Hx only works on text from **trusted accounts**: your `gh` login pl
 - `.hx/pause` — present while paused (`drain` or `now`)
 - `.hx/exit.json` — how the last `hx run --watch` ended: `{ pid, code, at }` (read by `hx supervise` for a runner a self-update started)
 - `.hx/held.json` — audited PRs held while the default branch is red: `{ "<issue>": { pr, round, at } }`, cleared when the merge is retried
-- `.hx/gate-runs.jsonl` — one line per pool gate run whose test command finished or timed out: `{ ts, sha, ok, durationMs, timedOut }`
+- `.hx/gate-runs.jsonl` — one line per pool gate run whose test command finished or timed out: `{ ts, sha, ok, durationMs, timedOut }`; a reused green (the tree already passed) adds `reused: true`, with `durationMs: 0`
   (`durationMs` is the test command only; the release gate is not recorded). `hx run` logs `gate is slow: …` once when the median of the last 5 is above 70% of `gateMinutes`
-- `.hx/tested-trees.jsonl` — one line per full run of ship's test command, while `reuseTestedTrees` is on: `{ tree, command, ok, at }` (`tree` = the tested commit's `git rev-parse <commit>^{tree}`, `ok` false for a fail or a timeout); appended, never rewritten, read by `ship --resume` to skip a tree that already passed
+- `.hx/tested-trees.jsonl` — one line per full run of ship's test command and of the gate command (not a reused gate run), while `reuseTestedTrees` is on: `{ tree, command, ok, at }` (`tree` = the tested commit's `git rev-parse <commit>^{tree}`, `ok` false for a fail or a timeout); appended, never rewritten, read by `ship --resume` and the gate to skip a tree that already passed
 - `.hx/load.jsonl` — the load history of `hx run`: one line per minute, `{ ts, cpuPct, freeMemGB, target, running, gate }`
   (the CPU reading and free memory of the autoWorkers sampler, one decimal; the worker target, auto-scaled or the fixed
   `workers`; the live sessions; whether a gate run is in progress). A minute with no reading yet writes no line; lines

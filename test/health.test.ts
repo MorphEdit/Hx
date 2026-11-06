@@ -109,6 +109,37 @@ test('gate-fix: two green at the head → close; red last or no runs → ✓; ot
   assert.deepEqual(H.gateFixCheck(snap(), new Set()).results, [{ mark: '✓', text: 'gate-fix issues — none' }]);
 });
 
+test('gate-fix leaves reused gate runs (#352) out: a real green then a reused green at head waits; two real greens at head close', E2E, () => {
+  const run = (sha: string, ok: boolean, reused = false) => ({ ts: '', sha, ok, durationMs: reused ? 0 : 1, timedOut: false, ...(reused ? { reused: true as const } : {}) });
+  const issues = [issue(50, 'OPEN', [L.gateFix])];
+  const check = (gateRuns: any[]) => H.gateFixCheck(snap({ issues, gateRuns, headSha: 'head' }), new Set());
+  for (const runs of [[run('head', true), run('head', true, true)], [run('head', false), run('head', true), run('head', true, true), run('head', true, true)]]) {
+    const r = check(runs);
+    assert.deepEqual(r.actions.map((a: any) => [a.kind, a.issue]), [['request-gate', 50]], JSON.stringify(runs));
+    assert.deepEqual(r.results.map((x) => x.text), ['gate-fix #50 — waiting for a second green gate run']);
+  }
+  for (const runs of [[run('head', true), run('head', true)], [run('head', true), run('head', true), run('head', true, true)], [run('head', true), run('head', true, true), run('head', true)]])
+    assert.deepEqual(check(runs).actions.map((a: any) => [a.kind, a.issue]), [['close-issue', 50]], JSON.stringify(runs));
+  // the last real run red: the issue stands, whatever reused lines follow
+  assert.deepEqual(check([run('head', false), run('head', true, true)]).results.map((x) => x.mark), ['✓']);
+});
+
+test('gate-reuse (#352): the newest gate run a reused green at head → ✗ and a gate request; a real, red, older-sha or no run → ✓', E2E, () => {
+  const run = (sha: string, ok: boolean, reused = false) => ({ ts: '', sha, ok, durationMs: reused ? 0 : 1, timedOut: false, ...(reused ? { reused: true as const } : {}) });
+  const head = 'b'.repeat(40);
+  const check = (gateRuns: any[], o: Partial<Snap> = {}) => H.reusedGateCheck(snap({ gateRuns, headSha: head, ...o }), new Set());
+  const hit = check([run(head, true), run(head, true, true)]);
+  assert.deepEqual(hit.results, [{ mark: '✗', text: 'gate green at bbbbbbb reused a tested tree — waiting for a full gate run' }]);
+  assert.deepEqual(hit.actions.map((a: any) => [a.kind, a.issue]), [['request-gate', undefined]]);
+  assert.equal((hit.actions[0] as any).result, hit.results[0]);
+  for (const runs of [[], [run(head, true)], [run(head, true, true), run(head, true)], [run(head, false)], [run('a'.repeat(40), true, true)], [run(head, false, true)]]) {
+    const r = check(runs);
+    assert.deepEqual(r.actions, [], JSON.stringify(runs));
+    assert.deepEqual(r.results, [{ mark: '✓', text: 'reused gate run at head — none' }], JSON.stringify(runs));
+  }
+  assert.deepEqual(check([run(head, true, true)], { headSha: '' }).actions, [], 'head unknown');
+});
+
 test('seen: an issue an earlier check acted on is not looked at by a later one', E2E, () => {
   const s = snap({
     issues: [issue(5, 'OPEN', [L.working]), issue(6, 'CLOSED')],
@@ -119,7 +150,7 @@ test('seen: an issue an earlier check acted on is not looked at by a later one',
   const { actions } = H.runChecks(s);
   assert.deepEqual(actions.map((a: any) => [a.kind, a.pr ?? a.issue ?? a.name]), [['close-pr', 92], ['close-pr', 93]]);
   // the order has named slots for the checks added later
-  assert.deepEqual(H.CHECKS.map((c) => c.name), ['stale-pr', 'blocked-after-pass', 'gate-fix', 'transient-block', 'leftover-worktree', 'stuck-label', 'environment']);
+  assert.deepEqual(H.CHECKS.map((c) => c.name), ['stale-pr', 'blocked-after-pass', 'gate-fix', 'gate-reuse', 'transient-block', 'leftover-worktree', 'stuck-label', 'environment']);
 });
 
 test('order: leftover worktrees run before stuck labels (PRD §B), so the worktree check claims its issue first', E2E, () => {
