@@ -531,3 +531,18 @@ test('guide: the Auto-scaled workers section; hx help: --workers is the most ses
   assert.match(h, /--workers N: passed on, the most\s+sessions at once as for hx run/);
   assert.match(h, /fewer while the machine is busy\s+when autoWorkers is on/);
 });
+
+test('docs/benchmark.md: the Test suite speed section, outside the Project benchmark table, with the runs, per test and per file rows (#354)', () => {
+  const b = read('docs/benchmark.md');
+  const at = b.indexOf('\n## Test suite speed\n');
+  assert.ok(at >= 0, 'docs/benchmark.md has a Test suite speed section');
+  assert.ok(b.indexOf('<!-- project-bench:end -->') < at || b.indexOf('<!-- project-bench:start -->') > at, 'outside the table figures.mjs regenerates');
+  const next = b.indexOf('\n## ', at + 1);
+  const sec = b.slice(at, next < 0 ? undefined : next);
+  for (const s of ['npm run test:profile -- --test-concurrency=', '`workers` line', '**Per test**', '**Per file**', '| PR |', 'Why not more'])
+    assert.ok(sec.includes(s), s);
+  // each table row names its PR, so a later PR appends rows without rewriting these
+  const rows = sec.split('\n').filter((l) => /^\| #354 \|/.test(l));
+  assert.equal(rows.length, 1 + 21 + 5, 'one run row, the 20 tests and their sum, the 5 files');
+  assert.ok(rows.every((l) => l.split('|').length >= 7), rows.join('\n'));
+});

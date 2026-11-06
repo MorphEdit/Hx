@@ -409,6 +409,15 @@ Summed: 528.6 s → 281.7 s (−47%). The full suite on an idle machine is timed
   | `audit.test.ts` a repo that only takes auto-merge: hx waits for it to land instead of failing the issue | 10.4 | 5.0 |
   | **sum of the 20** | **528.6** | **281.7** |
 
+Second pass (#354, 2026-11-06, `--test-concurrency=3`, 3 workers busy): a trace of the 14 slowest files
+logged every child process and every timer of 200 ms or more that fired. The pool's 1 s poll fired 745 times, but
+always while a session was running: a session that ends wakes the loop at once, and `pollSeconds: 0.1` did not make
+a PRD run faster. On the critical path were: the 2 s re-read after a pass that only closed a PRD or labelled a child
+(now `HX_ENGINE_RETRY_MS`, 50 ms in the tests); three doctor probes that started the fake gh as a program (they now
+answer in-process); and a node start per ship test run (the fake claude's test command is now `exit 0`). Everything
+else is git and node starts, several times slower on a loaded machine. The before and after are in
+[benchmark.md](benchmark.md#test-suite-speed).
+
 ## Self-check (PRD #194)
 
 When the board runs dry, hx runs a health pass over its own state and, after a quiet period, a self-review of

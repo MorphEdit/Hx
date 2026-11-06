@@ -113,6 +113,13 @@ export function log(msg: string, issue?: number): void {
 
 const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/** How long hx run waits before it reads the board again after a pass that only closed a PRD or labelled a child
+ *  (GitHub may not list the change yet): 2 s, or HX_ENGINE_RETRY_MS (the tests: every PRD run ends with one). */
+export function engineRetryMs(env: NodeJS.ProcessEnv = process.env): number {
+  const v = env.HX_ENGINE_RETRY_MS, n = Number(v);
+  return v !== undefined && v !== '' && Number.isFinite(n) && n >= 0 ? n : 2000;
+}
+
 // the colour and description of each label hx adds, set by ensureBoardLabels (a label relabel creates)
 const labelSpecByName = new Map<string, LabelSpec>();
 
@@ -931,7 +938,7 @@ async function pool(p: Project, o: PoolOptions): Promise<number> {
           if (stuck.length) log(`WARNING: still labelled ${c.labels.working} with no session running: ${stuck.map((n) => `#${n}`).join(', ')} — remove the label to let hx pick ${stuck.length > 1 ? 'them' : 'it'} up again`);
           break;
         }
-        if (engineOnly) { await sleep(2000, stop.signal); continue; }
+        if (engineOnly) { await sleep(engineRetryMs(), stop.signal); continue; }
         // not while this runner's own watch window is open: its version is not known good yet
         if (o.watch && c.selfUpdate && !fleetChild && !gateRunning && !releasing && !myWatch() && Date.now() - selfUpdateAt >= c.selfUpdateMinutes * 60_000
           && await selfUpdateCheck()) { restarted = true; break; }

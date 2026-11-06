@@ -6,7 +6,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { DEFAULTS, effectiveRtddBin, labelSpecs, STATE_DIR, type Config, type Labels } from './config.ts';
 import { agentFor } from './agents/index.ts';
-import { hideWindow, resolveCmd } from './exec.ts';
+import { hideWindow, inProcess, resolveCmd } from './exec.ts';
 import { autoStartText, serviceId, taskName, taskState, type TaskState } from './service.ts';
 import { nodeOk } from '../bin/node-check.mjs';
 
@@ -173,9 +173,12 @@ export interface DoctorOptions {
   timeoutMs?: number;
 }
 
-/** Run a binary the way exec.ts does (a .mjs fake under node, no shell), telling a spawn failure from a failure. */
-export function probe(cmd: string, args: string[], cwd?: string, timeoutMs = 15_000): Promise<Probe> {
-  if (/\.m?js$/i.test(cmd) && !existsSync(cmd)) return Promise.resolve({ code: 1, stdout: '', stderr: `${cmd}: not found`, spawnFailed: true });
+/** Run a binary the way exec.ts does (a .mjs fake under node, no shell, the tests' fake gh in-process), telling a spawn
+ *  failure from a failure. */
+export async function probe(cmd: string, args: string[], cwd?: string, timeoutMs = 15_000): Promise<Probe> {
+  if (/\.m?js$/i.test(cmd) && !existsSync(cmd)) return { code: 1, stdout: '', stderr: `${cmd}: not found`, spawnFailed: true };
+  const fake = await inProcess(cmd, args, { cwd });
+  if (fake) return fake;
   return new Promise((resolve) => {
     execFile(...resolveCmd(cmd, args), { cwd, timeout: timeoutMs, windowsHide: hideWindow(), encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 },
       (err: any, stdout, stderr) => {
