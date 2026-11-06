@@ -5,10 +5,11 @@ import { execFile } from 'node:child_process';
 import { closeSync, existsSync, fstatSync, openSync, readFileSync, readSync } from 'node:fs';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { budgetLine } from './budget.ts';
-import { eventsFrom } from './controlroom.ts';
+import { eventsFrom, timelineFrom } from './controlroom.ts';
 import { loadProject, type Project, STATE_DIR } from './config.ts';
 import { DEFAULT_FLEET_WORKERS, type Fleet, fleetDir, fleetWorkers, type ListedRepo, listRepos, readFleet, readHold, readRepos, slotsInUse } from './fleet.ts';
 import { githubLine } from './ghlimit.ts';
@@ -122,6 +123,7 @@ export function dashboardState(p: Project, board: () => BoardSeen, now = Date.no
     budget: live.budget ? { windows: live.budget.windows.map((w) => ({ ...w, line: budgetLine(w, p.config.budgetMinPairs) })) } : null,
     github: live.github ? { ...live.github, line: githubLine(live.github) } : null, // the GitHub API budget, with the hx status line
     workersLine: workersLine(live), // the auto-scaled target (`workers 2/3 (auto: cpu 88%)`), null with autoWorkers off
+    testConcurrency: live.testConcurrency ?? null, cpus: os.availableParallelism(), // the Flow legend's HX_TEST_CONCURRENCY and CPU count
   } : { running: false };
   const sessions = running ? live.sessions.map((s) => ({ number: s.number, kind: s.kind, title: s.title, turn: s.turn, tokens: s.tokens,
     since: s.since, elapsedMs: now - Date.parse(s.since) })) : [];
@@ -163,6 +165,7 @@ export function dashboardState(p: Project, board: () => BoardSeen, now = Date.no
     workers: running ? live.workers : p.config.workers, now });
   return { repo: p.config.repo, waiting, runner, sessions, gate, health, supervised, autoStart, usage,
     time: testTime(recs, gates, now), machine, log: tailLines(logFile, LOG_LINES), outcomes,
+    timeline: timelineFrom(recs, running ? live.sessions : [], gates, logLines, now),
     events: eventsFrom(logLines, localDay(new Date(now).toISOString()), p.config.labels.blocked) };
 }
 

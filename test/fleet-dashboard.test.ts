@@ -253,6 +253,8 @@ test('/repo/<k>/ answers what a single-repo dashboard answers; anything else und
     delete s.runner.uptimeMs;
     for (const x of s.sessions) delete x.elapsedMs;
     delete s.machine.from; delete s.machine.to; // the Machine period ends at the request's now
+    delete s.timeline.from; delete s.timeline.to; // so does the Timeline window, and a running bar
+    for (const l of s.timeline.lanes) for (const b of l.bars) if (b.running) delete b.endMs;
     return s;
   };
   const before = strip((await get(fleet.port, '/repo/0/api/state')).body);
