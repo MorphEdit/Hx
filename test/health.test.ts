@@ -428,6 +428,18 @@ test('healthPass blocked after PASS, MERGEABLE, no ship state: rebuilt from the 
   assert.match(p.line, /fixed 1 \(merged PR #121 \(#21\)\)/);
 });
 
+test('healthPass resume repair outside hx run (hx health --fix): ship --resume runs the tests with the n = 1 HX_TEST_CONCURRENCY', E2E, async () => {
+  const out = path.join(tmp, 'resume-env.txt');
+  const script = path.join(tmp, 'resume-env.mjs');
+  writeFileSync(script, "import { writeFileSync } from 'node:fs'; "
+    + "writeFileSync(process.argv[2], process.env.HX_TEST_CONCURRENCY ?? 'unset');");
+  const r = blockedRepo(61, { test: `node "${script}" "${out}"` });
+  await fix(r);
+  assert.equal(theIssue(61).state, 'CLOSED');
+  assert.equal(process.env.HX_TEST_CONCURRENCY, undefined, 'the test process has none: the health pass set it');
+  assert.equal(readFileSync(out, 'utf8'), String(Math.max(1, os.availableParallelism() - 1)));
+});
+
 test('healthPass blocked after PASS: CONFLICTING, ship exit 3 and exit 4 → back to ready-for-agent with a resume comment', E2E, async () => {
   const conflicting = blockedRepo(22, { mergeable: 'CONFLICTING' });
   await fix(conflicting);

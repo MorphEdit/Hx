@@ -101,10 +101,11 @@ const tailOf = (s: string, n: number) => s.trim().split('\n').slice(-n).join('\n
  * With `setup`, the worktree setup runs first; when it fails the command does not run and the result has
  * `setupFailed`. The gate never writes a setup record. An aborted result can return before the killed tree is
  * gone: await its `killed` before exiting. With `at`, the checkout first moves to that commit of origin/<base>'s
- * history (a watched self-update re-runs a red gate at the old sha, #316).
+ * history (a watched self-update re-runs a red gate at the old sha, #316). `env` is added to the command's env
+ * (HX_TEST_CONCURRENCY, #350).
  */
 export async function runGate(checkout: string, root: string, base: string, command: string, timeoutMs = 45 * 60_000,
-  signal?: AbortSignal, setup?: GateSetup, at?: string): Promise<GateResult> {
+  signal?: AbortSignal, setup?: GateSetup, at?: string, env?: Record<string, string>): Promise<GateResult> {
   const wt = await addWorktree(checkout, root, { name: 'gate', branch: 'hx/gate', base, fresh: true });
   let aborted = false;
   try {
@@ -124,7 +125,7 @@ export async function runGate(checkout: string, root: string, base: string, comm
         ...(s.timedOut ? { timedOut: true } : {}), at: new Date().toISOString() };
     }
     const started = Date.now();
-    const res = await runShell(command, { cwd: wt.dir, timeoutMs, signal, killLater: true });
+    const res = await runShell(command, { cwd: wt.dir, timeoutMs, signal, killLater: true, env });
     const durationMs = Date.now() - started;
     aborted = !!res.aborted;
     if (res.aborted) return { sha, ok: false, command, output: res.output.trim().split('\n').slice(-60).join('\n'), aborted: true, killed: res.killed, at: new Date().toISOString() };

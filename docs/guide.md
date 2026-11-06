@@ -238,12 +238,32 @@ script (e.g. `node scripts/check.mjs`) are not counted unless the repo adds a pa
 - `hx usage` adds the columns `test` (total test time), `test %` (its share of session time) and `runs`;
   `hx usage --tests` prints, per UTC day, the median and p90 test run and gate duration.
 - `hx status` prints a time line over the last 24 h:
-  `time     tests 31% of session time · median test run 2m10s · gate 4m05s (p90 5m30s)`.
+  `time     tests 31% of session time · median test run 2m10s · gate 4m05s (p90 5m30s) · concurrency 3`.
+  The ` · concurrency <n>` part is the last `HX_TEST_CONCURRENCY` the live `hx run` set (below); it is left out
+  with no live runner, before the runner set a value, and with `testConcurrency: 0`.
 - The dashboard's Stats show the same numbers for the last 24 h and a chart of the median test run and gate
   duration per UTC day over the last 14 days.
 - Every pool gate run is recorded in `.hx/gate-runs.jsonl` (see Files). `hx run` logs
   `gate is slow: median … of a … timeout — tests may time out under load` once when the median of the last 5
   gate runs is above 70% of `gateMinutes`.
+
+**Test concurrency.** Three workers and the gate each running `node --test` (which starts
+`os.availableParallelism() - 1` test files at once) fight over the same CPUs, and timing-sensitive tests then
+miss their bounds. So hx sets `HX_TEST_CONCURRENCY` — how many test files at once a run of tests may use — in
+the environment of every run of tests it starts or hosts: every Claude session (each role session `hx run`
+starts, the self-review session and the checkpoint turn, and the interactive `hx grill` / `hx issue` session),
+the gate's test command (the self-update watch's re-run at the old sha and a release's gate run included), and
+every `ship --resume` hx runs itself (after a passed audit, and the health pass's resume repair). `ship.mjs`
+hands it on to the test command it runs. hx only sets it: a repo's test script reads it (with `node --test`,
+`--test-concurrency=$HX_TEST_CONCURRENCY`). The value is taken when that session, gate run or
+`ship --resume` starts: `max(1, floor((cpus - 1) / n))`, where `cpus` is `os.availableParallelism()` and `n`
+is, inside `hx run`, its running work with the one starting counted — the sessions in flight plus 1 while the
+gate runs (the count `autoWorkers` claims by). A session starting with 2 others in flight and the gate running
+has `n = 4`; a gate run with 2 sessions in flight has `n = 3`; an audit session's `ship --resume` counts as that
+session, one from the health pass as one more. Outside `hx run` (`hx grill`, `hx issue`, `hx health --fix`,
+`hx release`) `n = 1`, so the value is `cpus - 1`; hx does not look for a runner there. `testConcurrency` in
+the config overrides the formula: a positive integer is used as is, `0` sets nothing. `hx run` writes the value
+it set last to `live.json` (`testConcurrency`), which `hx status` shows at the end of its time line.
 
 ## Auto-scaled workers
 
@@ -985,6 +1005,7 @@ and the dashboard's per-model numbers use it). To spot one:
 | `gate` | `true` | test the default branch after every merge; while red, claim only its fix |
 | `gateCommand` | `""` | the gate's test command (empty: learned from the first audited merge) |
 | `gateMinutes` | `45` | the gate's test run is killed, with its process tree, after this long and counts as red |
+| `testConcurrency` | `"auto"` | the `HX_TEST_CONCURRENCY` hx sets for every session, gate run and `ship --resume`: `"auto"` = `max(1, floor((cpus - 1) / n))` with `n` the running work (see [Where the time goes](#where-the-time-goes)), a positive integer = that many test files whatever the load, `0` = not set; any other value is refused at start |
 | `testPatterns` | `[]` | extra regexes (case-insensitive, matched anywhere in a worker's shell command) that mark it as a test run, on top of the defaults (see [Where the time goes](#where-the-time-goes)); an invalid one is refused |
 | `autoRelease` | `false` | `hx run` releases by itself, as `hx release` does: `minor` once a PRD closed since the last tag, `patch` once the last tag is older than `autoReleasePatchHours` and a `fix:` merged since; with `gate` on it uses the run's recorded gate result |
 | `autoReleasePatchHours` | 24 | how old the last tag must be before merged fixes make a patch release due |

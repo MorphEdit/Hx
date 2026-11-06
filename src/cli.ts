@@ -15,6 +15,7 @@ import { release, releaseGate, type BumpKind } from './release.ts';
 import { budgetLine, readBudgetWindows } from './budget.ts';
 import { githubLine } from './ghlimit.ts';
 import { workersLine } from './load.ts';
+import { outsideTestEnv, testConcurrencyError } from './concurrency.ts';
 import { DEFAULT_PORT, serveDashboard, serveFleetDashboard } from './dashboard.ts';
 import { fileBug, filePrd } from './prd.ts';
 import { agentFor } from './agents/index.ts';
@@ -177,7 +178,7 @@ export async function main(argv: string[]): Promise<number> {
 /** `hx health [--fix]`: one health pass, each check's line, then the summary line. */
 async function healthCmd(args: string[]): Promise<number> {
   const p = loadProject();
-  const bad = healthConfigError(p.config);
+  const bad = healthConfigError(p.config) ?? testConcurrencyError(p.config.testConcurrency);
   if (bad) { console.error(bad); return 2; }
   const r = await healthPass(p, { repairs: args.includes('--fix') });
   for (const x of r.results) console.log(renderResult(x));
@@ -479,6 +480,8 @@ async function interview(args: string[], iv: Interview): Promise<{ code: number;
   const p = loadProject();
   const c = p.config;
   const agent = agentFor(c.agentCli);
+  const badConcurrency = testConcurrencyError(c.testConcurrency);
+  if (badConcurrency) { console.error(`hx: ${badConcurrency}`); return { code: 2, filed: false }; }
   // the session reads issues with scripts/issue.mjs, which needs the trusted set
   let trusted: Set<string>;
   try { trusted = await lookupTrusted(c); } catch (e: any) { console.error(`hx: ${e.message}`); return { code: 2, filed: false }; }
@@ -491,7 +494,7 @@ async function interview(args: string[], iv: Interview): Promise<{ code: number;
   // the user talks to this session directly: inherited stdio, no shell
   await new Promise<void>((resolve, reject) => {
     const child = spawn(...resolveCmd(agent.bin(c), agent.interactiveArgs(c.model, c.effort, prompt)), { cwd: p.root, stdio: 'inherit',
-      env: { ...process.env, ...trustedEnv(trusted) } });
+      env: { ...process.env, ...trustedEnv(trusted), ...outsideTestEnv(c) } });
     child.on('error', reject).on('exit', () => resolve());
   });
   const text = existsSync(paths.out) ? readFileSync(paths.out, 'utf8') : '';
@@ -551,6 +554,8 @@ function ask(question: string): Promise<string> {
 
 async function releaseCmd(args: string[]): Promise<number> {
   const p = loadProject();
+  const badConcurrency = testConcurrencyError(p.config.testConcurrency);
+  if (badConcurrency) { console.error(badConcurrency); return 2; }
   const kind = args.find((a) => !a.startsWith('--'));
   if (kind !== undefined && !['patch', 'minor', 'major'].includes(kind)) throw new Error('usage: hx release [patch|minor|major] [--dry-run] [--yes]');
   const out = (m: string) => console.log(m);
@@ -654,7 +659,8 @@ async function status(p = loadProject(), o: { github?: boolean } = {}): Promise<
   const readLog = (f: string) => (existsSync(f) ? readFileSync(f, 'utf8').split(/\r?\n/) : []);
   for (const s of splitLines([...readLog(`${logFile}.1`), ...readLog(logFile)], Date.now())) console.log(`split    ${s.msg} (${ago(s.at)} ago)`);
   const recs = readUsage(p.stateDir);
-  const tl = timeLine(timeWindow(recs, readGateRuns(p.stateDir), Date.now() - 86_400_000, Infinity));
+  // the HX_TEST_CONCURRENCY the live runner set last; not recomputed here
+  const tl = timeLine(timeWindow(recs, readGateRuns(p.stateDir), Date.now() - 86_400_000, Infinity), live && pidAlive(live.pid) ? live.testConcurrency : undefined);
   if (tl) console.log(`
 ${tl}`);
   if (recs.length) {
@@ -668,11 +674,13 @@ ${tl}`);
 
 const dur = (ms?: number) => (ms === undefined ? '-' : fmtDuration(ms));
 
-/** The hx status time line for a window; undefined when it holds no data. */
-export function timeLine(s: TimeSummary): string | undefined {
+/** The hx status time line for a window; undefined when it holds no data. `concurrency`: the live runner's last
+ *  HX_TEST_CONCURRENCY, shown at the end (left out when absent or 0). */
+export function timeLine(s: TimeSummary, concurrency?: number): string | undefined {
   if (!s.hasData) return undefined;
   const share = s.share === undefined ? '-' : `${Math.round(s.share * 100)}%`;
-  return `time     tests ${share} of session time · median test run ${dur(s.testRunMedian)} · gate ${dur(s.gateMedian)} (p90 ${dur(s.gateP90)})`;
+  return `time     tests ${share} of session time · median test run ${dur(s.testRunMedian)} · gate ${dur(s.gateMedian)} (p90 ${dur(s.gateP90)})`
+    + (concurrency ? ` · concurrency ${concurrency}` : '');
 }
 
 function usage(args: string[]): number | Promise<number> {

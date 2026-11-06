@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import type { TestConcurrency } from './concurrency.ts';
 
 export interface Labels {
   ready: string;
@@ -66,6 +67,7 @@ export interface Config {
   mergeRounds: number; // merge-fix rounds after an audit PASS (a rebase conflict, tests failing after the rebase) before the issue goes to a human
   gate: boolean; // test the default branch after every merge; while red, claim only the fix
   gateCommand: string; // the gate's test command ('' = learned from the first audited merge)
+  testConcurrency: TestConcurrency; // HX_TEST_CONCURRENCY for every session, gate run and ship --resume: "auto" = max(1, floor((cpus - 1) / n)), N = N, 0 = not set
   testPatterns: string[]; // regexes (case-insensitive) that mark a worker's shell command as a test run, on top of the defaults in src/timing.ts
   gateMinutes: number; // the gate's test run is killed (with its tree) after this long and counts as red
   autoRelease: boolean; // hx run releases by itself: minor when a PRD closed since the last tag, patch for fixes
@@ -135,6 +137,7 @@ export const DEFAULTS: Omit<Config, 'repo' | 'defaultBranch' | 'worktreeRoot'> =
   gate: true,
   gateCommand: '',
   gateMinutes: 45,
+  testConcurrency: 'auto',
   testPatterns: [],
   autoRelease: false,
   autoReleasePatchHours: 24,

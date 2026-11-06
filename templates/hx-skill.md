@@ -67,6 +67,11 @@ Tell the user to run `hx run --watch` in a terminal; it builds the PRD and keeps
 this host lets you start a long-running command in the background, you may start `hx run --watch` there
 instead, and tell the user it is running and that `hx status` or `hx dashboard` shows its progress.
 
+hx sets `HX_TEST_CONCURRENCY` (how many test files at once) for every session, gate run and merge it runs, so
+the workers and the gate share the CPUs. It comes from the `testConcurrency` config key: `"auto"` by default, a
+positive integer to fix it, `0` to leave it unset. If the user asks why tests run fewer files at once, point
+them to that key.
+
 ## Rules
 
 - Never run `gh auth login`, and never log in for the user.

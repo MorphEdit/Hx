@@ -46,6 +46,7 @@
 // FAKE_CLAUDE_MODE=limit / crash for the error paths; =stall prints one event, starts a sleeping child, writes both pids
 // to HX_FAKE_DIR/stall-<pid>.json and sleeps FAKE_CLAUDE_SLEEP_MS (default 10 min), then replies.
 // FAKE_CLAUDE_TOOL=1: the stall mode's one event is a tool call (an assistant tool_use), answered when it wakes up.
+// FAKE_SHIP_TEST=<command>: the audited implementer's ship --no-merge is given that test command (hx's ship --resume runs it again).
 // FAKE_CLAUDE_ENV_OUT=<file>: writes its BASH_MAX_TIMEOUT_MS and BASH_DEFAULT_TIMEOUT_MS there as it starts.
 // FAKE_CLAUDE_TESTS=1: every reply first runs two timestamped test commands (`npm test` passes, `node --test` ends `Exit code 1`)
 // and one non-test command (`cat test/x.ts`).
@@ -87,7 +88,8 @@ if (session) {
   const ptr = /^Read (.+?) first and follow it/m.exec(grillPrompt);
   const full = ptr ? readFileSync(ptr[1], 'utf8') : grillPrompt;
   const output = /Write the (?:PRD|issue) to `([^`]+)`/.exec(full)[1];
-  if (process.env.HX_FAKE_DIR) writeFileSync(path.join(process.env.HX_FAKE_DIR, `${session}-args.json`), JSON.stringify({ args: a, cwd: process.cwd(), full, trusted: process.env.HX_TRUSTED ?? null }));
+  if (process.env.HX_FAKE_DIR) writeFileSync(path.join(process.env.HX_FAKE_DIR, `${session}-args.json`), JSON.stringify({ args: a, cwd: process.cwd(), full, trusted: process.env.HX_TRUSTED ?? null,
+    testConcurrency: process.env.HX_TEST_CONCURRENCY ?? null }));
   if (process.env.FAKE_GRILL_NOWRITE === 'blank') writeFileSync(output, '  \n\t\n');
   else if (!process.env.FAKE_GRILL_NOWRITE) writeFileSync(output, session === 'grill' ? '# Grilled feature\n\n## Goals\nShip it.\n'
     : '# Small task\n\n## What to do\nDo it.\n\n## Blocked by\nnone\n');
@@ -137,8 +139,9 @@ process.stdin.on('data', (d) => (prompt += d)).on('end', () => {
   st.turns++;
   writeFileSync(counter, JSON.stringify(st));
   writeFileSync(path.join(process.env.HX_FAKE_DIR, `${sid}.prompt-${st.turns}.txt`), prompt);
-  // the session's HX_TRUSTED, PATH, --model and --effort, for the tests of what every session gets
-  writeFileSync(path.join(process.env.HX_FAKE_DIR, `${sid}.env-${st.turns}.json`), JSON.stringify({ role: st.role, checkpoint: /HX CHECKPOINT/.test(prompt), trusted: process.env.HX_TRUSTED ?? null, path: process.env.PATH ?? null,
+  // the session's HX_TRUSTED, HX_TEST_CONCURRENCY, PATH, --model and --effort, for the tests of what every session gets
+  writeFileSync(path.join(process.env.HX_FAKE_DIR, `${sid}.env-${st.turns}.json`), JSON.stringify({ role: st.role, checkpoint: /HX CHECKPOINT/.test(prompt), trusted: process.env.HX_TRUSTED ?? null,
+    testConcurrency: process.env.HX_TEST_CONCURRENCY ?? null, path: process.env.PATH ?? null,
     model: a.includes('--model') ? a[a.indexOf('--model') + 1] : null, effort: a.includes('--effort') ? a[a.indexOf('--effort') + 1] : null }));
   if (a.includes('--resume') !== st.turns > 1) { process.stderr.write('resume flag mismatch'); process.exit(4); }
   // FAKE_CLAUDE_NEED=<file>: a session's first turn fails unless the worktree setup wrote <file> in this cwd, holding the cwd
@@ -270,8 +273,8 @@ function finish(st, checkpoint, prompt) {
     writeFileSync(path.join(process.cwd(), `impl-${st.n}.txt`), `attempt ${Date.now()}\n`);
     // FAILSONBROKEN=X,Y in the issue body: the test command prints `not ok` for X and Y and fails while a BROKEN file exists
     const fails = /FAILSONBROKEN=(\S+)/.exec(loadBoard().issues.find((i) => i.number === st.n)?.body ?? '')?.[1].split(',');
-    const test = fails ? `node -e "if (require('fs').existsSync('BROKEN')) { ${fails.map((t, i) => `console.log('not ok ${i + 1} - ${t}');`).join(' ')} process.exit(1) }"`
-      : 'node -e "process.exit(0)"';
+    const test = process.env.FAKE_SHIP_TEST || (fails ? `node -e "if (require('fs').existsSync('BROKEN')) { ${fails.map((t, i) => `console.log('not ok ${i + 1} - ${t}');`).join(' ')} process.exit(1) }"`
+      : 'node -e "process.exit(0)"');
     const r = spawnSync(process.execPath, [ship, '--repo', repo, '--base', 'main', '--issue', String(st.n), '--title', `feat: issue ${st.n}`,
       '--test', test, '--no-merge'], { encoding: 'utf8', env: { ...process.env, ...GIT_ID } });
     // SHIPNOSTATE in the issue body: the PR is open but hx-ship.json is gone, as after a PR opened outside ship

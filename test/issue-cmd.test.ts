@@ -58,6 +58,7 @@ test('hx issue "idea" --yes: one ready-for-agent issue titled from the "# " line
   for (const x of ['me/app', '`dev`', 'fix the typo', 'scripts/issue.mjs']) assert.ok(s.full.includes(x), x);
   assert.ok(!/\{\{\w+\}\}/.test(s.full), 'no placeholder left');
   assert.equal(s.trusted, 'me');
+  assert.equal(s.testConcurrency, String(Math.max(1, os.availableParallelism() - 1)), 'HX_TEST_CONCURRENCY: n = 1 outside hx run');
   assert.deepEqual(s.args.slice(0, 4), ['--model', DEFAULTS.model, '--effort', DEFAULTS.effort]);
   assert.ok(!existsSync(path.join(fakeDir, 'grill-args.json')), 'not a grill session');
   assert.ok(s.full.includes(path.join(root, '.hx', 'issues')), 'output under .hx/issues');

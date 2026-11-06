@@ -9,6 +9,7 @@ import { run } from './exec.ts';
 import { readGate, readGateRuns, remoteSha, writeGate, type GateRun } from './gate.ts';
 import * as gh from './github.ts';
 import { AUDIT_MARKER, mergeAudited, shipInfo } from './pool.ts';
+import { outsideTestEnv } from './concurrency.ts';
 import { pidAlive, readLive } from './runstate.ts';
 import { trustedSet } from './state.ts';
 import { addWorktree, implWorktree, removeWorktree } from './worktree.ts';
@@ -351,6 +352,8 @@ export interface HealthOptions {
   requestGate?: () => boolean;
   // a gate-fix issue was closed (default: cleared from gate.json's fixIssue; hx run clears its own copy)
   closedGateFix?: (issue: number) => void;
+  // the HX_TEST_CONCURRENCY env of a resume repair's ship --resume, taken as it starts (default: the n = 1 value, hx health --fix)
+  testEnv?: () => Record<string, string>;
 }
 
 /** changed: a repair was applied or a gate run requested, so hx run re-reads the board at once. */
@@ -405,7 +408,7 @@ async function repair(p: Project, a: Repair, o: HealthOptions): Promise<{ fix: s
   } else if (a.kind === 'resume') {
     // the same path as a merge right after the audit: ship.mjs --resume in i<N> (state rebuilt from the PR when missing)
     const wt = await addWorktree(p.root, c.worktreeRoot, implWorktree(a.issue, c.defaultBranch));
-    const m = await mergeAudited(wt.dir, c, c.gateCommand || readGate(p.stateDir).command || '');
+    const m = await mergeAudited(wt.dir, c, c.gateCommand || readGate(p.stateDir).command || '', o.testEnv ? o.testEnv() : outsideTestEnv(c));
     if (m.code !== 0) {
       const why = m.code === 3 ? 'its branch conflicts with the base after a rebase' : m.code === 4 ? 'the tests fail after rebasing it' : `merging it failed (ship exit ${m.code})`;
       await sendBack(p, a.issue, why, m.output);
