@@ -1,7 +1,7 @@
 import { BAR_MARKER_PREFIX, parseBarMarker } from './bar.ts';
 import { AUDIT_MARKER, RETRY_MARKER } from './pool.ts';
 import { findAnswer, QUESTION_MARKER } from './question.ts';
-import { median } from './timing.ts';
+import { median, type GateRec } from './timing.ts';
 import { totalTokens, type UsageRecord } from './usage.ts';
 
 /** `hx usage --compare`: the runs before and after a time, from usage.jsonl and hx's own markers on GitHub. Pure. */
@@ -48,6 +48,8 @@ export interface Period {
   questionsAnswered: number; // those with the owner's answer (question.ts findAnswer), by when answered
   closed: number; // issues closed as completed, PRDs left out
   gateFixOpened: number;
+  gateReused: number; // .hx/gate-runs.jsonl lines with `reused: true` (#352): a gate green without a run
+  medianGateMs?: number; // over the lines not reused; undefined when none
   tokens: number;
   costUsd: number;
   tokensPerClosed?: number;
@@ -65,6 +67,7 @@ export interface CompareOptions {
   from?: number; // drop everything older
   trusted: Set<string>; // lowercased logins: hx's own comments come from these
   labels: { prd: string; gateFix: string };
+  gates?: GateRec[]; // .hx/gate-runs.jsonl lines, by `ts`
 }
 
 /** `--compare` / `--from`: an ISO time or local "YYYY-MM-DD HH:MM", as ms epoch; undefined when it is neither. */
@@ -101,7 +104,7 @@ export function compare(recs: UsageRecord[], issues: CompareIssue[], o: CompareO
   const period = (t: number) => (o.from !== undefined && t < o.from) || !Number.isFinite(t) ? undefined : t < o.at ? 0 : 1;
   const ps: Period[] = [0, 1].map((k) => ({
     ...(k === 0 ? (o.from !== undefined ? { from: o.from } : {}) : { from: o.at }), ...(k === 0 ? { to: o.at } : {}),
-    hours: 0, roles: [], auditPass: 0, auditFail: 0, firstRoundFails: 0, barWon: 0, barLost: 0, questionsAsked: 0, questionsAnswered: 0, closed: 0, gateFixOpened: 0, tokens: 0, costUsd: 0,
+    hours: 0, roles: [], auditPass: 0, auditFail: 0, firstRoundFails: 0, barWon: 0, barLost: 0, questionsAsked: 0, questionsAnswered: 0, closed: 0, gateFixOpened: 0, gateReused: 0, tokens: 0, costUsd: 0,
     stops: { timedOut: 0, conflict: 0, auditRounds: 0, other: 0 }, rebaseTestRetries: 0, smallSample: true,
   }));
 
@@ -151,6 +154,16 @@ export function compare(recs: UsageRecord[], issues: CompareIssue[], o: CompareO
     const mt = median(targets);
     if (mt !== undefined) p.medianWorkersTarget = mt;
   });
+
+  // the gate: reused lines (durationMs 0) are counted, never part of the median
+  const gateMs: number[][] = [[], []];
+  for (const g of o.gates ?? []) {
+    const k = period(Date.parse(g.ts));
+    if (k === undefined) continue;
+    if (g.reused) ps[k].gateReused++;
+    else gateMs[k].push(g.durationMs);
+  }
+  ps.forEach((p, k) => { const m = median(gateMs[k]); if (m !== undefined) p.medianGateMs = m; });
 
   const trusted = (login: string) => !!login && o.trusted.has(login.toLowerCase());
   for (const i of issues) {

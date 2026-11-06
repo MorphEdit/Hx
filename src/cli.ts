@@ -728,7 +728,7 @@ async function usageCompare(p: ReturnType<typeof loadProject>, args: string[]): 
   if (from.t !== undefined && from.t >= at.t) { console.error('hx: --from must be before --compare'); return 1; }
   const trusted = await lookupTrusted(p.config);
   const issues = await gh.issuesWithComments(p.config.repo);
-  const { before, after } = compare(readUsage(p.stateDir), issues, { at: at.t, from: from.t, trusted, labels: p.config.labels });
+  const { before, after } = compare(readUsage(p.stateDir), issues, { at: at.t, from: from.t, trusted, labels: p.config.labels, gates: readGateRuns(p.stateDir) });
   printCompare(before, after);
   return 0;
 }
@@ -778,6 +778,8 @@ function printCompare(b: Period, a: Period): void {
     ['questions asked', b.questionsAsked, a.questionsAsked, String, 'count'],
     ['questions answered', b.questionsAnswered, a.questionsAnswered, String, 'count'],
     ['gate-fix issues', b.gateFixOpened, a.gateFixOpened, String, 'count'],
+    ['gate runs reused', b.gateReused, a.gateReused, String, 'count'],
+    ['median gate duration', b.medianGateMs, a.medianGateMs, dur, 'pct'],
     ['stops: timed out', b.stops.timedOut, a.stops.timedOut, String, 'count'],
     ['stops: not mergeable', b.stops.conflict, a.stops.conflict, String, 'count'],
     ['stops: audit rounds', b.stops.auditRounds, a.stops.auditRounds, String, 'count'],
