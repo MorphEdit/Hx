@@ -1,0 +1,333 @@
+<!doctype html>
+<!--
+  The dashboard design the owner chose ("A", 2026-11-06). PRD #367 builds src/dashboard.html to match
+  this page exactly: same layout, colours, fonts, sizes and wording, with live data in place of the
+  SAMPLE below. Open it in a browser to see it; no server needed.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hx Control Room — design reference</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&amp;family=JetBrains+Mono:wght@400;500&amp;family=Space+Grotesk:wght@500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#F3F5F8}
+a{color:#1D4ED8}a:hover{color:#1E3A8A}
+button{font:inherit;color:inherit}
+.mono{font-family:'JetBrains Mono',ui-monospace,Consolas,monospace}
+.head{font-family:'Space Grotesk',system-ui,sans-serif}
+.panel{background:#FFFFFF;border:1px solid #D6DCE5;border-radius:10px}
+.label{font-size:11px;color:#4A5568;letter-spacing:0.08em}
+.h2{margin:0;font-family:'Space Grotesk',system-ui,sans-serif;font-size:16px;letter-spacing:0.08em}
+.tabs{display:flex;border:1px solid #D6DCE5;border-radius:8px;overflow:hidden}
+.tab{border:0;padding:8px 14px;min-height:36px;cursor:pointer;font-size:13px;font-weight:600;background:#FFFFFF;color:#2D3748}
+.tab[aria-selected="true"]{background:#0E1A2B;color:#FFFFFF}
+</style>
+</head>
+<body>
+<div style="min-height: 100vh; background: #F3F5F8; color: #0E1A2B; font-family: Inter, system-ui, sans-serif; font-size: 14px; padding: 20px 16px; box-sizing: border-box">
+<div style="max-width: 1440px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px">
+
+<header class="panel" style="padding: 14px 18px; display: flex; flex-wrap: wrap; align-items: center; gap: 16px 28px">
+  <div style="display: flex; align-items: center; gap: 12px">
+    <svg width="34" height="34" viewBox="0 0 34 34" aria-hidden="true"><path d="M17 2 L30 9.5 L30 24.5 L17 32 L4 24.5 L4 9.5 Z" fill="none" stroke="#1D4ED8" stroke-width="2.5"></path><path d="M11 11 L11 23 M23 11 L23 23 M11 17 L23 17" stroke="#0E1A2B" stroke-width="2.5" stroke-linecap="round"></path></svg>
+    <div style="display: flex; flex-direction: column">
+      <span class="head" style="font-weight: 700; font-size: 20px; letter-spacing: 0.04em">HX CONTROL ROOM</span>
+      <span style="font-size: 12px; color: #4A5568">MorphEdit/Hx · building itself</span>
+    </div>
+  </div>
+  <div style="display: flex; flex-wrap: wrap; gap: 10px 22px; flex: 1 1 520px; justify-content: flex-end">
+    <div style="display: flex; flex-direction: column; gap: 2px"><span class="label">RUNNER</span><span style="font-weight: 600; display: flex; align-items: center; gap: 6px"><span style="width: 8px; height: 8px; border-radius: 50%; background: #1D4ED8"></span>running · 3/3 workers</span></div>
+    <div style="display: flex; flex-direction: column; gap: 2px"><span class="label">MACHINE</span><span style="font-weight: 600">CPU 46% · auto-scale on</span></div>
+    <div style="display: flex; flex-direction: column; gap: 2px"><span class="label">MAIN</span><span class="mono" style="font-weight: 600; font-size: 13px">green ✓ 6f53613</span></div>
+    <div style="display: flex; flex-direction: column; gap: 2px"><span class="label">WAITING ON YOU</span><span style="font-weight: 600">0 questions</span></div>
+    <div style="display: flex; flex-direction: column; gap: 2px"><span class="label">TODAY</span><span style="font-weight: 600">3 PRDs closed</span></div>
+  </div>
+</header>
+
+<div style="display: flex; flex-wrap: wrap; gap: 16px; align-items: stretch">
+
+  <section aria-label="Board" class="panel" style="flex: 1 1 280px; max-width: 100%; display: flex; flex-direction: column; min-width: 0">
+    <div style="padding: 14px 16px 10px; display: flex; flex-direction: column; gap: 10px">
+      <h2 class="h2">BOARD</h2>
+      <div role="tablist" aria-label="Board filter" class="tabs" id="board-tabs">
+        <button type="button" role="tab" class="tab" data-board="all">All</button>
+        <button type="button" role="tab" class="tab" data-board="building">Building</button>
+        <button type="button" role="tab" class="tab" data-board="done">Done</button>
+      </div>
+    </div>
+    <div id="groups" style="display: flex; flex-direction: column; gap: 4px; padding: 0 10px 14px"></div>
+  </section>
+
+  <section aria-label="Pipeline" class="panel" style="flex: 999 1 560px; min-width: 0; display: flex; flex-direction: column">
+    <div style="padding: 14px 16px; display: flex; flex-wrap: wrap; gap: 10px; justify-content: space-between; align-items: center; border-bottom: 1px solid #E5E9EF">
+      <h2 class="h2">PIPELINE</h2>
+      <div role="tablist" aria-label="Pipeline view" class="tabs" id="view-tabs">
+        <button type="button" role="tab" class="tab" data-view="flow">Flow</button>
+        <button type="button" role="tab" class="tab" data-view="timeline">Timeline</button>
+      </div>
+    </div>
+    <div id="flow" style="padding: 20px 16px; display: flex; flex-direction: column; gap: 22px; background-color: #FAFBFD; background-image: linear-gradient(#EEF1F5 1px, transparent 1px), linear-gradient(90deg, #EEF1F5 1px, transparent 1px); background-size: 24px 24px; flex: 1">
+      <div style="overflow-x: auto">
+        <div id="stages" style="display: grid; grid-template-columns: repeat(6, minmax(120px, 1fr)); gap: 14px; min-width: 780px"></div>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 10px">
+        <span class="label">WAITING FOR ANOTHER ISSUE</span>
+        <div id="waiting" style="display: flex; flex-wrap: wrap; gap: 10px"></div>
+      </div>
+      <div style="display: flex; flex-wrap: wrap; gap: 8px 18px; font-size: 12px; color: #4A5568">
+        <span style="display: flex; align-items: center; gap: 6px"><span style="width: 10px; height: 10px; border-radius: 50%; background: #1D4ED8"></span>done</span>
+        <span style="display: flex; align-items: center; gap: 6px"><span style="width: 10px; height: 10px; border-radius: 50%; border: 2px solid #1D4ED8; background: #DBEAFE; box-sizing: border-box"></span>merging</span>
+        <span style="display: flex; align-items: center; gap: 6px"><span style="width: 10px; height: 10px; border-radius: 50%; border: 2px solid #C2410C; background: #FFEDD5; box-sizing: border-box"></span>implementing</span>
+        <span style="display: flex; align-items: center; gap: 6px"><span style="width: 10px; height: 10px; border-radius: 50%; border: 2px solid #8A94A3; box-sizing: border-box"></span>waiting</span>
+        <span>tests run 3 files at a time per session (12 CPUs shared by 3 sessions + the gate)</span>
+      </div>
+    </div>
+    <div id="timeline" style="display: none; padding: 20px 16px; flex-direction: column; gap: 12px; flex: 1">
+      <div style="display: flex; gap: 12px; align-items: center">
+        <span style="width: 64px; flex: none"></span>
+        <div class="mono" style="flex: 1; display: flex; justify-content: space-between; font-size: 11px; color: #4A5568"><span>12:30</span><span>12:50</span><span>13:10</span><span>13:30</span><span>13:50</span><span>14:10</span></div>
+      </div>
+      <div id="lanes" style="display: flex; flex-direction: column; gap: 12px"></div>
+      <p style="margin: 6px 0 0; font-size: 12px; color: #4A5568">Each bar is one session. Click one to see its issue. The gate row is the full test suite on main.</p>
+    </div>
+  </section>
+
+  <section aria-label="Issue details" class="panel" style="flex: 1 1 300px; max-width: 100%; padding: 16px; box-sizing: border-box; display: flex; flex-direction: column; gap: 14px; min-width: 0">
+    <h2 class="h2">DETAILS</h2>
+    <div id="details" style="display: contents"></div>
+  </section>
+</div>
+
+<section aria-label="Event log" class="panel" style="display: flex; flex-direction: column">
+  <div style="padding: 14px 16px; display: flex; flex-wrap: wrap; gap: 10px 20px; align-items: center; justify-content: space-between; border-bottom: 1px solid #E5E9EF">
+    <div style="display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 16px">
+      <h2 class="h2">EVENT LOG</h2>
+      <span style="font-size: 12px; color: #4A5568">today, from .hx/run.log · the selected issue is highlighted</span>
+    </div>
+    <div role="tablist" aria-label="Event filter" class="tabs" id="filter-tabs">
+      <button type="button" role="tab" class="tab" data-filter="all">All</button>
+      <button type="button" role="tab" class="tab" data-filter="results">Results</button>
+      <button type="button" role="tab" class="tab" data-filter="problems">Problems</button>
+    </div>
+  </div>
+  <div style="overflow-x: auto">
+    <table style="width: 100%; min-width: 720px; border-collapse: collapse; font-size: 13px">
+      <thead>
+        <tr class="label" style="text-align: left">
+          <th scope="col" style="padding: 10px 16px; font-weight: 600">TIME</th>
+          <th scope="col" style="padding: 10px 8px; font-weight: 600">ISSUE</th>
+          <th scope="col" style="padding: 10px 8px; font-weight: 600">STEP</th>
+          <th scope="col" style="padding: 10px 8px; font-weight: 600">WHAT HAPPENED</th>
+          <th scope="col" style="padding: 10px 16px; font-weight: 600; text-align: right">TOKENS</th>
+        </tr>
+      </thead>
+      <tbody id="events"></tbody>
+    </table>
+  </div>
+</section>
+
+</div>
+</div>
+
+<script>
+// SAMPLE data: the board, sessions and log of 2026-11-06 ~14:05. src/dashboard.html gets these from dashboardState.
+const SAMPLE = {
+  groups: [
+    { k: 'p348', title: 'PRD #348 · Faster tests', progress: '2/6' },
+    { k: 'p325', title: '#325 · Machine panel (split)', progress: '0/4' },
+    { k: 'today', title: 'Closed today', progress: '6' },
+  ],
+  issues: [
+    { k: '349', id: '#349', g: 'p348', st: 'done', title: 'Run npm test through scripts/test.mjs, which caps parallel test files', worker: 'W2', stage: 4, tokens: '1.5M', time: '57 min', round: '1 of 3', pr: '#357', next: 'Merged. The cap is live: every session now runs tests inside its share of the CPU.' },
+    { k: '350', id: '#350', g: 'p348', st: 'done', title: 'Set HX_TEST_CONCURRENCY for every session, gate run and ship', worker: 'W3', stage: 4, tokens: '9.9M', time: '2h16m', round: '1 of 3', pr: '#358', next: 'Merged. hx status shows the concurrency in use (3 right now).' },
+    { k: '351', id: '#351', g: 'p348', st: 'merging', title: 'ship: record every full test run and skip --resume’s tests on a tree that already passed', worker: 'W1', stage: 3, tokens: '4.4M', time: '1h29m', round: '1 of 3', pr: '#366', next: 'Rebase on main and merge. When it lands, #352 can start.',
+      subs: ['W1 · 12:36', 'turn 1 ok · 2.5M tokens · 44 min', 'PASS ✓ · 1.9M tokens · 29 min', 'rebasing on main, then merging', 'runs the full suite on main after the merge'] },
+    { k: '354', id: '#354', g: 'p348', st: 'working', title: 'Cut the slowest e2e tests: profile before and after, shrink waits and back-offs', worker: 'W2', stage: 1, tokens: 'turn running', time: '1h27m', round: '1 of 3', pr: 'not yet', next: 'The implementer is profiling the 20 slowest tests and cutting their waits. No test may be skipped or loosened.',
+      subs: ['W2 · 12:37', 'profiling and editing tests', 'an independent audit checks no test was weakened', '', ''] },
+    { k: '352', id: '#352', g: 'p348', st: 'waiting', title: 'Gate: reuse a tree that passed in the last 2 h instead of re-running the suite', waits: '#351', next: 'Starts when #351 merges.' },
+    { k: '353', id: '#353', g: 'p348', st: 'waiting', title: 'hx usage --compare: gate runs reused and the median gate time', waits: '#352', next: 'Starts when #352 merges.' },
+    { k: '362', id: '#362', g: 'p325', st: 'working', title: 'Record a per-minute load history in .hx/load.jsonl during hx run', worker: 'W3', stage: 1, tokens: 'turn running', time: '1h25m', round: '1 of 3', pr: 'not yet', next: 'The implementer is adding the one-line-per-minute load log. #363 waits for it.',
+      subs: ['W3 · 12:40', 'writing the load sampler and its tests', '', '', ''] },
+    { k: '363', id: '#363', g: 'p325', st: 'waiting', title: 'The pure Machine analysis: use, throughput by worker count, slowdown, advice', waits: '#362', next: 'Starts when #362 merges.' },
+    { k: '364', id: '#364', g: 'p325', st: 'waiting', title: 'hx usage --machine [--days N]: the four Machine parts in the terminal', waits: '#363', next: 'Starts when #363 merges.' },
+    { k: '365', id: '#365', g: 'p325', st: 'waiting', title: 'The Machine panel in hx dashboard', waits: '#363', next: 'Starts when #363 merges.' },
+    { k: 'p315', id: 'PRD #315', g: 'today', st: 'done', prd: true, title: 'Auto-scale workers: claim new work only while the machine has room', time: 'closed 12:37', next: 'Closed. Workers now follow the CPU: 3 when there is room, fewer under load.' },
+    { k: 'p300', id: 'PRD #300', g: 'today', st: 'done', prd: true, title: 'An issue too big for one session is split, up front or after a timeout', time: 'closed 05:31', next: 'Closed. It already fired today: #325 was split into #362–#365 before it started.' },
+    { k: 'p286', id: 'PRD #286', g: 'today', st: 'done', prd: true, title: 'needs-human: hx asks you in plain words when a task truly needs a person', time: 'closed 04:28', next: 'Closed. Questions for you appear under Waiting on you.' },
+    { k: '347', id: '#347', g: 'today', st: 'done', title: 'A merge that fails after an audit PASS no longer uses up an audit round', worker: 'W1', stage: 4, tokens: '9.6M', time: '1h36m', round: '1 of 3', pr: '#355', next: 'Merged.' },
+    { k: '356', id: '#356', g: 'today', st: 'done', title: 'Lighten the role-models e2e test so it fits its time limit on a loaded gate', worker: 'W1', stage: 4, tokens: '4.4M', time: '2h37m', round: '1 of 3', pr: '#361', next: 'Merged. Main went green again at 6f53613.' },
+  ],
+  stages: [
+    { num: '01', name: 'Gauntlet', sub: 'PRD critic · idle', chips: [] },
+    { num: '02', name: 'Decompose', sub: 'PRD → issues · idle', chips: [] },
+    { num: '03', name: 'Implement', sub: '2 sessions', chips: [['354', 'profiling slow tests'], ['362', 'load history']] },
+    { num: '04', name: 'Audit', sub: 'independent check · idle', chips: [] },
+    { num: '05', name: 'Merge', sub: '1 session', chips: [['351', 'audit PASS · rebasing']] },
+    { num: '06', name: 'Gate', sub: 'main green ✓ 6f53613', chips: [] },
+  ],
+  // [issue key, left %, width %, label, kind] over 12:30–14:10
+  lanes: [
+    ['W1', [['351', 6, 44, '#351 implement', 'impl'], ['351', 51, 28, '#351 audit', 'audit'], ['351', 80, 15, '#351 merge', 'merge']]],
+    ['W2', [['354', 8, 87, '#354 implement', 'impl']]],
+    ['W3', [['', 8, 2, '', 'merge'], ['362', 10, 85, '#362 implement', 'impl']]],
+    ['gate', [['', 0, 6, 'green', 'gate']]],
+  ],
+  events: [
+    { t: '11:32:50', n: 'gate', k: '', step: 'Gate', text: 'RED ✗ at 5ca3204: the role-models test hit its 10 min limit on a loaded machine', tok: '', kind: 'problem' },
+    { t: '12:06:12', n: '#356', k: '356', step: 'Merge', text: 'fix merged: the test now fits its limit', tok: '4.4M', kind: 'result' },
+    { t: '12:20:41', n: 'gate', k: '', step: 'Gate', text: 'green ✓ again at 6f53613', tok: '', kind: 'result' },
+    { t: '12:21:31', n: 'runner', k: '', step: 'Start', text: 'restarted on the new code: auto-scale and test concurrency on', tok: '', kind: 'info' },
+    { t: '12:36:17', n: '#351', k: '351', step: 'Implement', text: 'claimed by W1', tok: '', kind: 'info' },
+    { t: '12:37:43', n: 'PRD #315', k: 'p315', step: 'Security', text: 'security pass DONE ✓', tok: '288K', kind: 'result' },
+    { t: '12:37:49', n: 'PRD #315', k: 'p315', step: 'Close', text: 'PRD closed ✓', tok: '', kind: 'result' },
+    { t: '12:37:50', n: '#325', k: '362', step: 'Size', text: 'too big for one session: split into #362–#365 before starting', tok: '97K', kind: 'info' },
+    { t: '12:37:51', n: '#354', k: '354', step: 'Implement', text: 'claimed by W2', tok: '', kind: 'info' },
+    { t: '12:40:16', n: '#359', k: '359', step: 'Close', text: 'closed without a PR: main was already green', tok: '158K', kind: 'result' },
+    { t: '12:40:26', n: '#362', k: '362', step: 'Implement', text: 'claimed by W3', tok: '', kind: 'info' },
+    { t: '13:20:45', n: '#351', k: '351', step: 'Implement', text: 'turn 1 ok · 44 min', tok: '2.5M', kind: 'info' },
+    { t: '13:20:55', n: '#351', k: '351', step: 'Audit', text: 'audit 1/3 on PR #366', tok: '', kind: 'info' },
+    { t: '13:49:41', n: '#351', k: '351', step: 'Audit', text: 'audit PASS ✓ · 29 min', tok: '1.9M', kind: 'result' },
+  ],
+};
+
+const state = { sel: '351', board: 'all', view: 'flow', filter: 'all' };
+const DOT = {
+  done: 'width:10px;height:10px;border-radius:50%;background:#1D4ED8;flex:none;margin-top:4px',
+  merging: 'width:10px;height:10px;border-radius:50%;border:2px solid #1D4ED8;background:#DBEAFE;box-sizing:border-box;flex:none;margin-top:4px',
+  working: 'width:10px;height:10px;border-radius:50%;border:2px solid #C2410C;background:#FFEDD5;box-sizing:border-box;flex:none;margin-top:4px',
+  waiting: 'width:10px;height:10px;border-radius:50%;border:2px solid #8A94A3;box-sizing:border-box;flex:none;margin-top:4px',
+};
+const LABEL = { done: 'done', merging: 'merging', working: 'implementing', waiting: 'waiting' };
+const LCOLOR = { done: '#1D4ED8', merging: '#1D4ED8', working: '#B23B0A', waiting: '#5B6472' };
+const statusStyle = (st) => `font-size:12px;font-weight:600;color:${LCOLOR[st]}`;
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+const get = (k) => SAMPLE.issues.find((i) => i.k === k);
+const $ = (id) => document.getElementById(id);
+
+function renderBoard() {
+  const inBoard = (it) => state.board === 'building' ? it.st !== 'done' : state.board === 'done' ? it.st === 'done' : true;
+  $('groups').innerHTML = SAMPLE.groups.map((g) => {
+    const items = SAMPLE.issues.filter((it) => it.g === g.k && inBoard(it));
+    if (!items.length) return '';
+    return `<div style="display:flex;flex-direction:column;gap:2px;padding-top:8px">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;padding:4px 6px"><span style="font-weight:600">${esc(g.title)}</span><span class="mono" style="font-size:12px;color:#4A5568">${esc(g.progress)}</span></div>
+      ${items.map((it) => {
+        const on = it.k === state.sel;
+        return `<button type="button" data-sel="${it.k}" aria-pressed="${on}" style="display:flex;gap:10px;align-items:flex-start;width:100%;text-align:left;padding:8px;border-radius:8px;cursor:pointer;min-height:44px;${on ? 'background:#EEF3FF;border:1px solid #1D4ED8' : 'background:transparent;border:1px solid transparent'}">
+          <span style="${DOT[it.st]}"></span>
+          <span style="display:flex;flex-direction:column;gap:1px;min-width:0;flex:1">
+            <span style="display:flex;gap:8px;align-items:baseline"><span class="mono" style="font-size:12px;font-weight:500">${esc(it.id)}</span><span style="${statusStyle(it.st)}">${LABEL[it.st]}</span></span>
+            <span style="font-size:13px;color:#2D3748;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(it.title)}</span>
+          </span></button>`;
+      }).join('')}</div>`;
+  }).join('');
+}
+
+function renderFlow() {
+  $('stages').innerHTML = SAMPLE.stages.map((s) => {
+    const busy = s.chips.length > 0;
+    return `<div style="display:flex;flex-direction:column;gap:10px">
+      <div style="display:flex;flex-direction:column;gap:3px;padding:12px;border-radius:8px;background:#FFFFFF;border:${busy ? '2px solid #0E1A2B' : '1px solid #D6DCE5'}">
+        <span class="mono" style="font-size:11px;color:#4A5568">${s.num}</span>
+        <span class="head" style="font-weight:600;font-size:15px">${esc(s.name)}</span>
+        <span style="font-size:12px;color:#4A5568">${esc(s.sub)}</span>
+      </div>
+      ${s.chips.map(([k, sub]) => {
+        const it = get(k), on = k === state.sel, edge = it.st === 'merging' ? '#1D4ED8' : '#C2410C';
+        return `<button type="button" data-sel="${k}" aria-pressed="${on}" style="display:flex;flex-direction:column;gap:4px;padding:10px;border-radius:8px;cursor:pointer;background:#FFFFFF;text-align:left;min-height:44px;border:${on ? '2px solid #0E1A2B' : '1px solid #D6DCE5'};border-left:4px solid ${edge}">
+          <span style="display:flex;justify-content:space-between;gap:6px"><span class="mono" style="font-size:12px;font-weight:500">${it.worker}</span><span class="mono" style="font-size:12px">${esc(it.id)}</span></span>
+          <span style="font-size:12px;color:#2D3748;text-align:left">${esc(sub)}</span></button>`;
+      }).join('')}</div>`;
+  }).join('');
+  $('waiting').innerHTML = SAMPLE.issues.filter((it) => it.st === 'waiting').map((it) => {
+    const on = it.k === state.sel;
+    return `<button type="button" data-sel="${it.k}" aria-pressed="${on}" style="display:flex;gap:8px;align-items:baseline;padding:10px 12px;border-radius:8px;cursor:pointer;min-height:44px;background:#FFFFFF;border:${on ? '2px solid #0E1A2B' : '1px dashed #8A94A3'}">
+      <span class="mono" style="font-size:12px;font-weight:500">${esc(it.id)}</span><span style="font-size:12px;color:#4A5568">waits on ${esc(it.waits)}</span></button>`;
+  }).join('');
+}
+
+function renderTimeline() {
+  $('lanes').innerHTML = SAMPLE.lanes.map(([label, bars]) => `<div style="display:flex;gap:12px;align-items:center">
+    <span class="mono" style="width:64px;flex:none;font-size:12px;font-weight:500">${label}</span>
+    <div style="flex:1;position:relative;height:40px;background:#F3F5F8;border-radius:6px">
+      ${bars.map(([k, left, width, text, kind]) => {
+        const on = k && k === state.sel;
+        const bg = kind === 'audit' ? '#1D4ED8' : kind === 'merge' ? '#DBEAFE' : kind === 'gate' ? '#0E1A2B' : '#FFEDD5';
+        const fg = kind === 'audit' || kind === 'gate' ? '#FFFFFF' : '#0E1A2B';
+        const bd = kind === 'impl' ? '#C2410C' : kind === 'merge' ? '#1D4ED8' : bg;
+        return `<button type="button" ${k ? `data-sel="${k}"` : ''} aria-label="${esc(text || kind)}" class="mono" style="position:absolute;top:4px;bottom:4px;left:${left}%;width:${width}%;border-radius:5px;font-size:11px;overflow:hidden;white-space:nowrap;padding:0 6px;text-align:left;cursor:pointer;background:${bg};color:${fg};border:${on ? '2px solid #0E1A2B' : '1px solid ' + bd}">${esc(text)}</button>`;
+      }).join('')}
+    </div></div>`).join('');
+}
+
+function renderDetails() {
+  const it = get(state.sel) || get('351');
+  const names = it.prd ? ['Gauntlet', 'Decompose', 'Build', 'Review', 'Security'] : ['Claimed', 'Implement', 'Audit', 'Merge', 'Gate'];
+  const now = it.st === 'done' ? 99 : it.st === 'waiting' ? -1 : it.stage;
+  const group = SAMPLE.groups.find((g) => g.k === it.g);
+  const steps = names.map((n, i) => {
+    const st = i < now ? 'done' : i === now ? 'now' : 'next';
+    const sub = it.subs?.[i] || (st === 'done' ? 'done' : st === 'now' ? 'in progress' : '');
+    const dot = 'width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;flex:none;box-sizing:border-box;' +
+      (st === 'done' ? 'background:#1D4ED8;color:#FFFFFF' : st === 'now' ? 'background:#FFFFFF;color:#B23B0A;border:2px solid #C2410C' : 'background:#FFFFFF;color:#5B6472;border:1.5px solid #8A94A3');
+    const line = i === names.length - 1 ? 'width:2px;flex:1;background:transparent' : `width:2px;flex:1;min-height:14px;background:${st === 'done' ? '#1D4ED8' : '#D6DCE5'}`;
+    return `<li style="display:flex;gap:12px"><div style="display:flex;flex-direction:column;align-items:center"><span style="${dot}">${st === 'done' ? '✓' : i + 1}</span><span style="${line}"></span></div>
+      <div style="display:flex;flex-direction:column;gap:2px;padding-bottom:12px"><span style="font-weight:600;font-size:14px;color:${st === 'next' ? '#5B6472' : '#0E1A2B'}">${n}</span><span style="font-size:12px;color:#4A5568">${esc(sub)}</span></div></li>`;
+  }).join('');
+  const facts = it.prd ? [['STATUS', it.time], ['STEPS', 'all passed']] : it.st === 'waiting' ? [['WAITS ON', it.waits], ['WORKER', 'none yet']] :
+    [['WORKER', it.worker], ['TOKENS', it.tokens], ['TIME', it.time], ['ROUND', it.round], ['PR', it.pr]];
+  $('details').innerHTML = `<div style="display:flex;flex-direction:column;gap:6px">
+      <span class="mono" style="font-size:12px;color:#4A5568">${esc(group?.title)}</span>
+      <span class="head" style="font-weight:700;font-size:24px">${esc(it.id)}</span>
+      <span style="font-size:14px;line-height:1.45">${esc(it.title)}</span>
+      <span style="${statusStyle(it.st)};text-transform:uppercase;letter-spacing:0.08em">${LABEL[it.st]}</span>
+    </div>
+    <ol style="list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:0">${steps}</ol>
+    <div style="border:1px solid #E5E9EF;border-radius:8px;overflow:hidden">${facts.map(([k, v]) => `<div style="display:flex;justify-content:space-between;gap:12px;padding:8px 12px;border-bottom:1px solid #EEF1F5"><span style="font-size:12px;color:#4A5568;letter-spacing:0.06em">${k}</span><span class="mono" style="font-size:12px;text-align:right">${esc(v)}</span></div>`).join('')}</div>
+    <div style="background:#EEF3FF;border-radius:8px;padding:10px 12px;display:flex;flex-direction:column;gap:4px">
+      <span style="font-size:11px;color:#1E3A8A;letter-spacing:0.08em;font-weight:600">WHAT HAPPENS NEXT</span>
+      <span style="font-size:13px;line-height:1.45">${esc(it.next)}</span>
+    </div>`;
+}
+
+function renderEvents() {
+  const badge = (kind) => 'display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:600;' +
+    (kind === 'problem' ? 'background:#FFEDD5;color:#9A3412' : kind === 'result' ? 'background:#DBEAFE;color:#1E3A8A' : 'background:#EEF1F5;color:#2D3748');
+  $('events').innerHTML = SAMPLE.events
+    .filter((e) => state.filter === 'results' ? e.kind === 'result' : state.filter === 'problems' ? e.kind === 'problem' : true)
+    .map((e) => {
+      const on = e.k && e.k === state.sel;
+      return `<tr style="border-top:1px solid #EEF1F5;${on ? 'background:#EEF3FF;box-shadow:inset 3px 0 0 #1D4ED8' : 'background:#FFFFFF'}">
+        <td class="mono" style="padding:9px 16px;font-size:12px;white-space:nowrap">${e.t}</td>
+        <td class="mono" style="padding:9px 8px;font-size:12px;white-space:nowrap">${esc(e.n)}</td>
+        <td style="padding:9px 8px;white-space:nowrap"><span style="${badge(e.kind)}">${esc(e.step)}</span></td>
+        <td style="padding:9px 8px">${esc(e.text)}</td>
+        <td class="mono" style="padding:9px 16px;font-size:12px;text-align:right;white-space:nowrap">${esc(e.tok)}</td></tr>`;
+    }).join('');
+}
+
+function render() {
+  for (const [id, key] of [['board-tabs', 'board'], ['view-tabs', 'view'], ['filter-tabs', 'filter']])
+    for (const b of $(id).querySelectorAll('button')) b.setAttribute('aria-selected', String(b.dataset[key] === state[key]));
+  // style.display, not the hidden attribute: both panes set display:flex inline, which beats [hidden]
+  $('flow').style.display = state.view === 'flow' ? 'flex' : 'none';
+  $('timeline').style.display = state.view === 'timeline' ? 'flex' : 'none';
+  renderBoard(); renderFlow(); renderTimeline(); renderDetails(); renderEvents();
+}
+
+document.addEventListener('click', (ev) => {
+  const b = ev.target.closest('button');
+  if (!b) return;
+  if (b.dataset.sel) state.sel = b.dataset.sel;
+  else if (b.dataset.board) state.board = b.dataset.board;
+  else if (b.dataset.view) state.view = b.dataset.view;
+  else if (b.dataset.filter) state.filter = b.dataset.filter;
+  else return;
+  render();
+});
+render();
+</script>
+</body>
+</html>
