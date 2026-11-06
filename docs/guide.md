@@ -136,6 +136,7 @@ hx release --dry-run    # the next version, its notes and the gate it would use 
                         # --dry-run it asks, then releases (--yes: no question; patch|minor|major by hand)
 hx usage --by role      # recorded token usage and test time (by issue | role | model | day)
 hx usage --tests        # per UTC day: median and p90 test-run and gate duration
+hx usage --machine [--days 3]   # is this PC fully used, and how many workers suit it (see Where the time goes)
 hx usage --compare "2026-11-04 09:00"   # the runs before and after a change, side by side (see below)
 hx dashboard [--open]   # a read-only page on http://127.0.0.1:4777/ (localhost only; --port N)
 hx dashboard --fleet [--open]   # one page over every hx repo on this machine (alias: hx fleet dashboard)
@@ -250,6 +251,34 @@ script (e.g. `node scripts/check.mjs`) are not counted unless the repo adds a pa
   gate runs is above 70% of `gateMinutes`.
 - Reused gate runs (a `reused: true` line: the tree had already passed, see [CI gate](#ci-gate)) are left out of
   every gate duration figure: the median and p90 in `hx status`, the dashboard and `hx usage --tests`, and the slow-gate warning.
+
+**Is this machine fully used?** `hx usage --machine` reads the load history (`.hx/load.jsonl`), the gate runs
+(`.hx/gate-runs.jsonl`), the run log and `.hx/usage.jsonl` over the last 24 h (`--days N`: the last N days, N a
+whole number from 1 to 7; any other value is a usage error) and prints four parts, then one recommendation. Hours
+are UTC.
+
+1. **Use.** The **CPU average** is the mean of the once-a-minute CPU readings (how busy all cores were, 0–100%);
+   the **CPU p90** is the reading 90% of the minutes stayed at or below, so it shows the busy stretches the average
+   hides. Then one line per hour: the average CPU, the lowest **free memory** of the hour, and the **target**
+   (how many workers hx would run then, after auto-scaling) beside the **running** sessions. Running below target
+   means there was not enough work, not that the machine was full.
+2. **Throughput by worker count.** Each hour is put in a group by its median target (1, 2, 3, …) and each group
+   shows the **issues closed per hour** and the **hours** behind it. A group with fewer than 3 hours shows
+   **not enough data**: too few hours to compare.
+3. **Slowdown.** The **idle baseline** is how long the gate's full test run takes on a quiet machine: the p10
+   (the fastest tenth) of the green gate runs of the last 7 days. The slowdown is the median gate run of the
+   period divided by it, printed as `tests run 2.7× slower than at idle`. With no green gate run in 7 days, or no
+   gate run in the period, a plain note says so instead.
+4. **Where session time goes.** Per role, the median share of a session's time spent running tests, and the rest
+   (reading, thinking, writing code) outside tests.
+
+The **recommendation** is one line, and the line under it says which rule fired:
+
+- **rule A** — two worker counts N−1 and N each have at least 6 hours of data and N closes less than 10% more
+  issues per hour: "N workers get about as much done as N−1 here; set `workers` to N−1";
+- **rule B** — the target sat at `workers` for at least 80% of the time, the CPU average is below 50% and the
+  slowdown below 1.5×: "this machine has room; you could raise `workers` to N+1";
+- **fits** — neither fired: `the current setting fits this machine`.
 
 **Test concurrency.** Three workers and the gate each running `node --test` (which starts
 `os.availableParallelism() - 1` test files at once) fight over the same CPUs, and timing-sensitive tests then

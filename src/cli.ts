@@ -10,7 +10,9 @@ import { log, lookupTrusted, printPlan, readBar, readPlan, runLogFile, runPool, 
 import { killAllSessions } from './agent.ts';
 import { clearPause, nextLine, otherRunner, pidAlive, readLive, readPause, setPause, writeExit, writeWake } from './runstate.ts';
 import { fmtDuration, readGate, readGateRuns } from './gate.ts';
-import { testSeries, timeWindow, type TimeSummary } from './timing.ts';
+import { median, testSeries, timeWindow, type TimeSummary } from './timing.ts';
+import { analyseMachine, MAX_DAYS, type Machine } from './machine.ts';
+import { readLoadLines } from './loadlog.ts';
 import { release, releaseGate, type BumpKind } from './release.ts';
 import { budgetLine, readBudgetWindows } from './budget.ts';
 import { githubLine } from './ghlimit.ts';
@@ -83,6 +85,10 @@ const HELP = `usage: hx <command> [options]
   resume                   clear a pause; then hx run continues where it stopped
   usage [--by issue|role|model|day]   token usage and test time recorded by hx
   usage --tests            per UTC day: median and p90 test-run and gate duration
+  usage --machine [--days N]
+                           this machine over the last 24 h (--days N: 1 to 7): CPU and memory use, issues per hour
+                           by worker count, how much slower the tests run than at idle, the test share per role,
+                           and a recommendation for workers
   usage --compare <time> [--from <time>]
                            the runs before and after <time> (ISO or "YYYY-MM-DD HH:MM") side by side: per role
                            from usage.jsonl, audits, closed issues, stops and retries from hx's own GitHub
@@ -687,6 +693,7 @@ export function timeLine(s: TimeSummary, concurrency?: number): string | undefin
 function usage(args: string[]): number | Promise<number> {
   const p = loadProject();
   if (args.includes('--compare')) return usageCompare(p, args);
+  if (args.includes('--machine')) return usageMachine(p, args);
   const by = flag(args, '--by') ?? 'issue';
   const recs = readUsage(p.stateDir);
   if (args.includes('--tests')) {
@@ -713,6 +720,79 @@ function usage(args: string[]): number | Promise<number> {
   for (const r of rows) console.log(line(r));
   console.log(line(all));
   return 0;
+}
+
+function usageMachine(p: ReturnType<typeof loadProject>, args: string[]): number {
+  let days = 1;
+  if (args.includes('--days')) {
+    const v = args[args.indexOf('--days') + 1];
+    days = v !== undefined && /^\d+$/.test(v) ? Number(v) : NaN;
+    if (!(days >= 1 && days <= MAX_DAYS)) {
+      console.error(`usage: hx usage --machine [--days N]  (N: a whole number from 1 to ${MAX_DAYS}${v === undefined ? '' : `, not "${v}"`})`);
+      return 2;
+    }
+  }
+  const logFile = runLogFile(p.stateDir);
+  const readLog = (f: string) => (existsSync(f) ? readFileSync(f, 'utf8').split(/\r?\n/) : []);
+  const m = analyseMachine({
+    load: readLoadLines(p.stateDir), gates: readGateRuns(p.stateDir), log: [...readLog(`${logFile}.1`), ...readLog(logFile)],
+    usage: readUsage(p.stateDir), workers: p.config.workers, now: Date.now(), days,
+  });
+  for (const l of machineText(m, p.config.workers)) console.log(l);
+  return 0;
+}
+
+const RULES = {
+  A: 'two worker counts each have at least 6 h of data, and the higher one closes less than 10% more issues per hour',
+  B: 'the target sat at `workers` for at least 80% of the time, average CPU below 50% and slowdown below 1.5×',
+  fits: 'neither rule A (fewer workers) nor rule B (more workers) fired',
+};
+
+/** The text of hx usage --machine: the four parts, then the recommendation and its rule. Times in UTC. */
+function machineText(m: Machine, workers: number): string[] {
+  const utc = (iso: string) => iso.slice(0, 16).replace('T', ' ');
+  const pct = (n?: number) => (n === undefined ? '-' : `${Math.round(n)}%`);
+  const num = (n: number) => String(Math.round(n * 10) / 10);
+  const pad = (W: number[]) => (cells: string[]) => '  ' + cells.map((c, i) => (i ? c.padStart(W[i]) : c.padEnd(W[i]))).join(' ').trimEnd();
+  const out = [`Machine — last ${m.days === 1 ? '24 h' : `${m.days} days`} (${utc(m.from)} → ${utc(m.to)} UTC) · workers ${workers}`, ''];
+
+  out.push('1. Use');
+  if (!m.use.series.length) out.push('  no load recorded in this period — hx run writes .hx/load.jsonl once a minute');
+  else {
+    out.push(`  CPU average ${pct(m.use.avgCpu)} · p90 ${pct(m.use.p90Cpu)}`);
+    const hours = new Map<string, typeof m.use.series>();
+    for (const l of m.use.series) { const h = l.ts.slice(0, 13); hours.set(h, [...(hours.get(h) ?? []), l]); }
+    const row = pad([16, 5, 10, 7, 8]);
+    out.push(row(['hour (UTC)', 'cpu', 'free mem', 'target', 'running']));
+    for (const [h, ls] of hours) out.push(row([`${h.replace('T', ' ')}:00`, pct(ls.reduce((a, l) => a + l.cpuPct, 0) / ls.length),
+      `${Math.min(...ls.map((l) => l.freeMemGB)).toFixed(1)} GB`, num(median(ls.map((l) => l.target))!), num(median(ls.map((l) => l.running))!)]));
+  }
+
+  out.push('', '2. Throughput by worker count');
+  if (!m.throughput.length) out.push('  no load recorded in this period');
+  else {
+    const row = pad([8, 16, 6]);
+    out.push(row(['workers', 'issues/hour', 'hours']));
+    for (const g of m.throughput) out.push(row([String(g.workers), g.enough ? g.perHour.toFixed(2) : 'not enough data', String(g.hours)]));
+  }
+
+  out.push('', '3. Slowdown');
+  const s = m.slowdown;
+  if (s.text) out.push(`  ${s.text} (median gate ${dur(s.medianMs)}, idle baseline ${dur(s.baselineMs)})`);
+  else if (s.baselineMs === undefined) out.push('  no idle baseline yet: no green gate run in the last 7 days');
+  else if (s.medianMs === undefined) out.push(`  no gate run in this period (idle baseline ${dur(s.baselineMs)})`);
+  else out.push('  no idle baseline yet: the green gate runs took no time');
+
+  out.push('', '4. Where session time goes');
+  if (!m.sessions.length) out.push('  no session with test time recorded in this period');
+  else {
+    const row = pad([12, 8, 7, 14]);
+    out.push(row(['role', 'sessions', 'tests', 'outside tests']));
+    for (const r of m.sessions) out.push(row([r.role, String(r.sessions), pct(r.testShare * 100), pct(r.otherShare * 100)]));
+  }
+
+  out.push('', `Recommendation: ${m.recommendation.text}`, `  rule ${m.recommendation.rule}: ${RULES[m.recommendation.rule]}`);
+  return out;
 }
 
 async function usageCompare(p: ReturnType<typeof loadProject>, args: string[]): Promise<number> {
