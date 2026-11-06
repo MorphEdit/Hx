@@ -546,3 +546,11 @@ test('docs/benchmark.md: the Test suite speed section, outside the Project bench
   assert.equal(rows.length, 1 + 21 + 5, 'one run row, the 20 tests and their sum, the 5 files');
   assert.ok(rows.every((l) => l.split('|').length >= 7), rows.join('\n'));
 });
+
+test('docs/benchmark.md: the Test suite speed section says release-cmd and ship are left to the child issue #369 (#354)', () => {
+  const b = read('docs/benchmark.md');
+  const at = b.indexOf('\n## Test suite speed\n');
+  const next = b.indexOf('\n## ', at + 1);
+  const sec = b.slice(at, next < 0 ? undefined : next);
+  assert.match(sec, /release-cmd and ship are left to #369/);
+});

@@ -297,3 +297,5 @@ calls per run, which would change what a test covers.
 
 No cut is aimed at release-cmd or ship (`hx release` and `ship.mjs` run their own git and test commands). Their drop
 matches the rest of the suite's: it comes from the load.
+Cutting release-cmd and ship themselves is not in #354: release-cmd and ship are left to #369, the child issue
+filed when #354 was narrowed, which adds its own rows here.
