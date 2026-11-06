@@ -698,7 +698,8 @@ test('the four panels in the reference\'s order with their empty containers, the
   const sections = p.root.all().filter((e) => e.tag === 'section' && e.hasAttribute('aria-label')).map((e) => e.getAttribute('aria-label'));
   assert.deepEqual(sections, ['Waiting on you', 'Board', 'Pipeline', 'Issue details', 'Event log', 'More']);
   assert.ok(html.indexOf('</header>') < html.indexOf('aria-label="Board"'));
-  for (const id of ['groups', 'stages', 'waiting', 'lanes', 'details', 'events', 'ticks']) assert.deepEqual(p.ids.get(id)!.childNodes, [], `#${id} is empty`);
+  for (const id of ['groups', 'stages', 'waiting', 'lanes', 'details', 'ticks']) assert.deepEqual(p.ids.get(id)!.childNodes, [], `#${id} is empty`);
+  assert.deepEqual(p.ids.get('events')!.childNodes.map(text), ['No events today.'], 'the Event log with no events (#377)');
   const row = p.ids.get('groups')!.closest('section')!.parentNode as E;
   assert.equal(row.style.flexWrap, 'wrap', 'the panels stack');
   assert.equal((p.ids.get('stages')!.parentNode as E).style.overflowX, 'auto', 'the Flow columns scroll sideways in their own box');
