@@ -180,7 +180,8 @@ test('a live session before its first turn ends: turn running; no audit line: ro
   assert.equal(i.time, '15 min');
   assert.equal(i.round, '1 of 3');
   assert.equal(i.pr, 'not yet');
-  assert.deepEqual([i.steps, i.facts, i.next], [[], [], '']); // the next slice (#373) fills these
+  assert.deepEqual(i.steps.map((s) => s.note), ['— · 14:45', 'turn running', '', '', '']); // the details (#373)
+  assert.equal(i.next, 'The implementer is working on it (turn 1).');
 });
 
 test('a held merge line gives the round and the PR', () => {

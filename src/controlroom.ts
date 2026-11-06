@@ -217,6 +217,7 @@ export interface Group { key: string; title: string; progress: string }
 /** What issueStates reads of the board plan and of a live session. */
 type PlanPart = Pick<Plan, 'prds' | 'board' | 'parents'>;
 type LiveSession = { number: number; kind: string; since: string; title?: string };
+type Step = Item['steps'][number];
 
 const PRD_KINDS: Record<string, string> = { gauntlet: 'gauntlet', decompose: 'decompose', review: 'review', security: 'security', bar: 'quality bar' };
 const STATUS_ORDER: Status[] = ['done', 'merging', 'auditing', 'implementing', 'waiting'];
@@ -225,6 +226,57 @@ const STAGE_STATUS: Record<ImplStage, Status> = { impl: 'implementing', audit: '
 const isClosing = (msg: string) => ['DONE ✓ audited and merged', 'DONE ✓ closed without a PR', 'impl DONE ✓'].some((w) => msg.startsWith(w));
 const TURN = /^[\w-]+ turn \d+: (?:ok|error)\b/;
 const SPLIT = /^split #(\d+) → (.*)$/;
+const ISSUE_STEPS = ['Claimed', 'Implement', 'Audit', 'Merge', 'Gate'];
+const PRD_STEPS = ['Gauntlet', 'Decompose', 'Build', 'Review', 'Security'];
+// the now step: an issue's by its status; a PRD's by its running session's kind, else its board status (bar, done: every step done)
+const ISSUE_NOW: Record<Status, number> = { waiting: -1, implementing: 1, auditing: 2, merging: 3, done: 5 };
+const PRD_NOW: Record<string, number> = { gauntlet: 0, decompose: 1, building: 2, review: 3, security: 4, bar: 5, done: 5 };
+const PRD_STEP_WORD: Record<string, string> = { ...PRD_KINDS, building: 'building' };
+
+/** A local clock time, `HH:MM`, in the time zone of the machine running the code. */
+export function fmtClock(t: string | number): string {
+  const d = new Date(t);
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
+/** Refs in a sentence: `#a`, `#a and #b`, `#a, #b and #c`. */
+export const refList = (refs: string[]): string => (refs.length < 2 ? refs.join('') : `${refs.slice(0, -1).join(', ')} and ${refs.at(-1)}`);
+
+/** A step trail: the steps before `now` done, `now` now, the rest next (`now` = -1: every step next; past the end: every
+ *  step done). A step's note is `note`'s, else `done` for a done step, `in progress` for the now step, empty for next. */
+function trail(names: string[], now: number, note: (name: string, state: Step['state']) => string | null): Step[] {
+  return names.map((name, k) => {
+    const state: Step['state'] = k < now ? 'done' : k === now ? 'now' : 'next';
+    return { name, state, note: note(name, state) ?? (state === 'done' ? 'done' : state === 'now' ? 'in progress' : '') };
+  });
+}
+
+type TurnLine = { i: number; ok: boolean; tokens: number; secs: number | null };
+const turnStats = (t: TurnLine) => ` · ${fmtTokens(t.tokens)} tokens${t.secs === null ? '' : ` · ${fmtSpan(t.secs * 1000)}`}`;
+
+/** What the step notes read of a current claim: its latest `<role> turn i` line and the turn after it (an `audit n/N` line
+ *  restarts the numbering), its latest `audit n/N: PR #p` line, and that audit's verdict with the `audit turn` line before it. */
+export function claimNotes(claim: LogLine[], role: string) {
+  let turn: TurnLine | null = null, last = 0, auditTurn: TurnLine | null = null;
+  let audit: { n: number; of: number; pr: number } | null = null, verdict: { pass: boolean; turn: TurnLine | null } | null = null;
+  for (const { msg } of claim) {
+    let m = /^([\w-]+) turn (\d+): (ok|error)\b/.exec(msg);
+    if (m) {
+      const secs = / · (\d+)s(?: · |$)/.exec(msg);
+      const t = { i: Number(m[2]), ok: m[3] === 'ok', tokens: tokensIn(msg) ?? 0, secs: secs ? Number(secs[1]) : null };
+      if (m[1] === role) { turn = t; last = t.i; } else if (m[1] === 'audit') auditTurn = t;
+    } else if ((m = /^audit (\d+)\/(\d+): PR #(\d+)/.exec(msg))) {
+      audit = { n: Number(m[1]), of: Number(m[2]), pr: Number(m[3]) };
+      verdict = null; auditTurn = null; last = 0;
+    } else if (msg.startsWith('audit PASS ✓') || msg.startsWith('audit FAIL ✗')) verdict = { pass: msg.startsWith('audit PASS ✓'), turn: auditTurn };
+  }
+  return {
+    turnNote: turn && `turn ${turn.i} ${turn.ok ? 'ok' : 'error'}${turnStats(turn)}`,
+    running: last + 1,
+    auditNote: audit && `audit ${audit.n} of ${audit.of} on PR #${audit.pr}`,
+    verdictNote: verdict && `${verdict.pass ? 'PASS ✓' : 'FAIL ✗'}${verdict.turn ? turnStats(verdict.turn) : ''}`,
+  };
+}
 
 /** The control room's issues (PRD #367, Data → issues): every open PRD, board row, live session (the self-review one left out)
  *  and PRD or issue closed today, with its status and display strings, and the board groups in board order.
@@ -240,10 +292,16 @@ export function issueStates(a: { plan?: PlanPart; sessions: LiveSession[]; lines
 
   // today's closing lines (the latest per number), every issue hx closed in the lines read, and the latest split line listing each issue
   const closedIssue = new Map<number, string>(), closedPrd = new Map<number, string>(), everDone = new Set<number>();
-  const splitOf = new Map<number, number>();
+  const splitOf = new Map<number, number>(), noPr = new Set<number>(); // noPr: today's latest closing line is `closed without a PR`
   for (const l of lines) {
     if (l.issue === null) continue;
-    if (isClosing(l.msg)) { everDone.add(l.issue); if (localDay(l.t) === today) closedIssue.set(l.issue, l.t); }
+    if (isClosing(l.msg)) {
+      everDone.add(l.issue);
+      if (localDay(l.t) === today) {
+        closedIssue.set(l.issue, l.t);
+        if (l.msg.startsWith('DONE ✓ closed without a PR')) noPr.add(l.issue); else noPr.delete(l.issue);
+      }
+    }
     if (l.msg.startsWith('PRD closed ✓') && localDay(l.t) === today) closedPrd.set(l.issue, l.t);
     const m = SPLIT.exec(l.msg);
     if (m) for (const r of m[2].replace(/ \(.*$/, '').matchAll(/(?<![\w/])#(\d+)/g)) splitOf.set(Number(r[1]), Number(m[1]));
@@ -269,6 +327,7 @@ export function issueStates(a: { plan?: PlanPart; sessions: LiveSession[]; lines
     return closed ? 'closed' : 'other';
   };
 
+  const claims = new Map<number, LogLine[]>();
   const items: Item[] = [...numbers].map((n) => {
     const prd = isPrd(n), session = sessions.find((s) => s.number === n), row = rows.get(n), prow = prdRows.get(n);
     const closedAt = (prd ? closedPrd.get(n) : closedIssue.get(n)) ?? null;
@@ -283,6 +342,7 @@ export function issueStates(a: { plan?: PlanPart; sessions: LiveSession[]; lines
 
     // tokens, round and PR from the current claim's turn lines and its latest `audit n/N: PR #p` (or held-merge) line
     const claim = currentClaim(lines, n);
+    claims.set(n, claim);
     let tokens = 0, turns = 0, round = 1, pr = 'not yet';
     for (const { msg } of claim) {
       if (TURN.test(msg)) { turns++; tokens += tokensIn(msg) ?? 0; }
@@ -304,6 +364,72 @@ export function issueStates(a: { plan?: PlanPart; sessions: LiveSession[]; lines
       board: prow?.status ?? row?.status ?? null, held: !!row?.held, closedAt,
     };
   });
+
+  // the step trail, the facts rows and the "what next" sentence (PRD #367, Right: Details); <deps> = the items whose only
+  // open blocker is this one, a blocker that is an open PRD of this repo reads `PRD #N`
+  const sameRepo = (r: Ref) => !a.repo || r.repo.toLowerCase() === a.repo.toLowerCase();
+  const blockers = (n: number) => prdRows.get(n)?.waitingOn ?? rows.get(n)?.waitingOn ?? [];
+  const deps = (n: number) => items.filter((x) => { const b = blockers(x.number); return b.length === 1 && b[0].number === n && sameRepo(b[0]); })
+    .map((x) => x.number).sort((x, y) => x - y).map((x) => `#${x}`).join(', ');
+  const startsWhen = (n: number, verb: string) => {
+    const b = blockers(n), p = b.find((r) => sameRepo(r) && prdRows.has(r.number));
+    if (p) return `Starts when PRD #${p.number} is ready.`;
+    return `Starts when ${refList(b.map(ref))} ${verb}.`;
+  };
+  const shared = (i: Item): string | null => ({
+    'blocked-label': 'Stopped after a failure. A person has to look at it.',
+    untrusted: 'Not built: opened by an account hx does not trust.',
+  } as Record<string, string>)[i.board ?? ''] ?? null;
+  for (const i of items) {
+    const claim = claims.get(i.number)!, session = sessions.find((s) => s.number === i.number);
+    if (i.prd === i.number) {
+      const prow = prdRows.get(i.number), kind = session && session.kind in PRD_KINDS ? session.kind : null;
+      const nowAt = i.status === 'done' ? PRD_STEPS.length : PRD_NOW[kind ?? prow?.status ?? ''] ?? -1;
+      let gauntlet: string | null = null;
+      for (const l of lines) {
+        const m = l.issue === i.number && /^gauntlet round (\d+)\/(\d+): (PASS ✓|FAIL ✗)/.exec(l.msg);
+        if (m) gauntlet = `round ${m[1]} of ${m[2]} · ${m[3]}`;
+      }
+      i.steps = trail(PRD_STEPS, nowAt, (name, state) => state === 'next' ? null
+        : name === 'Gauntlet' ? gauntlet
+        : name === 'Build' && prow ? `${prow.closed}/${prow.open + prow.closed} issues done` : null);
+      const k = i.steps.filter((s) => s.state === 'done').length;
+      i.facts = [['STATUS', i.status === 'done' ? `closed ${fmtClock(i.closedAt!)}` : i.word], ['STEPS', i.status === 'done' ? 'all passed' : `${k} of 5 done`]];
+      i.next = i.status === 'done' ? 'Closed.'
+        : kind ? `A ${PRD_KINDS[kind]} session is running.`
+        : prow?.status === 'building' ? `Its issues are being built: ${prow.closed}/${prow.open + prow.closed} done.`
+        : prow && prow.status in PRD_KINDS ? `The ${PRD_STEP_WORD[prow.status]} step starts when a worker is free.`
+        : prow?.status === 'waiting' && prow.waitingOn.length ? startsWhen(i.number, prow.waitingOn.length > 1 ? 'are done' : 'is done')
+        : shared(i) ?? '';
+      continue;
+    }
+    const c = claimNotes(claim, session?.kind === 'triage' ? 'triage' : 'impl');
+    const merged = i.status === 'done' && !noPr.has(i.number);
+    i.steps = trail(ISSUE_STEPS, ISSUE_NOW[i.status], (name, state) => {
+      if (state === 'next') return name === 'Gate' && i.status === 'merging' ? 'runs the full suite on main after the merge' : null;
+      if (name === 'Claimed') return claim.length ? `${i.worker} · ${fmtClock(claim[0].t)}` : null;
+      if (name === 'Implement') return c.turnNote ?? (state === 'now' ? 'turn running' : null);
+      if (name === 'Audit') return c.verdictNote ?? (state === 'now' ? c.auditNote : null);
+      if (name === 'Merge') return state === 'now' ? 'rebasing on main, then merging' : merged ? 'merged ✓' : null;
+      return null;
+    });
+    i.facts = i.status === 'waiting' ? [['WAITS ON', i.waitsOn.join(', ') || '—'], ['WORKER', 'none yet']]
+      : [['WORKER', i.worker], ['TOKENS', i.tokens || '—'], ['TIME', i.time || '—'], ['ROUND', i.round], ['PR', i.pr]];
+    const d = deps(i.number);
+    i.next = merged ? 'Merged.'
+      : i.status === 'done' ? 'Closed without a PR.'
+      : i.status === 'merging' ? `Rebase on main and merge.${d ? ` When it lands, ${d} can start.` : ''}`
+      : i.status === 'auditing' ? `An independent audit checks PR ${i.pr} (round ${i.round}).`
+      : i.status === 'implementing' ? `The implementer is working on it (turn ${c.running}).${d ? ` ${d} waits for it.` : ''}`
+      : blockers(i.number).length ? startsWhen(i.number, blockers(i.number).length > 1 ? 'merge' : 'merges')
+      : i.held ? 'Its audited PR merges once main is green.'
+      : ({
+        question: 'Waits for your answer on GitHub.',
+        triage: 'A triage session reproduces the bug first.',
+        working: 'Labelled as working, but no session is running.',
+        claimable: 'Starts when a worker is free.',
+      } as Record<string, string>)[i.board ?? ''] ?? shared(i) ?? '';
+  }
 
   const titleOf = (n: number) => prdRows.get(n)?.title ?? rows.get(n)?.title ?? claimTitle(n) ?? '';
   const groups: Group[] = [...prdRows.values()].sort((x, y) => x.number - y.number)
