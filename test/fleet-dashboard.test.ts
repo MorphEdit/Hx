@@ -252,6 +252,7 @@ test('/repo/<k>/ answers what a single-repo dashboard answers; anything else und
     const s = JSON.parse(body);
     delete s.runner.uptimeMs;
     for (const x of s.sessions) delete x.elapsedMs;
+    delete s.machine.from; delete s.machine.to; // the Machine period ends at the request's now
     return s;
   };
   const before = strip((await get(fleet.port, '/repo/0/api/state')).body);

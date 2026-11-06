@@ -13,6 +13,8 @@ import { DEFAULT_FLEET_WORKERS, type Fleet, fleetDir, fleetWorkers, type ListedR
 import { githubLine } from './ghlimit.ts';
 import { readHealth } from './health.ts';
 import { workersLine } from './load.ts';
+import { readLoadLines } from './loadlog.ts';
+import { analyseMachine } from './machine.ts';
 import { readSupervise } from './supervise.ts';
 import { autoStartText, readAutoStart } from './service.ts';
 import { type GateRun, readGate, readGateRuns } from './gate.ts';
@@ -107,8 +109,8 @@ export function testTime(recs: UsageRecord[], gates: GateRun[], now = Date.now()
 }
 
 /** Reads .hx/ only and never calls gh: usage by PRD and the waiting list come from the last board /api/board fetched, null before one. */
-export function dashboardState(p: Project, board: () => BoardSeen): object {
-  const dir = p.stateDir, now = Date.now();
+export function dashboardState(p: Project, board: () => BoardSeen, now = Date.now()): object {
+  const dir = p.stateDir;
   const live = readLive(dir);
   const running = !!live && pidAlive(live.pid);
   const runner = running ? {
@@ -152,8 +154,14 @@ export function dashboardState(p: Project, board: () => BoardSeen): object {
   const logFile = runLogFile(dir);
   const read = (f: string) => (existsSync(f) ? readFileSync(f, 'utf8') : '');
   // run.log.1 (the one rotated file, when there is one) then run.log, as one line sequence
-  const outcomes = parseOutcomes([...read(`${logFile}.1`).split(/\r?\n/), ...read(logFile).split(/\r?\n/)]);
-  return { repo: p.config.repo, waiting, runner, sessions, gate, health, supervised, autoStart, usage, time: testTime(recs, readGateRuns(dir), now), log: tailLines(logFile, LOG_LINES), outcomes };
+  const logLines = [...read(`${logFile}.1`).split(/\r?\n/), ...read(logFile).split(/\r?\n/)];
+  const outcomes = parseOutcomes(logLines);
+  const gates = readGateRuns(dir);
+  // the Machine panel over the last 24 h; `workers` is the live runner's ceiling, else the config's
+  const machine = analyseMachine({ load: readLoadLines(dir), gates, log: logLines, usage: recs,
+    workers: running ? live.workers : p.config.workers, now });
+  return { repo: p.config.repo, waiting, runner, sessions, gate, health, supervised, autoStart, usage,
+    time: testTime(recs, gates, now), machine, log: tailLines(logFile, LOG_LINES), outcomes };
 }
 
 function send(res: ServerResponse, status: number, type: string, body: string, headers: Record<string, string> = {}): void {

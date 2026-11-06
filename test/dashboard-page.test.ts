@@ -98,7 +98,7 @@ class E extends N {
 function page(state: object | (() => object | null), board: object | null, pathname = '/') {
   const root = new E('body');
   const ids = new Map<string, E>();
-  for (const id of ['back', 'repo', 'status', 'waiting-body', 'now-body', 'board-body', 'stats-body', 'log']) ids.set(id, root.appendChild(new E('div')) as E);
+  for (const id of ['back', 'repo', 'status', 'waiting-body', 'now-body', 'board-body', 'machine-body', 'stats-body', 'log']) ids.set(id, root.appendChild(new E('div')) as E);
   const timers: (() => void)[] = [];
   const document = {
     getElementById: (id: string) => ids.get(id) ?? null,
@@ -495,4 +495,59 @@ test('a held issue renders as held (main red); /api/board carries held from .hx/
     const board = JSON.parse((await get(d.port, '/api/board')).body);
     assert.equal(board.board.find((r: any) => r.number === 7)?.held, true);
   } finally { rmSync(path.join(stateDir, 'held.json'), { force: true }); }
+});
+
+test('Machine: the chart of CPU, free memory and workers, avg and p90 CPU, throughput rows with "not enough data", slowdown, role split, recommendation and its rule', E2E, async () => {
+  assert.ok(html.indexOf('<h2>Machine</h2>') > html.indexOf('<h2>Board</h2>') && html.indexOf('<h2>Machine</h2>') < html.indexOf('<h2>Stats</h2>'));
+  const base = { repo: 'me/app', runner: { running: false }, sessions: [], gate: null, usage: {}, outcomes: {}, log: [] };
+  const from = '2026-11-05T12:00:00.000Z', to = '2026-11-06T12:00:00.000Z';
+  const series = [0, 1, 2].map((k) => ({ ts: `2026-11-06T0${k + 1}:00:00.000Z`, cpuPct: 30 + 30 * k, freeMemGB: 8 - k, target: 2 + (k > 1 ? 1 : 0), running: k }));
+  const machine = { from, to, days: 1, use: { series, avgCpu: 60.4, p90Cpu: 90 },
+    throughput: [{ workers: 2, hours: 4, done: 8, perHour: 2, enough: true }, { workers: 3, hours: 2, done: 2, perHour: 1, enough: false }],
+    slowdown: { baselineMs: 60_000, medianMs: 150_000, factor: 2.5, text: 'tests run 2.5× slower than at idle' },
+    sessions: [{ role: XSS, sessions: 1, testShare: 0.1, otherShare: 0.9 }, { role: 'impl', sessions: 3, testShare: 0.5, otherShare: 0.5 }],
+    recommendation: { rule: 'A', text: '3 workers get about as much done as 2 here; set `workers` to 2' } };
+  const p = page({ ...base, machine }, null);
+  await p.flush();
+  const mb = p.ids.get('machine-body')!;
+  const v = (k: string) => mb.all().find((e) => e.getAttribute('data-machine') === k)!;
+  assert.equal(text(v('avgCpu')), '60%');
+  assert.equal(text(v('p90Cpu')), '90%');
+
+  const svg = v('chart');
+  assert.equal(svg.tag, 'svg');
+  assert.equal(svg.ns, 'http://www.w3.org/2000/svg');
+  const lines = svg.all().filter((e) => e.tag === 'polyline');
+  assert.deepEqual(lines.map((l) => l.getAttribute('class')), ['cpu', 'mem', 'target', 'running']);
+  const pts = (cls: string) => lines.find((l) => l.getAttribute('class') === cls)!.getAttribute('points')!.split(' ').map((s) => s.split(',').map(Number));
+  for (const cls of ['cpu', 'mem', 'target', 'running']) assert.equal(pts(cls).length, 3, cls);
+  assert.deepEqual(pts('cpu').map(([x]) => x), pts('target').map(([x]) => x), 'one time axis for use and workers');
+  assert.ok(pts('cpu')[0][0] < pts('cpu')[2][0], 'later lines further right');
+  assert.ok(pts('cpu')[0][1] > pts('cpu')[2][1], 'more CPU is higher');
+  assert.ok(Math.max(...pts('cpu').map(([, y]) => y)) < Math.min(...pts('target').map(([, y]) => y)), 'workers in the band below');
+  assert.ok(svg.all().filter((e) => e.tag === 'text').every((e) => e.viaTextContent), 'chart text set with textContent');
+
+  const rows = mb.all().filter((e) => e.tag === 'tr').map((r) => r.all().filter((c) => c.tag === 'td' || c.tag === 'th').map(text));
+  assert.deepEqual(rows.slice(0, 3), [['workers', 'hours', 'issues closed', 'per hour'], ['2', '4', '8', '2.00'], ['3', '2', '2', 'not enough data']]);
+  assert.deepEqual(rows.slice(3), [['role', 'sessions', 'tests', 'other'], [XSS, '1', '10%', '90%'], ['impl', '3', '50%', '50%']]);
+  assert.ok(mb.all().every((e) => e.tag !== 'img'), 'the role is text');
+  assert.equal(text(v('slowdown')), 'tests run 2.5× slower than at idle');
+  assert.ok(text(mb).includes('(median gate 2m 30s · idle 1m 00s)'), text(mb));
+  assert.equal(text(v('recommendation')), '3 workers get about as much done as 2 here; set `workers` to 2');
+  assert.match(text(v('rule')), /^\(rule A: /);
+  for (const k of ['avgCpu', 'p90Cpu', 'slowdown', 'recommendation']) assert.ok(v(k).viaTextContent, `${k} is set with textContent`);
+
+  // no history: no chart, notes instead; the fits rule names itself; an older payload without machine says so
+  const empty = { from, to, days: 1, use: { series: [] }, throughput: [], slowdown: {}, sessions: [],
+    recommendation: { rule: 'fits', text: 'the current setting fits this machine' } };
+  const q = page({ ...base, machine: empty }, null);
+  await q.flush();
+  const qb = q.ids.get('machine-body')!;
+  assert.ok(!qb.all().some((e) => e.tag === 'svg'));
+  for (const w of ['CPU average -', 'p90 -', 'no load history in this period', 'not enough gate runs to compare', 'no test time in this period',
+    'the current setting fits this machine (no other rule fired)']) assert.ok(text(qb).includes(w), w);
+  const o = page(base, null);
+  await o.flush();
+  assert.equal(text(o.ids.get('machine-body')!), 'no machine data');
+  assert.match(text(o.ids.get('stats-body')!), /Outcomes/, 'the rest still renders');
 });
