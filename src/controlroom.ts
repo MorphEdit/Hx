@@ -210,13 +210,15 @@ export interface Item {
   number: number; prd: number | null; title: string; group: string; status: Status; word: string; stage: ImplStage | null;
   since: string | null; waitsOn: string[]; worker: string; tokens: string; time: string; round: string; pr: string;
   steps: { name: string; state: 'done' | 'now' | 'next'; note: string }[]; facts: [string, string][]; next: string;
-  board: string | null; held: boolean; closedAt: string | null;
+  board: string | null; held: boolean; closedAt: string | null; chip: Chip | null;
 }
+/** A Flow chip: the column a live session's item sits in and its short note. */
+export interface Chip { column: string; note: string }
 export interface Group { key: string; title: string; progress: string }
 
 /** What issueStates reads of the board plan and of a live session. */
 type PlanPart = Pick<Plan, 'prds' | 'board' | 'parents'>;
-type LiveSession = { number: number; kind: string; since: string; title?: string };
+type LiveSession = { number: number; kind: string; since: string; title?: string; turn?: number };
 type Step = Item['steps'][number];
 
 const PRD_KINDS: Record<string, string> = { gauntlet: 'gauntlet', decompose: 'decompose', review: 'review', security: 'security', bar: 'quality bar' };
@@ -276,6 +278,27 @@ export function claimNotes(claim: LogLine[], role: string) {
     auditNote: audit && `audit ${audit.n} of ${audit.of} on PR #${audit.pr}`,
     verdictNote: verdict && `${verdict.pass ? 'PASS ✓' : 'FAIL ✗'}${verdict.turn ? turnStats(verdict.turn) : ''}`,
   };
+}
+
+const CHIP_NOTE: Record<string, string> = { review: 'review', security: 'security pass', bar: 'quality bar' };
+
+/** A live session's Flow chip (PRD #367, Centre → Flow): `impl` by its stage, `gauntlet` / `decompose` in their own columns,
+ *  `review` / `security` / `bar` in Audit (with the round of their claim line), any other kind in Implement. `claim` is the
+ *  item's current claim; a round is read only from a claim line of the session's own kind. */
+export function chipOf(s: { kind: string; turn?: number }, stage: ImplStage | null, claim: LogLine[]): Chip {
+  const c = claim.length ? claimOf(claim[0]) : null, round = c?.kind === s.kind ? c.round : null;
+  const turn = `turn ${s.turn ?? 1}`;
+  if (s.kind === 'impl') {
+    if (stage === 'merge') return { column: 'Merge', note: 'audit PASS · rebasing' };
+    let audit: string | null = null;
+    for (const { msg } of claim) { const m = /^audit (\d+\/\d+): PR #(\d+)/.exec(msg); if (m) audit = `audit ${m[1]} · PR #${m[2]}`; }
+    if (stage === 'audit' && audit) return { column: 'Audit', note: audit };
+    return { column: 'Implement', note: turn };
+  }
+  if (s.kind === 'gauntlet') return { column: 'Gauntlet', note: round === null ? 'gauntlet' : `round ${round}` };
+  if (s.kind === 'decompose') return { column: 'Decompose', note: 'decompose' };
+  if (s.kind in CHIP_NOTE) return { column: 'Audit', note: CHIP_NOTE[s.kind] + (round === null ? '' : ` · round ${round}`) };
+  return { column: 'Implement', note: `${s.kind} · ${turn}` };
 }
 
 /** The control room's issues (PRD #367, Data → issues): every open PRD, board row, live session (the self-review one left out)
@@ -362,6 +385,7 @@ export function issueStates(a: { plan?: PlanPart; sessions: LiveSession[]; lines
       time: start !== null && end !== null ? fmtSpan(end - start) : '',
       round: `${round} of ${auditRounds}`, pr, steps: [], facts: [], next: '',
       board: prow?.status ?? row?.status ?? null, held: !!row?.held, closedAt,
+      chip: session ? chipOf(session, stage, claim) : null,
     };
   });
 
