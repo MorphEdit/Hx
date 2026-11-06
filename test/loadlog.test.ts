@@ -31,7 +31,7 @@ const T0 = Date.parse('2026-11-06T10:00:00.000Z');
 const git = (cwd: string, ...a: string[]) => execFileSync('git', a, { cwd, encoding: 'utf8', stdio: 'pipe' }).trim();
 const line = (ts: number, x: Record<string, unknown> = {}) => ({ ts: new Date(ts).toISOString(), cpuPct: 50, freeMemGB: 8, target: 2, running: 1, gate: false, ...x });
 
-test('readLoadLines: oldest first, malformed lines skipped, a missing file is none', () => {
+test('readLoadLines: oldest first, malformed lines skipped, a missing file is none', E2E, () => {
   const dir = mkdtempSync(path.join(tmp, 'r-'));
   assert.deepEqual(readLoadLines(dir), []);
   writeFileSync(loadFile(dir), [JSON.stringify(line(T0)), '{not json', '', JSON.stringify({ ts: 'x', cpuPct: 1 }),
@@ -43,7 +43,7 @@ test('readLoadLines: oldest first, malformed lines skipped, a missing file is no
   assert.deepEqual(readLoadLines(dir).at(-1), line(T0 + 3 * MIN));
 });
 
-test('pruneLoadLines: drops the lines older than 7 days (and malformed ones), keeps the rest in order; an all-new file is not rewritten', () => {
+test('pruneLoadLines: drops the lines older than 7 days (and malformed ones), keeps the rest in order; an all-new file is not rewritten', E2E, () => {
   const dir = mkdtempSync(path.join(tmp, 'p-'));
   assert.equal(pruneLoadLines(dir, T0), 0, 'no file');
   const lines = [line(T0 - 8 * DAY), line(T0 - 7 * DAY - 1), line(T0 - 7 * DAY), line(T0 - DAY), line(T0)];
@@ -55,7 +55,7 @@ test('pruneLoadLines: drops the lines older than 7 days (and malformed ones), ke
   assert.equal(readFileSync(loadFile(dir), 'utf8'), text);
 });
 
-test('loadLineOf: no reading → no line; the reading rounded to one decimal', () => {
+test('loadLineOf: no reading → no line; the reading rounded to one decimal', E2E, () => {
   assert.equal(loadLineOf(T0, null, { target: 2, running: 1, gate: false }), null);
   assert.deepEqual(loadLineOf(T0, { cpuPct: 42.25, freeMemGB: 12.34 }, { target: 3, running: 2, gate: true }),
     { ts: '2026-11-06T10:00:00.000Z', cpuPct: 42.3, freeMemGB: 12.3, target: 3, running: 2, gate: true });
