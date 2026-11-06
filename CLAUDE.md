@@ -28,6 +28,7 @@ roadmap and the agreed order of the next features) before changing anything.
 - `scripts/issue.mjs` — prints an issue with comments from untrusted accounts removed (`HX_TRUSTED`); the only way agents read issues
 - `scripts/ghwait.mjs` — the gh caller both scripts share: short rate limits waited out, capped by `HX_GH_WAIT_MAX_SECONDS`
 - `scripts/ship.mjs` — the one-call commit → rebase → test → push → PR → merge → close routine workers use
+- `scripts/test.mjs` — `npm test`: node --test over the suite, or only the files given (`npm test -- <files>`), at most `HX_TEST_CONCURRENCY` files at once
 - `test/` — `npm test`. End-to-end tests use real git (local bare origin) with fake `gh` and `claude`
   in `test/fakes/` (`HX_GH_BIN`, `claudeBin` pointing at a `.mjs` run under node; `test/isolate.ts` sets `HX_GH_INPROC`, so the fake gh answers in-process)
 - `bench/` — the six-issue benchmark (`node bench/run.mjs chat|hx1|hx3`, then `node bench/figures.mjs`), and the project benchmark (`node bench/project.mjs chat|hx3`: one brief
