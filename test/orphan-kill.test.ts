@@ -157,7 +157,7 @@ const stateDir = path.join(root, '.hx');
 mkdirSync(stateDir);
 const wtRoot = path.join(tmp, 'wt');
 const project = () => ({ root, stateDir, config: { ...DEFAULTS, repo: 'me/app', defaultBranch: 'main', worktreeRoot: wtRoot,
-  claudeBin: path.join(here, 'fakes', 'claude.mjs'), maxIterations: 3, pollSeconds: 1, audit: false } });
+  claudeBin: path.join(here, 'fakes', 'claude.mjs'), maxIterations: 3, pollSeconds: 1, audit: false, sizeCheck: false } }); // no 60 s size turn before the impl turn writes its pid
 const board = (issues: any[]) => writeFileSync(stateFile, JSON.stringify({ comments: [], issues }));
 const byNum = (n: number) => JSON.parse(readFileSync(stateFile, 'utf8')).issues.find((i: any) => i.number === n);
 
