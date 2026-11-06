@@ -29,6 +29,7 @@ import { parseQualityBar } from './prd.ts';
 import { cappedQuestion, cappedQuestionNote, IMPL_TOO_MANY_QUESTIONS, ownerAnswer, ownerAnswerNote, questionFromReply, TOO_MANY_QUESTIONS } from './question.ts';
 import { HELD_STATUS, heldComment, mergeFailure, readHeld, setHeld } from './held.ts';
 import { decideTarget, initialTarget, loadReading, mayClaim, startSampler, type LoadReading, type LoadSnapshot } from './load.ts';
+import { concurrencyEnv, outsideTestEnv, testConcurrencyError, testConcurrencyValue } from './concurrency.ts';
 import { addBlockers, narrowedBody, narrowedComment, parseSizeReply, SIZE_FITS, SIZE_NARROWED, SIZE_SPLIT, withTrailers, type SizeChild } from './size.ts';
 import { appendSkills, resolveSkills, rtddCheck, rtddEnv, SKILL_CHECKS, skillNames, skillsLogLine, type Skill } from './skills.ts';
 
@@ -41,6 +42,9 @@ const GH_BUDGET_READ_MS = 60_000;
 const SHIP = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'scripts', 'ship.mjs').replace(/\\/g, '/');
 // how agents read an issue: it prints only the comments by accounts in HX_TRUSTED
 export const ISSUE_SCRIPT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'scripts', 'issue.mjs').replace(/\\/g, '/');
+
+/** A session's HX_TEST_CONCURRENCY from its runner (counted as in flight), else the n = 1 value. */
+const sessionTestEnv = (ctx: WorkContext, c: Config) => ctx.testEnv ? ctx.testEnv() : outsideTestEnv(c);
 
 /** The env every Claude session gets: HX_TRUSTED = the trusted set, which scripts/issue.mjs filters comments by. */
 export function trustedEnv(trusted: Set<string>): { HX_TRUSTED: string } {
@@ -194,6 +198,9 @@ interface WorkContext {
   skills?: Record<string, Skill[]>; // role → the skills appended to its prompt, resolved once per run
   agent?: AgentCli; // the agent CLI sessions run on (config.agentCli), resolved once per run
   workersTarget: () => number; // the run's worker target now (autoWorkers' auto-scaled one, else the fixed count): each usage record carries it
+  // HX_TEST_CONCURRENCY for a run of tests starting now in this session (a role session, its ship --resume), counted as in
+  // flight; absent: the n = 1 value
+  testEnv?: () => Record<string, string>;
 }
 
 const sleep = (ms: number, signal?: AbortSignal) => new Promise<void>((r) => {
@@ -315,6 +322,8 @@ async function pool(p: Project, o: PoolOptions): Promise<number> {
   if (badSelfUpdate) { log(`STOPPED: ${badSelfUpdate}`); return 2; }
   const badAuto = autoWorkersConfigError(c);
   if (badAuto) { log(`STOPPED: ${badAuto}`); return 2; }
+  const badConcurrency = testConcurrencyError(c.testConcurrency);
+  if (badConcurrency) { log(`STOPPED: ${badConcurrency}`); return 2; }
   // who may put work on the board: looked up once per run; without it nothing is read or claimed
   let trusted: Set<string>, login: string;
   try { login = await gh.ghLogin(); trusted = trustedSet(login, c.trustedAuthors ?? []); } catch (e: any) { log(`STOPPED: ${e.message}`); return 2; }
@@ -363,6 +372,15 @@ async function pool(p: Project, o: PoolOptions): Promise<number> {
   const live: LiveState = { pid: process.pid, startedAt: new Date().toISOString(), repo: c.repo, workers: o.workers, sessions: [], skills: skillNames(skills.byRole), models };
   let handedOff = false; // a self-update's new runner may own live.json now: this one writes it no more
   const save = () => { if (!handedOff) try { writeLive(p.stateDir, live); } catch {} };
+  const inFlight = new Map<string, Promise<void>>();
+  let reviewing = false; // the self-review session runs (it is not in inFlight)
+  const sessionsNow = () => inFlight.size + (reviewing ? 1 : 0);
+  // HX_TEST_CONCURRENCY for a run of tests starting now with `n` running, itself counted (#350); the last value set goes to live.json
+  const testEnv = (n: number): Record<string, string> => {
+    const v = testConcurrencyValue(c.testConcurrency, n);
+    if (v !== null && live.testConcurrency !== v) { live.testConcurrency = v; save(); }
+    return concurrencyEnv(v);
+  };
   // autoWorkers (PRD #315): o.workers is the ceiling; the target follows the load, decided once per board read.
   // HX_AUTO_WORKERS=0 forces it off (the tests set it, so the machine's load never changes their claims)
   const auto = c.autoWorkers && process.env.HX_AUTO_WORKERS !== '0';
@@ -501,7 +519,8 @@ async function pool(p: Project, o: PoolOptions): Promise<number> {
         gateAgain = false;
         if (o.signal.aborted) break;
         // Ctrl+C (o.signal) aborts the gate; `hx pause --now` (stop) does not
-        const r = await runGate(p.root, c.worktreeRoot, c.defaultBranch, cmd, c.gateMinutes * 60_000, o.signal, setup).catch((e) => ({ sha: '', ok: true, command: cmd, output: String(e.message), at: new Date().toISOString(), error: true }));
+        // the gate counts as one more than the sessions (gateRunning is not set yet on the first run)
+        const r = await runGate(p.root, c.worktreeRoot, c.defaultBranch, cmd, c.gateMinutes * 60_000, o.signal, setup, undefined, testEnv(sessionsNow() + 1)).catch((e) => ({ sha: '', ok: true, command: cmd, output: String(e.message), at: new Date().toISOString(), error: true }));
         if ('aborted' in r && r.aborted) { await r.killed; break; } // discarded: no log, no gate.json, no fix issue; the tree is gone first
         if ('error' in r) { log(`gate: could not run (${r.output.slice(0, 160)}) — retried after the next merge`); continue; }
         if ('setupFailed' in r && r.setupFailed) {
@@ -538,7 +557,7 @@ async function pool(p: Project, o: PoolOptions): Promise<number> {
           if (r.ok) watchReport({ gate: 'green' });
           else {
             log(`self-update: the gate is red at ${short(w.to)} — running it at ${short(w.from)}`);
-            const g = await runGate(p.root, c.worktreeRoot, c.defaultBranch, r.command, c.gateMinutes * 60_000, o.signal, setup, w.from)
+            const g = await runGate(p.root, c.worktreeRoot, c.defaultBranch, r.command, c.gateMinutes * 60_000, o.signal, setup, w.from, testEnv(sessionsNow() + 1))
               .catch((e) => ({ error: String(e.message) }));
             if ('error' in g) log(`self-update: the gate at ${short(w.from)} could not run (${g.error.slice(0, 160)})`);
             else if (!g.aborted) {
@@ -595,7 +614,7 @@ async function pool(p: Project, o: PoolOptions): Promise<number> {
         const due = await dueRelease(p, c);
         if (!due.due) { if (final) log(`release: none due — ${due.why}`); return false; }
         const r = await release({ paths: p, config: c, bump: due.bump, yes: true, dryRun: false, inRun: true,
-          gate: c.gate ? releaseGateInRun : releaseGate(p, c, rlog, o.signal), log: rlog, confirm: async () => true,
+          gate: c.gate ? releaseGateInRun : releaseGate(p, c, rlog, o.signal, () => testEnv(sessionsNow() + 1)), log: rlog, confirm: async () => true,
           planned: (t) => { tag = t; } });
         if (!r.released) { flush(); return false; }
         releaseLast = '';
@@ -626,6 +645,7 @@ async function pool(p: Project, o: PoolOptions): Promise<number> {
         requestGate: () => { if (!c.gate || !gateCommand() || gateRunning) return false; void gateCheck(); return true; },
         closedGateFix: (n) => { if (gs.fixIssue === n) { gs.fixIssue = undefined; writeGate(p.stateDir, gs); showGate(); } },
         merged: (test) => ctx.merged(test), // a resumed audited PR: the gate and release checks as after any merge
+        testEnv: () => testEnv(sessionsNow() + (gateRunning ? 1 : 0) + 1), // its ship --resume counts as one more
       });
       for (const x of r.results) if (x.mark !== '✓') log(`health: ${renderResult(x)}`);
       log(r.line);
@@ -662,8 +682,9 @@ async function pool(p: Project, o: PoolOptions): Promise<number> {
       if (fleetDir && slot === null) return false;
       const range = `${d.since}..${head}`;
       let r: GoalResult | null;
+      reviewing = true;
       try { r = await selfReview(p, ctx, { range, head, subjects }); }
-      finally { if (fleetDir && slot !== null) releaseSlot(fleetDir, slot); live.sessions = live.sessions.filter((x) => x.key !== SELFREVIEW_KEY); save(); }
+      finally { reviewing = false; if (fleetDir && slot !== null) releaseSlot(fleetDir, slot); live.sessions = live.sessions.filter((x) => x.key !== SELFREVIEW_KEY); save(); }
       if (r?.stopReason === 'limited') holdUntil(r.last?.limited?.resetsAt ? r.last.limited.resetsAt * 1000 : Date.now() + 30 * 60_000, 'usage limit reached');
       // a session that did not finish records nothing: the range is reviewed next time
       if (!r?.done) { log(`self-review: did not finish (${r?.stopReason ?? 'aborted'}) — the range is reviewed next time`); return false; }
@@ -728,7 +749,6 @@ async function pool(p: Project, o: PoolOptions): Promise<number> {
     return false;
   };
 
-  const inFlight = new Map<string, Promise<void>>();
   let idleLogged = false;
   const skipped = new Set<number>(); // untrusted issues / PRDs already logged this run
   const budgetLogged = new Set<string>(); // budget skips already logged: once per action per window reset
@@ -761,6 +781,7 @@ async function pool(p: Project, o: PoolOptions): Promise<number> {
     agent,
     workersTarget: () => (auto ? targetState.target : o.workers),
     started: (s) => { live.sessions.push(s); save(); },
+    testEnv: () => testEnv(sessionsNow() + (gateRunning ? 1 : 0)), // the session is in flight already
     merged: (testCommand) => {
       if (testCommand && !gs.command) { gs.command = testCommand; writeGate(p.stateDir, gs); }
       void gateCheck();
@@ -992,7 +1013,7 @@ async function selfReview(p: Project, ctx: WorkContext, o: { range: string; head
       prompt: appendSkills(render(readFileSync(path.join(PROMPTS, 'selfreview.md'), 'utf8'), v), skills, PROMPTS),
       continuePrompt: render(readFileSync(path.join(PROMPTS, 'continue.md'), 'utf8'), v),
       promise: SELFREVIEW_PROMISE, maxIterations: c.maxIterations, signal: ctx.signal,
-      env: rtddEnv(trustedEnv(ctx.trusted), skills.some((s) => s.name === 'rtdd'), effectiveRtddBin(c)),
+      env: rtddEnv({ ...trustedEnv(ctx.trusted), ...sessionTestEnv(ctx, c) }, skills.some((s) => s.name === 'rtdd'), effectiveRtddBin(c)),
       onEvent: (ev) => { appendFileSync(eventLog, JSON.stringify(ev) + '\n'); turnEvents.push(ev); },
       onRateLimit: (rl) => ctx.rateLimit(rl),
       onTurn: (i, sessionId, t) => {
@@ -1155,7 +1176,7 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
   mkdirSync(logDir, { recursive: true });
   const eventLog = path.join(logDir, `${a.kind === 'impl' ? 'issue' : a.kind}-${n}.jsonl`);
   let sessionTokens = 0;
-  const env = trustedEnv(ctx.trusted);
+  let env: Record<string, string> = trustedEnv(ctx.trusted); // each role session's, set as it starts: its checkpoint turn reuses it
   const agent = ctx.agent ?? agentFor(c.agentCli);
   /** One role session (a fresh Claude session with its Ralph loop), logged and counted. */
   const goal = (role: string, cwd: string, promptFile: string, promise: string, extra: Record<string, string | number> = {}, altPromise?: string) => {
@@ -1165,6 +1186,7 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
     const m = roleModel(c, role);
     let mismatched = false;
     const turnEvents: unknown[] = []; // this turn's events, for its test time
+    env = { ...trustedEnv(ctx.trusted), ...sessionTestEnv(ctx, c) };
     return runGoal({
       agent, bin: agent.bin(c), cwd, model: m.model, effort: m.effort, extraArgs: workerArgs(c), timeoutMs: c.turnTimeoutMinutes * 60_000,
       stallMs: c.stallMinutes * 60_000, sweepRoot: c.worktreeRoot,
@@ -1612,7 +1634,7 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
 
     let feedback: string, why: string;
     if (v.pass) {
-      const m = await mergeAudited(wt.dir, c, c.gateCommand || readGate(p.stateDir).command || '');
+      const m = await mergeAudited(wt.dir, c, c.gateCommand || readGate(p.stateDir).command || '', sessionTestEnv(ctx, c));
       // the repo only took an auto-merge: it lands within moments, wait for it rather than fail
       if (!m.ok && /AUTO-MERGE set/.test(m.output)) m.ok = await waitClosed(c.repo, n, 10 * 60_000);
       if (m.ok && (await gh.issueState(c.repo, n)) === 'CLOSED') {
@@ -1810,12 +1832,13 @@ export async function shipInfo(cwd: string): Promise<{ test?: string } | null> {
   try { return JSON.parse(readFileSync(path.join(dir, 'hx-ship.json'), 'utf8')); } catch { return null; }
 }
 
-/** Rebase, re-test, push and merge the audited branch (ship.mjs --resume, run by hx, not by an agent). */
-export async function mergeAudited(cwd: string, c: Config, testCmd: string): Promise<{ ok: boolean; retry: boolean; code: number; output: string }> {
+/** Rebase, re-test, push and merge the audited branch (ship.mjs --resume, run by hx, not by an agent). `env` is added to
+ *  ship's env (HX_TEST_CONCURRENCY, #350), which hands it to the test command. */
+export async function mergeAudited(cwd: string, c: Config, testCmd: string, env: Record<string, string> = {}): Promise<{ ok: boolean; retry: boolean; code: number; output: string }> {
   // no hx-ship.json (a PR opened outside ship): ship rebuilds it from the branch's PR with this repo and test command
   const fallback = (await shipInfo(cwd)) ? [] : ['--repo', c.repo, '--base', c.defaultBranch, ...(testCmd ? ['--test', testCmd] : [])];
   return new Promise((resolve) => {
-    execFile(process.execPath, [SHIP, '--resume', ...fallback], { cwd, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 }, (err, stdout, stderr) => {
+    execFile(process.execPath, [SHIP, '--resume', ...fallback], { cwd, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024, env: { ...process.env, ...env } }, (err, stdout, stderr) => {
       const code = err ? (typeof (err as any).code === 'number' ? (err as any).code : 1) : 0;
       // 3 = rebase conflict, 4 = tests fail after the rebase: the implementer can fix those
       resolve({ ok: code === 0 && /SHIPPED #/.test(stdout), retry: code === 3 || code === 4, code, output: `${stdout}\n${stderr}`.trim() });

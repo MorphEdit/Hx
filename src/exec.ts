@@ -149,12 +149,12 @@ export interface ShellResult {
 /** Run a shell command line; after `timeoutMs`, or when `signal` aborts, the whole process tree is killed
  *  and `timedOut` / `aborted` is set. An abort settles once the tree is gone; with `killLater` it settles at
  *  once and `killed` is that wait (taskkill alone takes seconds on a loaded Windows machine). */
-export function runShell(command: string, opts: { cwd?: string; timeoutMs: number; signal?: AbortSignal; killLater?: boolean }): Promise<ShellResult> {
+export function runShell(command: string, opts: { cwd?: string; timeoutMs: number; signal?: AbortSignal; killLater?: boolean; env?: Record<string, string> }): Promise<ShellResult> {
   // already aborted: nothing to start, so nothing to kill (a taskkill under load would take seconds)
   if (opts.signal?.aborted) return Promise.resolve({ code: 130, output: '', timedOut: false, aborted: true, killed: Promise.resolve() });
   return new Promise((resolve) => {
     const child = spawn(command, [], { cwd: opts.cwd, shell: true, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'],
-      detached: process.platform !== 'win32' }); // its own process group, so the tree can be killed elsewhere
+      ...(opts.env ? { env: { ...process.env, ...opts.env } } : {}), detached: process.platform !== 'win32' }); // its own process group, so the tree can be killed elsewhere
     const keep = (s: string, d: Buffer) => (s + d.toString()).slice(-1024 * 1024);
     let out = '', err = '', timedOut = false, aborted = false, settled = false;
     let killed: Promise<void> | undefined;

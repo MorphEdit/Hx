@@ -40,6 +40,8 @@ export interface LiveState {
   // only while autoWorkers is on: the target session count (workers stays the ceiling), and the latest per-pass reading's
   // CPU busy % (whole number) and free memory (GB, one decimal); both absent before the first reading
   autoWorkers?: { target: number; cpuPct?: number; freeMemGB?: number };
+  // the HX_TEST_CONCURRENCY this runner set last (a session, a gate run or a ship --resume); absent before one, or with testConcurrency 0
+  testConcurrency?: number;
 }
 
 export type PauseMode = 'drain' | 'now';

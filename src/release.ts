@@ -6,6 +6,7 @@ import path from 'node:path';
 import type { Config } from './config.ts';
 import { run, runOk } from './exec.ts';
 import { readGate, remoteSha, runGate, type GateResult } from './gate.ts';
+import { outsideTestEnv } from './concurrency.ts';
 import * as gh from './github.ts';
 import { otherRunner } from './runstate.ts';
 import { addWorktree, removeWorktree } from './worktree.ts';
@@ -178,8 +179,10 @@ export async function dueRelease(p: { root: string }, c: Config, now = new Date(
 export interface ReleasePaths { root: string; stateDir: string }
 
 /** The gate `hx release` uses: the recorded result when it is for origin's head, else a gate run that is never
- *  recorded (gate.json untouched, no fix issue) — even with `gate` off. null: no gate command known. */
-export function releaseGate(paths: ReleasePaths, c: Config, log: (m: string) => void, signal?: AbortSignal): () => Promise<GateResult | null> {
+ *  recorded (gate.json untouched, no fix issue) — even with `gate` off. null: no gate command known. `testEnv`: the
+ *  HX_TEST_CONCURRENCY of that run, taken as it starts (default n = 1: hx release from the CLI). */
+export function releaseGate(paths: ReleasePaths, c: Config, log: (m: string) => void, signal?: AbortSignal,
+  testEnv: () => Record<string, string> = () => outsideTestEnv(c)): () => Promise<GateResult | null> {
   return async () => {
     const gs = readGate(paths.stateDir);
     const head = await remoteSha(paths.root, c.defaultBranch);
@@ -188,7 +191,7 @@ export function releaseGate(paths: ReleasePaths, c: Config, log: (m: string) => 
     if (!cmd) return null;
     log(`gate: running \`${cmd}\` on ${c.defaultBranch}`);
     const r = await runGate(paths.root, c.worktreeRoot, c.defaultBranch, cmd, c.gateMinutes * 60_000, signal,
-      { stateDir: paths.stateDir, config: c, log: (m) => log(`gate: ${m}`) });
+      { stateDir: paths.stateDir, config: c, log: (m) => log(`gate: ${m}`) }, undefined, testEnv());
     await r.killed;
     return r;
   };
