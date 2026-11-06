@@ -3,7 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { copyFileSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -74,13 +74,17 @@ test('updateReadme without the markers leaves the text unchanged even with resul
   assert.equal(updateReadme(plain, [hx3]), plain);
 });
 
-test('docs/benchmark.md has the Project benchmark section with the two markers adjacent, and the README links to it', () => {
+test('docs/benchmark.md has the Project benchmark section, its table is what bench/results/project-*.json render, and the README links to it', () => {
   const readme = readFileSync(path.join(root, 'docs', 'benchmark.md'), 'utf8');
   const pb = readme.indexOf('\n## Project benchmark');
   const next = readme.indexOf('\n## ', pb + 1);
   assert.ok(pb >= 0 && next > pb, 'docs/benchmark.md has a Project benchmark section');
   assert.ok(readFileSync(path.join(root, 'README.md'), 'utf8').includes('](docs/benchmark.md)'), 'the README links to docs/benchmark.md');
-  assert.ok(readme.includes(START + END), 'markers adjacent');
+  // the committed table is exactly what figures.mjs renders from the committed results (empty with none)
+  const results = readdirSync(path.join(bench, 'results')).filter((f) => /^project-.+.json$/.test(f)).sort()
+    .map((f) => JSON.parse(readFileSync(path.join(bench, 'results', f), 'utf8')));
+  assert.equal(updateReadme(readme, results), readme, 'the table matches bench/results/project-*.json; run node bench/figures.mjs');
+  if (!results.length) assert.ok(readme.includes(START + END), 'markers adjacent');
   const part = readme.slice(pb, next);
   for (const s of ['tally', '80+ hidden tests', 'node bench/project.mjs chat', 'node bench/project.mjs hx3',
     '--max-hours', '--max-usd', 'node bench/figures.mjs', 'real usage', '4 h', '$60', 'private repo']) {
