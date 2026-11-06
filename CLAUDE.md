@@ -32,7 +32,7 @@ roadmap and the agreed order of the next features) before changing anything.
 - `scripts/test.mjs` — `npm test`: node --test over the suite, or only the files given (`npm test -- <files>`), at most `HX_TEST_CONCURRENCY` files at once
 - `test/` — `npm test`. End-to-end tests use real git (local bare origin) with fake `gh` and `claude`
   in `test/fakes/` (`HX_GH_BIN`, `claudeBin` pointing at a `.mjs` run under node; `test/isolate.ts` sets `HX_GH_INPROC`, so the fake gh answers in-process).
-  `test/fakedom.ts` is the fake DOM the dashboard page's script runs in (the page's static markup, tabs, clicks)
+  `test/fakedom.ts` is the fake DOM the dashboard page's script runs in (the page's static markup, tabs, clicks); `test/fixtures/control-room-state.ts` is the design reference's sample in `dashboardState`'s shape, for the same-look test (`test/dashboard-look.test.ts`)
 - `bench/` — the six-issue benchmark (`node bench/run.mjs chat|hx1|hx3`, then `node bench/figures.mjs`), and the project benchmark (`node bench/project.mjs chat|hx3`: one brief
   through the whole PRD flow, graded by hidden tests; `figures.mjs` renders its table in `docs/benchmark.md` from
   `bench/results/project-*.json` via `bench/project-table.mjs`).

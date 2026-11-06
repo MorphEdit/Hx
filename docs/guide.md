@@ -197,41 +197,65 @@ hx dashboard            # http://127.0.0.1:4777/ (the next free port up to 4786 
 hx dashboard --port 8080 --open   # another port; --open starts the default browser
 ```
 
-A read-only page over `.hx/` and the board. It works with or without an `hx run` going, refreshes
-`/api/state` every 5 s and the board every 30 s (one `gh issue list` per 30 s however many tabs are
-open), and keeps the last data with an "offline / last updated" note when a fetch fails.
+A read-only page over `.hx/` and the board: it shows what hx is doing and changes nothing. It works with or without an
+`hx run` going, refreshes `/api/state` every 5 s and the board every 30 s (one `gh issue list` per 30 s however many tabs
+are open), and keeps the last data with an "offline / last updated" note when a fetch fails.
 
-The page is laid out as a control room, light or dark with the system theme:
+The page is laid out as a control room: a header strip across the top, four panels under it (Board, Pipeline, Details
+and Event log), and a More area at the bottom. It is light or dark, following your system's theme. Its fonts (Inter,
+Space Grotesk and JetBrains Mono) come from Google Fonts; offline, or with Google Fonts blocked, the page still works and
+uses your system fonts instead.
 
-- **Header** — under HX CONTROL ROOM the repo and the "last updated" note, then one line of values:
-  RUNNER (`running · 2/3 workers`, `paused · …` while paused or draining, `stopped`), MACHINE (the CPU and whether
-  auto-scale is on), MAIN (the gate on the default branch: `green ✓ <sha>`, `RED ✗ <sha>` or `no run yet`),
-  WAITING ON YOU (how many questions) and TODAY (how many PRDs closed today).
-- **Waiting on you** — a highlighted card above the panels, shown only while a question is open: the open
-  `needs-human` questions (number linked to the issue, title), from the last board read.
-- **Board**, **Pipeline** (Flow / Timeline), **Details** and **Event log** — four panels under it. The tabs (the
-  board filter, Flow / Timeline, the event filter) and the selected issue stay as they are across refreshes.
-  The raw tail of `.hx/run.log` sits under the event table, collapsed (open **RAW LOG**).
-- **Board** — one block per PRD, split issue, `Other issues` and `Closed today`, with its progress; under it a row
-  per issue: a dot, the number, the status word (`done`, `merging`, `auditing`, `implementing`, `waiting`) and the
-  title. **Building** hides the done rows, **Done** shows only them. Click a row to see it under Details.
-- **Pipeline** — **Flow** shows the six steps an issue goes through (Gauntlet, Decompose, Implement, Audit, Merge,
-  Gate) with a card in its column for each session at work: the worker (`W1`, …), the issue and a short note
-  (`turn 2`, `audit 1/3 · PR #366`, `audit PASS · rebasing`). An idle column says what it does (`issue → PR · idle`);
-  the Gate column shows main (`main green ✓ <sha>`). Under the columns, **Waiting for another issue** lists each issue
-  that waits on another (`waits on #351`), and the legend says how many test files each session runs at once.
-  **Timeline** shows the last 6 hours: one row per worker with a bar per session (`#351 implement`, `#351 audit`,
-  `#351 merge`), and a gate row with each full test run on main (`green` or `RED`). Clicking a card or a bar
-  selects its issue.
-- **Details** — the selected issue or PRD: its group, number, title and status, its steps (done ✓, now, next, each
-  with a short note), a few facts (worker, tokens, time, audit round, PR; or what it waits on; a PRD's status and
-  steps) and what happens next. Until you click, it shows the session that started first, else the first row on the
-  board; with nothing on the board it says `Nothing selected.`
-- **Event log** — today's events from `.hx/run.log`, one row each: the local time, the issue (`#N`, `PRD #N`,
-  `gate` or `runner`), the step, what happened and the tokens (`2.5M`, `288K`). **Results** shows only the
-  results (DONE, PASS, PRD closed, gate green), **Problems** only the problems (gate RED, FAIL, timeouts, conflicts,
-  errors). The selected issue's rows are highlighted; with nothing to show, the table says `No events today.`
-- **More** — a section under the four panels that holds the four parts below (Now, Board, Machine, Stats):
+- **Header** — the strip across the top. Under HX CONTROL ROOM: the repo and when the page last got new data. Then
+  five values:
+  - RUNNER: `running · 2/3 workers` (2 sessions at work, at most 3), `paused · …` while paused or finishing its
+    last work, or `stopped`;
+  - MACHINE: how busy the CPU is and whether auto-scale is on (`CPU 46% · auto-scale on`);
+  - MAIN: the full test suite on the default branch, `green ✓ <sha>`, `RED ✗ <sha>` or `no run yet`;
+  - WAITING ON YOU: how many questions wait for your answer;
+  - TODAY: how many PRDs were finished today.
+- **Waiting on you** — a highlighted card under the header, shown only while a question is open: each open
+  `needs-human` question, its number linked to the issue on GitHub, from the last board read.
+- **Board** — every issue and PRD hx knows about, in groups: one per open PRD (`PRD #348 · Faster tests 2/6`: 2 of
+  its 6 issues done), one per issue that was split into smaller ones, `Other issues`, and `Closed today`. Each row is
+  one issue: a dot, its number, its status in a word and its title. The five statuses: `done`, `merging` (its PR is
+  being merged), `auditing` (an independent check of its PR), `implementing` (a worker is writing it) and `waiting`
+  (not started, or stopped until something happens). The word is always shown, so you never have to tell colours
+  apart. The tabs above the groups filter the rows: **All**, **Building** (everything not done) or **Done**. Click a
+  row to see it under Details.
+- **Pipeline** — what the workers are doing right now, in two views (the tabs **Flow** and **Timeline**):
+  - **Flow** shows the six steps work goes through: Gauntlet (a PRD is criticised), Decompose (a PRD becomes issues),
+    Implement (an issue becomes a PR), Audit (an independent check of the PR), Merge (the PR goes into main) and Gate
+    (the full test suite on main). Each session at work is a card in the column of its step, with its worker, its
+    issue and a short note (`turn 2`, `audit 1/3 · PR #366`, `audit PASS · rebasing`). A column with no card says
+    what the step does (`issue → PR · idle`); the Gate column shows main (`main green ✓ <sha>`). Under the columns,
+    **Waiting for another issue** lists each issue that cannot start until another one is done (`waits on #351`).
+    The legend under it explains the dots and says how many test files each session runs at once.
+  - **Timeline** shows the last 6 hours: one row per worker with a bar per session (`#351 implement`, `#351 audit`,
+    `#351 merge`), and a gate row with each full test run on main (`green` or `RED`).
+  - A worker label (`W1`, `W2`, …) is a row of the Timeline, not a fixed slot or a process: hx places each session
+    in a row that is free when it starts (the row its issue used last, when that one is free). So `W1` is not the same
+    worker all day; an issue's worker is the row of its latest session.
+  - Click a card or a bar to see its issue under Details.
+- **Details** — the selected issue or PRD: its group, number, title and status, then:
+  - its steps, each marked done ✓, now (with a number in an orange ring) or next, with a short note
+    (`PASS ✓ · 1.9M tokens · 29 min`). An issue goes Claimed → Implement → Audit → Merge → Gate; a PRD goes
+    Gauntlet → Decompose → Build → Review → Security;
+  - a few facts: the worker, the tokens and time spent so far, the audit round (`1 of 3`) and the PR; for a waiting
+    issue, what it waits on; for a PRD, its status and how many of its steps are done;
+  - **What happens next**, in one sentence (`Rebase on main and merge. When it lands, #352 can start.`).
+
+  Until you click something, it shows the session that started first, else the first row on the board; with
+  nothing on the board it says `Nothing selected.`
+- **Event log** — what happened today, from `.hx/run.log`, one row each: the time on your clock, the issue (`#N`,
+  `PRD #N`, `gate` or `runner`), the step, what happened and the tokens it used (`2.5M`, `288K`). The tabs filter the
+  rows: **All**, **Results** (only the results: DONE, PASS, PRD closed, gate green) or **Problems** (only what went
+  wrong: gate RED, FAIL, timeouts, merge conflicts, errors). The rows of the selected issue are highlighted; with
+  nothing yet today, the table says `No events today.` The raw log is under the table, folded away: click **RAW LOG**
+  to open it.
+- Your choices on the page (the selected issue, the board and event filters, Flow or Timeline) stay as they are when
+  the page refreshes.
+- **More** — the area under the four panels, with the details for when you want to dig in (Now, Board, Machine, Stats):
 - **Now** — the runner ("not running", or its pid, uptime, workers, the auto-scaled target line
   `workers 2/3 (auto: cpu 88%)` when autoWorkers is on, paused/draining and the rate-limit window), the live sessions (issue, kind, title, turn, tokens, elapsed) and the CI gate (green/red,
   sha, when, the fix issue).
