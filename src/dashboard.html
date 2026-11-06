@@ -35,6 +35,8 @@ svg { display: block; max-width: 100%; height: auto; }
 svg text { fill: var(--mute); font-size: 10px; }
 svg rect { fill: var(--bar); }
 svg .test { stroke: var(--bar); fill: var(--bar); } svg .gate { stroke: var(--warn); fill: var(--warn); } svg polyline { fill: none; stroke-width: 2; }
+svg .cpu { stroke: var(--bar); } svg .mem { stroke: var(--ok); } svg .target { stroke: var(--warn); } svg .running { stroke: var(--fg); stroke-width: 1; }
+svg line { stroke: var(--line); stroke-width: 1; }
 #log { margin: 0; max-height: 360px; overflow: auto; font: 12px/1.4 ui-monospace, Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 8px; }
 </style>
 </head>
@@ -48,6 +50,7 @@ svg .test { stroke: var(--bar); fill: var(--bar); } svg .gate { stroke: var(--wa
 <section id="waiting"><h2>Waiting on you</h2><div id="waiting-body" class="mute">loading…</div></section>
 <section id="now"><h2>Now</h2><div id="now-body" class="mute">loading…</div></section>
 <section id="board"><h2>Board</h2><div id="board-body" class="mute">loading…</div></section>
+<section id="machine"><h2>Machine</h2><div id="machine-body" class="mute">loading…</div></section>
 <section id="stats"><h2>Stats</h2><div id="stats-body" class="mute">loading…</div></section>
 <section id="logbox"><h2>Log</h2><pre id="log"></pre></section>
 <script>
@@ -319,6 +322,71 @@ function renderStats(s) {
     el('h3', {}, 'By model'), usageTable('model', u.byModel));
 }
 
+// ---- Machine ----
+const pct = (x) => (x === null || x === undefined || !Number.isFinite(Number(x)) ? '-' : Math.round(Number(x)) + '%');
+const share = (x) => pct(Number.isFinite(Number(x)) ? Number(x) * 100 : x);
+function svgEl(tag, attrs, text) {
+  const e = document.createElementNS(SVG, tag);
+  for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, String(v));
+  if (text !== undefined) e.textContent = text;
+  return e;
+}
+/** CPU % and free memory (top band), the worker target and running sessions (bottom band), on one time axis. */
+function machineChart(series, from, to) {
+  const W = 600, H = 200, pad = 24, top = 18, split = 120, bottom = H - pad;
+  const t0 = Date.parse(from), t1 = Date.parse(to), span = Math.max(1, t1 - t0);
+  const x = (ts) => pad + ((Date.parse(ts) - t0) / span) * (W - 2 * pad);
+  const memMax = Math.max(1, ...series.map((l) => Number(l.freeMemGB) || 0));
+  const wMax = Math.max(1, ...series.flatMap((l) => [Number(l.target) || 0, Number(l.running) || 0]));
+  const yTop = (v, max) => split - 6 - (Math.min(Number(v) || 0, max) / max) * (split - 6 - top);
+  const yBot = (v) => bottom - ((Number(v) || 0) / wMax) * (bottom - split - 6);
+  const svg = svgEl('svg', { viewBox: '0 0 ' + W + ' ' + H, role: 'img', 'aria-label': 'CPU, free memory and workers over time', 'data-machine': 'chart' });
+  svg.appendChild(svgEl('line', { x1: pad, x2: W - pad, y1: split, y2: split }));
+  const lines = [['cpu', (l) => yTop(l.cpuPct, 100)], ['mem', (l) => yTop(l.freeMemGB, memMax)],
+    ['target', (l) => yBot(l.target)], ['running', (l) => yBot(l.running)]];
+  for (const [cls, y] of lines) {
+    const ok = series.filter((l) => Number.isFinite(x(l.ts)));
+    svg.appendChild(svgEl('polyline', { class: cls, points: ok.map((l) => x(l.ts).toFixed(1) + ',' + y(l).toFixed(1)).join(' ') }));
+  }
+  svg.appendChild(svgEl('text', { x: 2, y: 12 }, 'CPU % (blue, 0–100) · free memory (green, max ' + (Math.round(memMax * 10) / 10) + ' GB)'));
+  svg.appendChild(svgEl('text', { x: 2, y: split + 14 }, 'workers: target (amber) · running (line), max ' + wMax));
+  if (Number.isFinite(t0) && Number.isFinite(t1)) {
+    svg.appendChild(svgEl('text', { x: pad, y: H - 8 }, when(from)));
+    svg.appendChild(svgEl('text', { x: W - pad, y: H - 8, 'text-anchor': 'end' }, when(to)));
+  }
+  return svg;
+}
+const RULES = { A: 'rule A: a higher worker count closes less than 10% more per hour, both with at least 6 h of data',
+  B: 'rule B: the target sat at workers for at least 80% of the time, average CPU under 50% and slowdown under 1.5×',
+  fits: 'no other rule fired' };
+function renderMachine(m) {
+  const body = $('machine-body');
+  if (!m || typeof m !== 'object') { body.className = 'mute'; fill(body, 'no machine data'); return; }
+  body.className = '';
+  const use = m.use || {}, series = Array.isArray(use.series) ? use.series : [];
+  const groups = Array.isArray(m.throughput) ? m.throughput : [], slow = m.slowdown || {}, roles = Array.isArray(m.sessions) ? m.sessions : [];
+  const rec = m.recommendation || {};
+  const v = (key, t) => { const b = el('b', { 'data-machine': key }); b.textContent = t; return b; };
+  fill(body,
+    el('p', { class: 'note' }, 'last ' + num(m.days) + ' × 24 h · ' + when(m.from) + ' – ' + when(m.to)),
+    el('h3', {}, 'Use'),
+    el('div', { class: 'kv' }, el('span', {}, 'CPU average ', v('avgCpu', pct(use.avgCpu))), el('span', {}, 'p90 ', v('p90Cpu', pct(use.p90Cpu)))),
+    series.length ? machineChart(series, m.from, m.to) : el('p', { class: 'mute' }, 'no load history in this period'),
+    el('h3', {}, 'Throughput by worker count'),
+    groups.length ? table(['workers', 'hours', 'issues closed', 'per hour'], groups.map((g) =>
+      [num(g.workers), num(g.hours), num(g.done), g.enough ? (Number(g.perHour) || 0).toFixed(2) : 'not enough data']), [0, 1, 2, 3])
+      : el('p', { class: 'mute' }, 'no load history in this period'),
+    el('h3', {}, 'Slowdown'),
+    el('p', {}, v('slowdown', slow.text ? String(slow.text) : 'not enough gate runs to compare'),
+      slow.text ? el('span', { class: 'mute' }, ' (median gate ' + tdur(slow.medianMs) + ' · idle ' + tdur(slow.baselineMs) + ')') : null),
+    el('h3', {}, 'Where session time goes'),
+    roles.length ? table(['role', 'sessions', 'tests', 'other'], roles.map((r) =>
+      [String(r.role ?? ''), num(r.sessions), share(r.testShare), share(r.otherShare)]), [1, 2, 3])
+      : el('p', { class: 'mute' }, 'no test time in this period'),
+    el('h3', {}, 'Recommendation'),
+    el('p', {}, v('recommendation', String(rec.text ?? '')), ' ', el('span', { class: 'mute', 'data-machine': 'rule' }, '(' + (Object.hasOwn(RULES, String(rec.rule)) ? RULES[rec.rule] : String(rec.rule ?? '')) + ')')));
+}
+
 // ---- Log ----
 function renderLog(lines) {
   const box = $('log');
@@ -345,7 +413,7 @@ async function pollState() {
     repo = String(s.repo ?? '');
     $('repo').textContent = repo;
     if (Array.isArray(s.waiting) || !waitingSeen) renderWaiting(s.waiting);
-    renderNow(s); renderStats(s); renderLog(s.log);
+    renderNow(s); renderMachine(s.machine); renderStats(s); renderLog(s.log);
     lastOk = new Date(); failing = false;
   } catch { failing = true; }
   status();

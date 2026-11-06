@@ -209,6 +209,24 @@ open), and keeps the last data with an "offline / last updated" note when a fetc
 - **Board** — PRDs with their status and `closed/total done`, and the open issues with their status
   (`held (main red)` for an audited PR waiting for a green default branch).
   If `gh` fails, the error shows here and the rest of the page keeps working.
+- **Machine** — is this PC well used, and how many workers should it run? Over the last 24 h, from
+  `.hx/load.jsonl`, `.hx/gate-runs.jsonl`, the run log and `.hx/usage.jsonl`:
+  - **Use** — a chart of the CPU in use (%) and the free memory over time, and below it on the same time axis
+    the worker target (how many sessions hx allowed) and the sessions that were running. Beside it the average
+    CPU and its p90 (the CPU was at or below that 90% of the time).
+  - **Throughput by worker count** — each clock hour is put in the group of its worker target (the median of its
+    minutes); per group, the hours behind it, the issues closed in them and the issues closed per hour. A group
+    with fewer than 3 hours shows "not enough data" instead of a rate.
+  - **Slowdown** — `tests run 2.7× slower than at idle`: the median gate run of the period divided by the idle
+    baseline, the fastest tenth (p10) of the green gate runs of the last 7 days. Both durations are shown beside
+    it; reused gate runs ran no tests and are left out.
+  - **Where session time goes** — per role, the sessions with test time and the median share of a session's
+    time spent running tests, and the rest.
+  - **Recommendation** — one line and the rule that fired: rule A "N workers get about as much done as N−1"
+    (two worker counts with at least 6 h each, and the higher one closes less than 10% more per hour), rule B
+    "this machine has room" (the target sat at `workers` at least 80% of the time, average CPU under 50% and
+    slowdown under 1.5×), otherwise "the current setting fits this machine". `workers` is the live runner's, else
+    the config's. See [Where the time goes](#where-the-time-goes) for how test time is measured.
 - **Stats** — tokens per day; test time (last 24 h: test share of session time, median test run, gate
   median and p90, and a chart of the median test run and gate duration per UTC day over the last 14 days);
   tokens/turns/sessions/time by PRD, role and model, and outcomes parsed
