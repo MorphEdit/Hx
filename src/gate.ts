@@ -19,6 +19,7 @@ export interface GateResult {
   killed?: Promise<void>; // with aborted: settles once the killed tree is gone (never written to gate.json)
   setupFailed?: boolean; // the worktree setup failed (`command` is then config.worktreeSetup): the test command never ran
   durationMs?: number; // wall-clock time of the test command only (not the worktree add, setup or cleanup); absent when it never finished
+  reused?: true; // no run: the tree already passed within 2 h (.hx/tested-trees.jsonl, #352); durationMs is 0
   at: string;
 }
 
@@ -46,13 +47,14 @@ export function writeGate(stateDir: string, s: GateState): void {
   writeFileSync(file(stateDir), JSON.stringify(s, null, 2));
 }
 
-/** One pool gate run whose test command ran to an end or timed out: a line of .hx/gate-runs.jsonl. */
-export interface GateRun { ts: string; sha: string; ok: boolean; durationMs: number; timedOut: boolean }
+/** One pool gate run whose test command ran to an end or timed out, or a reused green (`reused`, durationMs 0, #352):
+ *  a line of .hx/gate-runs.jsonl. Duration figures and the gate-fix check leave the reused lines out. */
+export interface GateRun { ts: string; sha: string; ok: boolean; durationMs: number; timedOut: boolean; reused?: true }
 
 const runsFile = (stateDir: string) => path.join(stateDir, 'gate-runs.jsonl');
 
 export function appendGateRun(stateDir: string, r: GateResult): void {
-  const line: GateRun = { ts: r.at, sha: r.sha, ok: r.ok, durationMs: r.durationMs ?? 0, timedOut: !!r.timedOut };
+  const line: GateRun = { ts: r.at, sha: r.sha, ok: r.ok, durationMs: r.durationMs ?? 0, timedOut: !!r.timedOut, ...(r.reused ? { reused: true as const } : {}) };
   appendFileSync(runsFile(stateDir), JSON.stringify(line) + '\n');
 }
 
@@ -79,8 +81,9 @@ export function fmtDuration(ms: number): string {
   return r ? `${m}m${String(r).padStart(2, '0')}s` : `${m}m`;
 }
 
-/** The slow-gate warning when the median duration of the last 5 runs is above 70% of gateMinutes, else undefined. */
-export function slowGateWarning(runs: GateRun[], gateMinutes: number): string | undefined {
+/** The slow-gate warning when the median duration of the last 5 real runs (reused lines left out) is above 70% of gateMinutes, else undefined. */
+export function slowGateWarning(all: GateRun[], gateMinutes: number): string | undefined {
+  const runs = all.filter((r) => !r.reused);
   if (runs.length < 5) return undefined;
   const m = median(runs.slice(-5).map((r) => r.durationMs))!;
   const limit = gateMinutes * 60_000;
@@ -92,6 +95,25 @@ export function slowGateWarning(runs: GateRun[], gateMinutes: number): string | 
 export async function remoteSha(checkout: string, base: string): Promise<string> {
   const r = await run(process.env.HX_GIT_BIN || 'git', ['-C', checkout, 'ls-remote', 'origin', `refs/heads/${base}`]);
   return r.stdout.split(/\s/)[0] ?? '';
+}
+
+/** origin/<base>'s head after a fetch, and its tree: what the gate checks against .hx/tested-trees.jsonl (#352). */
+export async function remoteTree(checkout: string, base: string): Promise<{ sha: string; tree: string }> {
+  const GIT = process.env.HX_GIT_BIN || 'git';
+  const f = await run(GIT, ['-C', checkout, 'fetch', '-q', 'origin', base]);
+  if (f.code !== 0) throw new Error(`git fetch origin ${base}: ${f.stderr.trim()}`);
+  const r = await run(GIT, ['-C', checkout, 'rev-parse', `refs/remotes/origin/${base}`, `refs/remotes/origin/${base}^{tree}`]);
+  const [sha, tree] = r.stdout.trim().split(/\s+/);
+  if (r.code !== 0 || !sha || !tree) throw new Error(`git rev-parse origin/${base}: ${r.stderr.trim()}`);
+  return { sha, tree };
+}
+
+/** The tree of a commit in the checkout (a gate run's sha, for its .hx/tested-trees.jsonl line). */
+export async function treeOf(checkout: string, sha: string): Promise<string> {
+  const r = await run(process.env.HX_GIT_BIN || 'git', ['-C', checkout, 'rev-parse', `${sha}^{tree}`]);
+  const tree = r.stdout.trim();
+  if (r.code !== 0 || !tree) throw new Error(`git rev-parse ${sha.slice(0, 7)}^{tree}: ${r.stderr.trim()}`);
+  return tree;
 }
 
 const tailOf = (s: string, n: number) => s.trim().split('\n').slice(-n).join('\n');

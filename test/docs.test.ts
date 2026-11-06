@@ -554,3 +554,18 @@ test('docs/benchmark.md: the Test suite speed section says release-cmd and ship 
   const sec = b.slice(at, next < 0 ? undefined : next);
   assert.match(sec, /release-cmd and ship are left to #369/);
 });
+
+test('docs: the gate reuses a tree that passed within 2 h while green (#352), the reused-green health check, and the time figures', () => {
+  const r = read('README.md');
+  const sec = (h: string) => { const s = r.indexOf(h); assert.ok(s >= 0, h); return r.slice(s, r.indexOf('\n## ', s + 1)); };
+  const gate = sec('## CI gate');
+  for (const w of ['.hx/tested-trees.jsonl', '2 h', 'while the gate is green', 'never happens while the gate is red', 'health pass asked for',
+    '`gate green ✓ at <sha7> (tree already tested)`', '`reused: true`', '`durationMs: 0`', '`hx release`', '`reuseTestedTrees: false`'])
+    assert.ok(gate.includes(w), w);
+  const health = sec('## Self-check');
+  const order = ['**Gate-fix issue on a green main**', '**Reused green at the head**', '**Blocked by a transient error**'].map((w) => health.indexOf(w));
+  assert.ok(order.every((i) => i >= 0) && order[0] < order[1] && order[1] < order[2], 'the new check after gate-fix');
+  for (const w of ['`✗ gate green at <sha7> reused a tested tree — waiting for a full gate run`', '` — gate run requested`', '`✓ reused gate run at head — none`', 'never reuses'])
+    assert.ok(health.includes(w), w);
+  assert.match(sec('## Where the time goes'), /Reused gate runs .* are left out of\s+every gate duration figure/);
+});

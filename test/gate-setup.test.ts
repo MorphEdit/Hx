@@ -197,6 +197,8 @@ test('Ctrl+C during the gate setup: no gate.json written, no fix issue, no setup
   const pidFile = fwd(path.join(tmp, 'setup-abort.pid'));
   const setup = `node -e "require('fs').writeFileSync('${pidFile}', String(process.pid)); setTimeout(() => {}, 60e3)"`;
   const before = gateJson();
+  // the last test's green run recorded this tree and command: a reused gate (#352) would never start the setup
+  rmSync(path.join(stateDir, 'tested-trees.jsonl'), { force: true });
   const ac = new AbortController();
   const poll = setInterval(() => {
     try { readFileSync(pidFile, 'utf8'); } catch { return; }

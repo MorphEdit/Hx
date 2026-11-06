@@ -238,3 +238,38 @@ test('hx health --fix, two green runs at the head: closes the gate-fix issue and
   assert.equal(read().issues[0].stateReason, 'NOT_PLANNED');
   assert.deepEqual(readGate(r.stateDir), { command: GREEN });
 });
+
+// ---- a reused green at the head (#352): the pass asks for one full run, which never reuses ----
+
+test('a reused start-up gate at the head: the pass asks for a gate run, which runs the full suite despite the 1-min-old passing record', E2E, async () => {
+  const marks = path.join(tmp, `marks-${k + 1}`);
+  const counting = `node -e "require('fs').appendFileSync('${marks.replace(/\\/g, '/')}', 'x')"`;
+  const r = repo({ gate: true, gateCommand: counting });
+  const tree = git(r.root, 'rev-parse', 'HEAD^{tree}');
+  writeFileSync(path.join(r.stateDir, 'gate.json'), JSON.stringify({ last: { sha: r.head, ok: true, command: counting, output: '', at: new Date().toISOString() } }));
+  writeFileSync(path.join(r.stateDir, 'tested-trees.jsonl'), JSON.stringify({ tree, command: counting, ok: true, at: new Date(Date.now() - 60_000).toISOString() }) + '\n');
+  board({});
+  assert.equal(await plain(r), 0);
+  const runs = readFileSync(path.join(r.stateDir, 'gate-runs.jsonl'), 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l));
+  assert.deepEqual(runs.map((x) => [x.sha, x.ok, !!x.reused]), [[r.head, true, true], [r.head, true, false]], runLog(r).join('\n'));
+  assert.equal(readFileSync(marks, 'utf8'), 'x', 'the requested run ran the test command once');
+  const lines = runLog(r);
+  const reused = lines.findIndex((l) => /\(tree already tested\)/.test(l));
+  const asked = lines.findIndex((l) => l.includes(`health: ✗ gate green at ${r.head.slice(0, 7)} reused a tested tree — waiting for a full gate run — gate run requested`));
+  assert.ok(reused >= 0 && asked > reused, lines.join('\n'));
+  assert.equal(readFileSync(path.join(r.stateDir, 'tested-trees.jsonl'), 'utf8').split('\n').filter(Boolean).length, 2, 'the full run is recorded');
+});
+
+test('hx health with a reused green at the head: ✗ reported, no gate run (with --fix too)', E2E, () => {
+  const r = repo();
+  writeFileSync(path.join(r.stateDir, 'config.json'), JSON.stringify({ repo: 'me/app', defaultBranch: 'main', worktreeRoot: r.config.worktreeRoot,
+    claudeBin: r.config.claudeBin, gateCommand: GREEN }));
+  writeFileSync(path.join(r.stateDir, 'gate-runs.jsonl'), JSON.stringify({ ts: new Date().toISOString(), sha: r.head, ok: true, durationMs: 0, timedOut: false, reused: true }) + '\n');
+  board({});
+  for (const args of [[], ['--fix']]) {
+    const out = hx(r.root, ...args);
+    assert.equal(out.status, 1, out.stdout + out.stderr);
+    assert.match(out.stdout, new RegExp(`^✗ gate green at ${r.head.slice(0, 7)} reused a tested tree — waiting for a full gate run$`, 'm'));
+    assert.equal(gateRuns(r), 1);
+  }
+});

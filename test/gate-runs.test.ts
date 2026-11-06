@@ -91,6 +91,14 @@ test('slowGateWarning: nearest-rank median of the last 5 above 70% of gateMinute
   assert.equal(slowGateWarning(runs([910_000, 910_000, 910_000, 1, 1, 1, 1, 1]), 20), undefined);
 });
 
+test('slowGateWarning leaves reused lines (#352) out: the last 5 real runs decide', E2E, () => {
+  const reused = { ...old(0), reused: true as const };
+  const slow = [910_000, 910_000, 910_000, 1, 1].map(old);
+  assert.match(slowGateWarning([slow[0], reused, slow[1], reused, reused, slow[2], slow[3], reused, slow[4], reused], 20) ?? '', /^gate is slow: median 15m10s/);
+  assert.equal(slowGateWarning([...slow.slice(0, 4), reused], 20), undefined, 'four real runs and a reused one: fewer than 5');
+  assert.equal(slowGateWarning([old(910_000), old(910_000), old(910_000), reused, reused], 20), undefined);
+});
+
 test('readGateRuns skips malformed lines', E2E, () => {
   reset();
   writeFileSync(runsFile, [JSON.stringify(old(5)), 'not json', '{"ok":true}', '', JSON.stringify(old(7)), '{"durationMs":"x","ok":true}'].join('\n'));

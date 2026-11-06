@@ -1,5 +1,5 @@
 // .hx/tested-trees.jsonl (#351): one line per full run of a test command, so a run on a tree that already passed can
-// be skipped (ship --resume; the gate is a sibling issue). HX_TESTED_TREES names the file; scripts/ship.mjs imports this.
+// be skipped (ship --resume, and the gate while green within REUSE_GATE_MS, #352). HX_TESTED_TREES names the file; scripts/ship.mjs imports this.
 import { appendFileSync, existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 
@@ -37,6 +37,16 @@ export function latestTreeRecord(recs: TreeRecord[], tree: string, command: stri
 export function passedTree(file: string, tree: string, command: string): TreeRecord | null {
   const r = latestTreeRecord(readTestedTrees(file), tree, command);
   return r?.ok ? r : null;
+}
+
+/** How old a passing record the gate reuses may be (#352): 2 h. */
+export const REUSE_GATE_MS = 2 * 3_600_000;
+
+/** The record the gate may reuse: the latest one for the tree and command, when it is a pass with `at` at most `maxAgeMs` before `now`. */
+export function reusableTree(recs: TreeRecord[], tree: string, command: string, now: number, maxAgeMs = REUSE_GATE_MS): TreeRecord | null {
+  const r = latestTreeRecord(recs, tree, command);
+  const t = r ? Date.parse(r.at) : NaN;
+  return r?.ok && Number.isFinite(t) && now - t <= maxAgeMs ? r : null;
 }
 
 /** The env entry hx sets for sessions and its ship --resume: HX_TESTED_TREES = the absolute path, or nothing with reuseTestedTrees off. */

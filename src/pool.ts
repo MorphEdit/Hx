@@ -17,7 +17,7 @@ import { fmt, recordUsage, totalTokens } from './usage.ts';
 import { testMatcher, turnTiming, type TurnTiming } from './timing.ts';
 import { actionBudget, budgetFilter, newSkipLines, readBudget, readBudgetWindows, readingOf, recordReading, type Budget } from './budget.ts';
 import { healthPass, renderResult } from './health.ts';
-import { appendGateRun, gateIssueBody, gateIssueTitle, readGate, readGateRuns, remoteSha, runGate, slowGateWarning, writeGate, type GateResult } from './gate.ts';
+import { appendGateRun, gateIssueBody, gateIssueTitle, readGate, readGateRuns, remoteSha, remoteTree, runGate, slowGateWarning, treeOf, writeGate, type GateResult } from './gate.ts';
 import { run as runCmd } from './exec.ts';
 import { dueRelease, release, releaseGate } from './release.ts';
 import { acquireSlot, DEFAULT_FLEET_WORKERS, readGithubHold, readHold, releaseSlot, writeGithubHold, writeHold } from './fleet.ts';
@@ -31,7 +31,7 @@ import { HELD_STATUS, heldComment, mergeFailure, readHeld, setHeld } from './hel
 import { decideTarget, initialTarget, loadReading, mayClaim, startSampler, type LoadReading, type LoadSnapshot } from './load.ts';
 import { appendLoadLine, loadLineOf, pruneLoadLines } from './loadlog.ts';
 import { concurrencyEnv, outsideTestEnv, testConcurrencyError, testConcurrencyValue } from './concurrency.ts';
-import { reuseTestedTreesError, testedTreesEnv } from './tested.ts';
+import { appendTestedTree, readTestedTrees, reusableTree, reuseTestedTreesError, TESTED_TREES_FILE, testedTreesEnv } from './tested.ts';
 import { addBlockers, narrowedBody, narrowedComment, parseSizeReply, SIZE_FITS, SIZE_NARROWED, SIZE_SPLIT, withTrailers, type SizeChild } from './size.ts';
 import { appendSkills, resolveSkills, rtddCheck, rtddEnv, SKILL_CHECKS, skillNames, skillsLogLine, type Skill } from './skills.ts';
 
@@ -513,7 +513,23 @@ async function pool(p: Project, o: PoolOptions): Promise<number> {
   const gateCommand = () => c.gateCommand || gs.command;
   const gateRed = () => c.gate && !!gs.last && !gs.last.ok;
   const showGate = () => { live.gate = gs.last ? { ok: gs.last.ok, sha: gs.last.sha, at: gs.last.at, fixIssue: gs.fixIssue } : undefined; save(); };
-  const gateCheck = (): Promise<void> => {
+  // reuseTestedTrees (#352): while green, a head whose tree passed the gate command within 2 h is not tested again
+  const treesFile = path.join(p.stateDir, TESTED_TREES_FILE);
+  const reusedGate = async (cmd: string): Promise<GateResult | null> => {
+    if (c.reuseTestedTrees === false || !gs.last?.ok) return null;
+    try {
+      const h = await remoteTree(p.root, c.defaultBranch);
+      if (!reusableTree(readTestedTrees(treesFile), h.tree, cmd, Date.now())) return null;
+      return { sha: h.sha, ok: true, command: cmd, output: '', durationMs: 0, reused: true, at: new Date().toISOString() };
+    } catch { return null; } // the head or its tree unknown: the full run decides
+  };
+  const recordTree = async (r: GateResult) => {
+    if (c.reuseTestedTrees === false || r.reused) return;
+    try { appendTestedTree(treesFile, { tree: await treeOf(p.root, r.sha), command: r.command, ok: r.ok, at: r.at }); }
+    catch (e: any) { log(`gate: recording the tested tree failed: ${e.message}`); }
+  };
+  // force: a run the health pass asked for, never a reused one
+  const gateCheck = (force = false): Promise<void> => {
     if (!c.gate) return Promise.resolve();
     const cmd = gateCommand();
     if (!cmd) {
@@ -521,6 +537,7 @@ async function pool(p: Project, o: PoolOptions): Promise<number> {
       return Promise.resolve();
     }
     if (gateRunning) { gateAgain = true; return gateRunning; }
+    let forced = force;
     gateRunning = (async () => {
       // a failed worktree setup is retried at once, up to SETUP_TRIES in a row at one sha (counted here only, never written)
       let setupSha = '', setupTries = 0;
@@ -532,7 +549,9 @@ async function pool(p: Project, o: PoolOptions): Promise<number> {
         if (o.signal.aborted) break;
         // Ctrl+C (o.signal) aborts the gate; `hx pause --now` (stop) does not
         // the gate counts as one more than the sessions (gateRunning is not set yet on the first run)
-        const r = await runGate(p.root, c.worktreeRoot, c.defaultBranch, cmd, c.gateMinutes * 60_000, o.signal, setup, undefined, testEnv(sessionsNow() + 1)).catch((e) => ({ sha: '', ok: true, command: cmd, output: String(e.message), at: new Date().toISOString(), error: true }));
+        const reused = forced ? null : await reusedGate(cmd);
+        forced = false;
+        const r = reused ?? await runGate(p.root, c.worktreeRoot, c.defaultBranch, cmd, c.gateMinutes * 60_000, o.signal, setup, undefined, testEnv(sessionsNow() + 1)).catch((e) => ({ sha: '', ok: true, command: cmd, output: String(e.message), at: new Date().toISOString(), error: true }));
         if ('aborted' in r && r.aborted) { await r.killed; break; } // discarded: no log, no gate.json, no fix issue; the tree is gone first
         if ('error' in r) { log(`gate: could not run (${r.output.slice(0, 160)}) — retried after the next merge`); continue; }
         if ('setupFailed' in r && r.setupFailed) {
@@ -548,6 +567,7 @@ async function pool(p: Project, o: PoolOptions): Promise<number> {
             const slow = !gateSlowWarned && slowGateWarning(readGateRuns(p.stateDir), c.gateMinutes);
             if (slow) { log(slow); gateSlowWarned = true; }
           } catch (e: any) { log(`gate: recording the run failed: ${e.message}`); }
+          await recordTree(r);
         }
         const wasRed = gateRed();
         gs.last = r;
@@ -558,7 +578,7 @@ async function pool(p: Project, o: PoolOptions): Promise<number> {
           log(`gate RED ✗ — \`${cmd}\` ${r.timedOut ? 'timed out' : 'fails'} on ${c.defaultBranch} at ${r.sha.slice(0, 7)}; claiming only its fix`);
           await fileGateIssue(r).catch((e) => log(`gate: filing the fix issue failed: ${e.message}`));
         } else {
-          log(wasRed ? `gate green ✓ again at ${r.sha.slice(0, 7)}` : `gate green ✓ at ${r.sha.slice(0, 7)}`);
+          log(wasRed ? `gate green ✓ again at ${r.sha.slice(0, 7)}` : `gate green ✓ at ${r.sha.slice(0, 7)}${r.reused ? ' (tree already tested)' : ''}`);
           gs.fixIssue = undefined;
         }
         writeGate(p.stateDir, gs);
@@ -653,8 +673,8 @@ async function pool(p: Project, o: PoolOptions): Promise<number> {
       const r = await healthPass(p, {
         repairs: c.selfHeal,
         live: new Set(live.sessions.map((s) => s.number)),
-        // one more gate run for a gate-fix issue; never a second while one runs, never without a command
-        requestGate: () => { if (!c.gate || !gateCommand() || gateRunning) return false; void gateCheck(); return true; },
+        // one more gate run (a gate-fix issue, a reused green): never reused, never a second while one runs, never without a command
+        requestGate: () => { if (!c.gate || !gateCommand() || gateRunning) return false; void gateCheck(true); return true; },
         closedGateFix: (n) => { if (gs.fixIssue === n) { gs.fixIssue = undefined; writeGate(p.stateDir, gs); showGate(); } },
         merged: (test) => ctx.merged(test), // a resumed audited PR: the gate and release checks as after any merge
         testEnv: () => testEnv(sessionsNow() + (gateRunning ? 1 : 0) + 1), // its ship --resume counts as one more

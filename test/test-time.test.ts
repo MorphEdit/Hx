@@ -104,3 +104,19 @@ test('hx status: the time line over the last 24 h, - for a missing part, no line
   const stale = app('status-stale', [rec(old, 'impl', 10 * M, { testMs: M, testRuns: 1 }), rec(ago(5), 'impl', 10 * M)], [gate(old, 60 * S)]);
   assert.doesNotMatch(hx(stale, 'status'), /^time /m);
 });
+
+test('reused gate lines (#352) are left out of the gate median and p90: timeWindow, testSeries, hx usage --tests, hx status', E2E, () => {
+  const reused = (ts: string) => ({ ...gate(ts, 0), reused: true });
+  const from = Date.parse('2026-11-03T00:00:00Z'), to = Date.parse('2026-11-04T00:00:00Z');
+  const gates = [gate('2026-11-03T05:00:00Z', 60 * S), reused('2026-11-03T05:30:00Z'), reused('2026-11-03T05:40:00Z'), gate('2026-11-03T06:00:00Z', 120 * S)];
+  assert.deepEqual(timeWindow([], gates, from, to), { share: undefined, testRunMedian: undefined, gateMedian: 60 * S, gateP90: 120 * S, hasData: true });
+  assert.equal(timeWindow([], [reused('2026-11-03T05:30:00Z')], from, to).hasData, false, 'only reused lines: no gate data');
+  assert.deepEqual(testSeries([], [...gates, reused('2026-11-02T01:00:00Z')]),
+    [{ day: '2026-11-03', testRunMedian: undefined, testRunP90: undefined, gateMedian: 60 * S, gateP90: 120 * S }]);
+  const root = app('tests-reused', [], [gate('2026-11-01T05:00:00Z', 200 * S), reused('2026-11-01T05:10:00Z'), reused('2026-11-01T05:20:00Z'), gate('2026-11-01T06:00:00Z', 400 * S)]);
+  const rows = hx(root, 'usage', '--tests').split(/\r?\n/).filter((l) => /^\d{4}-/.test(l)).map((l) => l.trim().split(/\s+/));
+  assert.deepEqual(rows, [['2026-11-01', '-', '-', '3m20s', '6m40s']]);
+  const ago = (min: number) => new Date(Date.now() - min * M).toISOString();
+  const st = app('status-reused', [rec(ago(30), 'impl', 10 * M)], [gate(ago(30), 185 * S), reused(ago(25)), reused(ago(15)), gate(ago(10), 280 * S)]);
+  assert.match(hx(st, 'status'), /^time {5}.*gate 3m05s \(p90 4m40s\)$/m);
+});
