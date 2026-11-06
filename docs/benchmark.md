@@ -116,10 +116,27 @@ node bench/project.mjs hx3 --max-hours 4 --max-usd 60
 node bench/figures.mjs
 ```
 
-`bench/figures.mjs` writes the table below from `bench/results/project-*.json`. It is empty until a
-real run is committed.
+`bench/figures.mjs` writes the table below from `bench/results/project-*.json`.
 
-<!-- project-bench:start --><!-- project-bench:end -->
+<!-- project-bench:start -->
+| Arm | Hidden passed | Wall time | Tokens | Cost | Sessions | Issues closed/filed | Audit FAILs | Gate reds | Escaped defects | Capped |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| chat | 149/149 | 56.7 min | 0.77M | $1.06 | 1 (chat 1) | 0/0 | – | – | 0 | no |
+| hx3 | 149/149 | 122.0 min | 4.04M | $6.38 | 19 (critic 2, revise 2, decompose 1, impl 6, audit 6, review 1, security 1) | 5/5 | 1 | 0 | 0 | no |
+<!-- project-bench:end -->
+
+**First run, 2026-11-06** (`claude-opus-5-5`, medium effort, both arms):
+- **Correctness:** both arms passed all 149 hidden tests, and neither had an escaped defect.
+- **Speed and cost:** the single session was about twice as fast and six times cheaper. The brief fits in
+  one session (57 min, 0.77M tokens), so Hx's extra steps had nothing to catch. Those steps are 2
+  gauntlet rounds, a split into 5 issues, an audit per issue, a review and a security pass.
+- **The audit did catch one first attempt.**
+- **Load:** the hx3 arm ran on the same 12-CPU machine while Hx was building itself with 3 more workers,
+  so its wall time is an upper bound.
+
+What this says: for a project that one session can finish, a single session is the cheaper choice. Hx is
+built for work that does not fit one session, and for a board of many issues run unattended. A brief of
+that size is the next benchmark to add.
 
 ## Real runs: before and after a change
 
@@ -177,4 +194,36 @@ fixed at the cause, with a new test that reproduces it and no test weakened:
   cost, $1.34 per issue with every audit passing first time.
 - The self-review records its starting commit on its first run and only reviews what merges after it.
   Its findings for this batch will show in the next comparison.
+
+### Higher effort (2026-11-05 13:19)
+
+The owner has spare quota and wants quality first. The cutover raised the models' effort:
+- impl from medium to high;
+- audit, review, security, critic, revise, decompose and triage from high to xhigh;
+- `turnTimeoutMinutes` from 75 to 120.
+
+Measured on 2026-11-06 with `hx usage --compare "2026-11-05 13:19"`, over 53.9 h of runs before and
+10.8 h after:
+
+| Board | Before | After |
+|---|---|---|
+| Issues closed | 131 (2.4 / h) | 22 (2.0 / h) |
+| Tokens per closed issue | 1.6M | 6.1M |
+| Cost per closed issue | $1.89 | $4.54 |
+| Audit FAIL share | 5% | 13% |
+| Impl sessions that failed | 26 of 210 (12%) | 3 of 36 (8%) |
+| Sessions stopped: timed out | 11 | 0 |
+| Gate-fix issues per hour of runs | 0.32 | 0.19 |
+| Rebase test retries | 23 | 0 |
+
+**Reading it:**
+- **More real bugs caught:** the stricter audits caught them before merge. Examples:
+  - #292: a closed issue with no PR was taken as done;
+  - #293: the whole turn was posted as the question;
+  - #316: a crash inside the self-update window did not roll back;
+  - #328: the kill by command line was missing.
+- **Fewer stops and reds:** no timeouts, fewer failed sessions and fewer red gates.
+- **The cost:** about 2.4× the tokens per issue, and slightly fewer issues per hour.
+- **Escaped defects:** no reverts and no `security` issues. The one `bug` issue, #328 (leftover test processes
+  after a timeout), was filed by hand. It is about older code, not a change merged after the cutover.
 

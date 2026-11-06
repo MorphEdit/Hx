@@ -1,0 +1,38 @@
+{
+  "arm": "hx3",
+  "repo": "MorphEdit/hx-project-hx3-202611060054",
+  "model": "claude-opus-5-5",
+  "effort": "medium",
+  "startedAt": "2026-11-06T00:54:41.770Z",
+  "maxHours": 4,
+  "maxUsd": 60,
+  "passed": 149,
+  "failed": 0,
+  "total": 149,
+  "failures": [],
+  "wallMs": 7321791,
+  "tokens": {
+    "input": 332,
+    "cacheWrite": 419550,
+    "cacheRead": 3501945,
+    "output": 116009,
+    "total": 4037836
+  },
+  "costUsd": 6.3835174000000015,
+  "sessions": {
+    "critic": 2,
+    "revise": 2,
+    "decompose": 1,
+    "impl": 6,
+    "audit": 6,
+    "review": 1,
+    "security": 1
+  },
+  "issuesFiled": 5,
+  "issuesClosed": 5,
+  "auditFails": 1,
+  "gateReds": 0,
+  "escapedDefects": 0,
+  "ended": "done",
+  "capped": false
+}
