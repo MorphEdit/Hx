@@ -7,7 +7,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { BACKOFF_SECONDS, backoffFor, readSupervise, supervise, tooManyCrashes, type SuperviseOptions } from '../src/supervise.ts';
+import { BACKOFF_SECONDS, backoffFor, readSupervise, renameRetry, supervise, tooManyCrashes, type SuperviseOptions } from '../src/supervise.ts';
 import { clearPause, setPause, writeLive } from '../src/runstate.ts';
 import { parseQuery, schtasksCreate, service, serviceId, systemdUnit, taskName, taskXml, type ServiceSpec } from '../src/service.ts';
 import { dashboardState } from '../src/dashboard.ts';
@@ -47,6 +47,21 @@ test('backoff: 10 s, 30 s, 60 s, then 5 min; 5 crashes inside the window give up
   assert.ok(tooManyCrashes([0, 1, 2, 3, 4], 5, W));
   assert.ok(!tooManyCrashes([0, 1, 2, 3], 5, W));
   assert.ok(!tooManyCrashes([0, 100_000, 200_000, 300_000, 600_000], 5, W), 'the first crash is out of the window');
+});
+
+test('renameRetry: EPERM, EBUSY and EACCES are retried until the rename lands; another error, or one past the tries, is thrown (#356)', E2E, () => {
+  const err = (code: string) => Object.assign(new Error(code), { code });
+  const flaky = (codes: string[]) => { const calls: string[][] = []; return { calls, rename: (a: string, b: string) => {
+    calls.push([a, b]); const c = codes[calls.length - 1]; if (c) throw err(c); } }; };
+  const ok = flaky(['EPERM', 'EBUSY', 'EACCES']);
+  renameRetry('x.tmp', 'x', ok.rename);
+  assert.deepEqual(ok.calls, [['x.tmp', 'x'], ['x.tmp', 'x'], ['x.tmp', 'x'], ['x.tmp', 'x']], 'landed on the 4th try');
+  const missing = flaky(['ENOENT']);
+  assert.throws(() => renameRetry('x.tmp', 'x', missing.rename), { code: 'ENOENT' });
+  assert.equal(missing.calls.length, 1, 'not retried');
+  const stuck = flaky(Array(10).fill('EPERM'));
+  assert.throws(() => renameRetry('x.tmp', 'x', stuck.rename, 3), { code: 'EPERM' });
+  assert.equal(stuck.calls.length, 3, 'given up after the tries');
 });
 
 test('a crash restarts the runner after the backoff, with the same arguments in the repo; exit 0 then stops it', E2E, async () => {

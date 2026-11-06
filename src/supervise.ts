@@ -41,7 +41,18 @@ export function readSupervise(stateDir: string): SuperviseState {
 function writeSupervise(stateDir: string, s: SuperviseState): void {
   const f = stateFile(stateDir);
   writeFileSync(f + '.tmp', JSON.stringify(s, null, 2));
-  renameSync(f + '.tmp', f);
+  renameRetry(f + '.tmp', f);
+}
+
+/** renameSync, retried for ~1 s while Windows refuses it for a moment (EPERM / EBUSY / EACCES: another process, hx status
+ *  or the dashboard, has the target open as it is read). Any other error, or one that outlasts the tries, is thrown (#356). */
+export function renameRetry(from: string, to: string, rename: (a: string, b: string) => void = renameSync, tries = 100): void {
+  for (let i = 1; ; i++) {
+    try { return rename(from, to); } catch (e: any) {
+      if (i >= tries || !['EPERM', 'EBUSY', 'EACCES'].includes(e?.code)) throw e;
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
+    }
+  }
 }
 
 /** The pid of a live supervisor of this repo (not this process), or null. */
