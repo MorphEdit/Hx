@@ -5,7 +5,7 @@ import { E2E, pooled, sessionEnvs } from './isolate.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -20,7 +20,8 @@ process.env.HX_FAKE_STATE = stateFile;
 process.env.HX_FAKE_DIR = fakeDir;
 mkdirSync(fakeDir);
 
-const { runPool, auditVerdict } = await import('../src/pool.ts');
+const { runPool, auditVerdict, reauditNote } = await import('../src/pool.ts');
+const { render } = await import('../src/state.ts');
 const { DEFAULTS } = await import('../src/config.ts');
 const { readUsage } = await import('../src/usage.ts');
 
@@ -170,17 +171,77 @@ test('a repo that only takes auto-merge: hx waits for it to land instead of fail
   assert.ok(!s.issues[0].labels.includes(L.blocked));
 });
 
-test('audit PASS but the merge hits a rebase conflict: logged and commented, back to the implementer, then merged', E2E, async () => {
+// the first prompt of each audit session of issue n, in the order they ran
+const auditPrompts = (n: number) => readdirSync(fakeDir).filter((f) => f.endsWith('.prompt-1.txt'))
+  .map((f) => ({ f, t: statSync(path.join(fakeDir, f)).mtimeMs, text: readFileSync(path.join(fakeDir, f), 'utf8') }))
+  .filter((p) => /^Role: audit/.test(p.text) && p.text.includes(`Issue: #${n} `)).sort((a, b) => a.t - b.t).map((p) => p.text);
+// the head the k-th audit of issue n checked (the fake writes audit-<origin hash>-<n>-<k>.sha; this file has one origin)
+const auditedSha = (n: number, k: number) => readFileSync(path.join(fakeDir, readdirSync(fakeDir).find((f) => f.endsWith(`-${n}-${k}.sha`))!), 'utf8').trim();
+
+test('audit PASS but the merge hits a rebase conflict: a merge round, the audit round unchanged, then merged (#347)', E2E, async () => {
   board([issue(5, 'AUDITCONFLICT')]);
   const { rc, lines } = await run([5]);
   assert.equal(rc, 0, lines.join('\n'));
-  assert.ok(lines.some((l) => /\[#5\] merge after audit failed \(rebase conflict\) — back to the implementer, round 2\/2/.test(l)), lines.join('\n'));
+  assert.ok(lines.some((l) => /\[#5\] merge after audit failed \(rebase conflict\) — back to the implementer, merge round 1\/3 \(audit round 1\/2 unchanged\)$/.test(l)), lines.join('\n'));
   const s = read();
   const retry = s.comments.filter((c: any) => c.issue === 5 && c.body.startsWith('<!-- hx-retry -->'));
   assert.equal(retry.length, 1);
-  assert.match(retry[0].body, /merge after audit failed \(rebase conflict\) — back to the implementer, round 2\/2 \(PR #\d+\)/);
-  assert.equal(audits(5).length, 2);
+  assert.match(retry[0].body, /merge after audit failed \(rebase conflict\) — back to the implementer, merge round 1\/3 \(audit round 1\/2 unchanged\) \(PR #\d+\)/);
+  // the re-audit is still audit round 1: the merge failure used no audit round
+  assert.deepEqual(audits(5).map((c: any) => /\*\*hx audit (\d+\/\d+): (PASS|FAIL)/.exec(c.body)?.slice(1).join(' ')), ['1/2 PASS', '1/2 PASS']);
   assert.equal(s.issues[0].state, 'CLOSED');
   assert.ok(s.prs.some((p: any) => p.state === 'MERGED'));
-  assert.ok(lines.some((l) => /\[#5\] DONE ✓ audited and merged \(2 round/.test(l)));
+  assert.ok(lines.some((l) => /\[#5\] DONE ✓ audited and merged \(1 round\(s\), 1 merge round\(s\), /.test(l)), lines.join('\n'));
+  // the re-audit is told the sha the first audit passed, and to check the commits since it
+  const [first, second] = auditPrompts(5);
+  assert.doesNotMatch(first, /re-audit/);
+  assert.ok(second.includes(`the previous audit PASSED at ${auditedSha(5, 1)}`), second);
+  assert.ok(second.includes(`git log --oneline ${auditedSha(5, 1)}..HEAD`), second);
+});
+
+test('auditRounds 1: an audit PASS then two merge failures is still retried, not failed (#347)', E2E, async () => {
+  board([issue(13, 'AUDITCONFLICT2')]);
+  const { rc, lines } = await run([13], { auditRounds: 1 });
+  assert.equal(rc, 0, lines.join('\n'));
+  for (const k of [1, 2]) assert.ok(lines.some((l) => new RegExp(`\\[#13\\] merge after audit failed \\(rebase conflict\\) — back to the implementer, merge round ${k}/3 \\(audit round 1/1 unchanged\\)$`).test(l)), lines.join('\n'));
+  assert.ok(!lines.some((l) => /still not passing/.test(l)), lines.join('\n'));
+  const s = read();
+  assert.equal(s.issues.find((i: any) => i.number === 13).state, 'CLOSED');
+  assert.ok(lines.some((l) => /\[#13\] DONE ✓ audited and merged \(1 round\(s\), 2 merge round\(s\), /.test(l)), lines.join('\n'));
+  // each re-audit names the sha the audit before it passed
+  const p = auditPrompts(13);
+  assert.equal(p.length, 3);
+  assert.ok(p[1].includes(`PASSED at ${auditedSha(13, 1)}`) && p[2].includes(`PASSED at ${auditedSha(13, 2)}`));
+  assert.notEqual(auditedSha(13, 1), auditedSha(13, 2));
+});
+
+test('mergeRounds merge failures in a row: failed, the reason naming the merge rounds (#347)', E2E, async () => {
+  board([issue(14, 'AUDITCONFLICT9')]);
+  const { rc, lines } = await run([14], { mergeRounds: 2, selfHeal: false }); // no health pass resuming it afterwards
+  assert.equal(rc, 1, lines.join('\n'));
+  const s = read();
+  const i = s.issues.find((x: any) => x.number === 14);
+  assert.equal(i.state, 'OPEN');
+  assert.ok(i.labels.includes(L.blocked));
+  assert.ok(s.prs.filter((p: any) => p.head === 'issue/14').every((p: any) => p.state === 'OPEN'), 'nothing merged');
+  assert.equal(audits(14).length, 2, 'one audit per merge round');
+  assert.ok(lines.some((l) => /\[#14\] merge after audit failed \(rebase conflict\) — back to the implementer, merge round 1\/2 \(audit round 1\/2 unchanged\)$/.test(l)), lines.join('\n'));
+  assert.ok(s.comments.some((c: any) => c.issue === 14 && /still not merging after 2 merge round\(s\) \(audit 1\/2 passed\)/.test(c.body)),
+    JSON.stringify(s.comments.filter((c: any) => c.issue === 14)));
+  assert.ok(!s.comments.some((c: any) => c.issue === 14 && /still not passing after/.test(c.body)));
+});
+
+test('the audit prompt: {{REAUDIT_NOTE}} is empty on a first audit and carries the passed sha after a merge-fix round (#347)', E2E, () => {
+  const t = readFileSync(path.join(here, '..', 'prompts', 'audit.md'), 'utf8');
+  assert.equal(t.split('{{REAUDIT_NOTE}}').length, 2, 'the placeholder once');
+  assert.equal(render(t, { REAUDIT_NOTE: '' }), t.replace('{{REAUDIT_NOTE}}', ''));
+  const sha = 'abc1234def5678abc1234def5678abc1234def56';
+  const out = render(t, { REAUDIT_NOTE: reauditNote(sha, 'main') });
+  assert.ok(out.includes(`the previous audit PASSED at ${sha}`), out);
+  assert.ok(out.includes(`check the commits since ${sha}`));
+  assert.ok(out.includes(`\`git log --oneline ${sha}..HEAD\``));
+  assert.ok(out.includes(`\`git diff ${sha} HEAD\``));
+  assert.match(out, /Do not re-audit the whole PR from scratch/);
+  assert.match(out, /can still break a criterion that passed: then VERDICT: FAIL/);
+  assert.match(out, /anything\.\nThis is a re-audit[^\n]*\nBe economical/, 'a line of its own');
 });

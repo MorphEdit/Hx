@@ -635,6 +635,13 @@ implement ──▶ PR open ──▶ audit ──PASS──▶ hx rebases, re-t
                  └── findings ◀─FAIL┘   (after auditRounds FAILs: agent-blocked, for a human)
 ```
 
+A merge that fails after a PASS (a rebase conflict, or tests failing after the rebase) also goes back to the implementer, but it uses a
+merge round (`mergeRounds`), not an audit round: `merge after audit failed (rebase conflict) — back to the implementer, merge round 1/3
+(audit round 2/3 unchanged)`. The next audit is told the sha it passed and checks the commits since then, not the whole PR again; it can
+still FAIL. After `mergeRounds` failed merges the issue is `agent-blocked` (`still not merging after 3 merge round(s)`). When a PR lands on
+the base between ship's rebase and its merge, `ship.mjs` rebases and tests again (up to 3 times) instead of failing; only a merge that still
+fails with the head up to date with the base exits 5.
+
 ## CI gate
 
 After every merge (and when `hx run` starts) Hx runs the project's test command on a fresh checkout of
@@ -873,6 +880,7 @@ review / security / triage round caps, an audit that kept failing and a failed m
 | the audit passes and the merge goes through | hx merges the PR, closes the issue, removes `agent-working` and the worktree |
 | the audit passes but the merge's tests fail only where the red default branch fails too | held: no round counted, one `<!-- hx-merge-held -->` comment, `held (main red)` in `hx status`; the merge is retried once the gate is green (see [CI gate](#ci-gate)) |
 | the audit fails | the findings go to a fresh implementer session on the same branch; after `auditRounds` FAILs: `agent-blocked` |
+| the audit passes but the merge fails (rebase conflict, tests fail after the rebase) | back to the implementer as a merge round, the audit round unchanged; the next audit checks the commits since the passed sha; after `mergeRounds` failed merges: `agent-blocked` |
 | no promise after `maxIterations` turns, or the agent errors | comments the reason and last reply on the issue, labels it `agent-blocked`, keeps the worktree |
 | the worker needs the owner (a decision, a key, a check by hand) | commits and pushes its work, posts the question as a `<!-- hx-question -->` comment, swaps `ready-for-agent` for `needs-human`, keeps the worktree; the owner's answer (one trusted comment) relabels it `ready-for-agent` and the next worker gets the question and the answer. At `maxOpenQuestions` open questions: no question, a too-many comment, back to `ready-for-agent` |
 | usage limit hit | releases the issue, stops claiming until the limit resets |
@@ -971,6 +979,7 @@ and the dashboard's per-model numbers use it). To spot one:
 | `triageRounds` | 2 | triage sessions on a bug before a human has to look: a session without a verdict gets hx's `VERDICT: FAILED` marker and counts as a round; at the cap hx labels `agent-blocked` and comments once |
 | `audit` | `true` | an independent auditor checks every implementation PR before hx merges it |
 | `auditRounds` | 3 | implement → audit attempts before the issue goes to a human |
+| `mergeRounds` | 3 | merge-fix rounds after an audit PASS (a rebase conflict, tests failing after the rebase) before the issue goes to a human; they use no audit round |
 | `gate` | `true` | test the default branch after every merge; while red, claim only its fix |
 | `gateCommand` | `""` | the gate's test command (empty: learned from the first audited merge) |
 | `gateMinutes` | `45` | the gate's test run is killed, with its process tree, after this long and counts as red |

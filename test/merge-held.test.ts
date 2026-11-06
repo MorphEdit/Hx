@@ -92,17 +92,17 @@ test('a PASSed PR failing only test X, which main fails too: held, no round, no 
   assert.deepEqual(readHeld(p.stateDir), {}, 'no longer held');
 });
 
-test('a PASSed PR failing test Y, which main does not fail: back to the implementer, round counted, Y named', E2E, async () => {
+test('a PASSed PR failing test Y, which main does not fail: back to the implementer, a merge round counted (not an audit round), Y named', E2E, async () => {
   const p = repo('own');
   writeFileSync(stateFile, JSON.stringify({ comments: [], prs: [], issues: [
     { number: 1, title: 'task 1', body: 'MAINRED FAILSONBROKEN=X,Y', state: 'OPEN', labels: [L.ready] }] }));
   const before = new Set(readdirSync(fakeDir));
   const { lines } = await run(p, [1]);
   const all = lines.join('\n');
-  assert.ok(lines.some((l) => /\[#1\] merge after audit failed \(tests fail after the rebase; not failing on main: Y\) — back to the implementer, round 2\/2/.test(l)), all);
+  assert.ok(lines.some((l) => /\[#1\] merge after audit failed \(tests fail after the rebase; not failing on main: Y\) — back to the implementer, merge round 1\/3 \(audit round 1\/2 unchanged\)$/.test(l)), all);
   const retry = comments(1, '<!-- hx-retry -->');
   assert.equal(retry.length, 1);
-  assert.match(retry[0].body, /tests fail after the rebase; not failing on main: Y\) — back to the implementer, round 2\/2/);
+  assert.match(retry[0].body, /tests fail after the rebase; not failing on main: Y\) — back to the implementer, merge round 1\/3 \(audit round 1\/2 unchanged\)/);
   assert.equal(comments(1, HELD_MARKER).length, 0, 'not held');
   assert.deepEqual(readHeld(p.stateDir), {});
   // the second implementer is told which test its branch broke

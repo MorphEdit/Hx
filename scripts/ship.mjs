@@ -19,7 +19,8 @@
 // Exit codes, each with a one-line reason on stderr:
 //   0 shipped · 2 bad arguments · 3 rebase conflict (rebase aborted; resolve by hand, then re-run)
 //   4 tests failed on the rebased branch, or ran past --test-timeout <minutes> (default 45; the whole
-//     process tree is killed) — output tail printed · 5 a git/gh step failed
+//     process tree is killed) — output tail printed · 5 a git/gh step failed, or the merge still fails with the head
+//     up to date with the base (a base that moved during the merge is rebased, tested and merged again, up to 3 times)
 //
 // A gh call that hits a GitHub rate limit is waited out and retried (scripts/ghwait.mjs): one stderr line per wait,
 // at most HX_GH_WAIT_MAX_SECONDS (default 90) of waiting per run. Past that cap it prints `rate limited until HH:MM`
@@ -120,75 +121,86 @@ if (run('git', ['diff', '--cached', '--quiet']).status !== 0) {
   say('committed');
 }
 
-// 2. rebase on the current base: other workers merge while this one works
-fetchBase();
-const rb = run('git', ['rebase', `origin/${base}`]);
-if (rb.status !== 0) {
-  const files = run('git', ['diff', '--name-only', '--diff-filter=U']).stdout.trim().split('\n').filter(Boolean);
-  run('git', ['rebase', '--abort']);
-  console.error(`ship: rebase on origin/${base} conflicts in: ${files.join(', ') || '(unknown)'} — rebase aborted. ` +
-    `Run \`git rebase origin/${base}\`, resolve, \`git rebase --continue\`, then run ship again.`);
-  process.exit(3);
-}
-
-// 3. the tests, on exactly what will be merged. A hung run is killed with everything it started:
+// the tests (step 3), on exactly what will be merged. A hung run is killed with everything it started:
 // a plain kill of the shell leaves `npm test` → `node --test` → test files running.
 const killTree = (pid) => {
   if (process.platform === 'win32') try { execFileSync('taskkill', ['/pid', String(pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true }); } catch {}
   else try { process.kill(-pid, 'SIGKILL'); } catch { try { process.kill(pid, 'SIGKILL'); } catch {} }
 };
-const t = await new Promise((resolve) => {
-  const child = spawn(testCmd, [], { shell: true, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'], detached: process.platform !== 'win32' });
-  let out = '', timedOut = false, settled = false;
-  const keep = (d) => { out = (out + d).slice(-1024 * 1024); };
-  child.stdout.on('data', keep); child.stderr.on('data', keep);
-  const done = (status) => { if (!settled) { settled = true; clearTimeout(timer); resolve({ status, out, timedOut }); } };
-  const timer = setTimeout(() => {
-    timedOut = true;
-    killTree(child.pid);
-    setTimeout(() => done(null), 5000).unref(); // a stray grandchild may still hold the pipes open
-  }, testTimeoutMs);
-  child.on('error', (e) => { out += String(e.message); done(1); });
-  child.on('close', (code) => done(code));
-});
-const tail = () => t.out.trim().split('\n').slice(-40).join('\n');
-if (t.timedOut) {
-  console.error(`ship: tests timed out after ${+(testTimeoutMs / 60_000).toFixed(2)} min (\`${testCmd}\`), process tree killed:\n${tail()}`);
-  process.exit(4);
-}
-if (t.status !== 0) {
-  console.error(`ship: tests failed after rebasing on origin/${base} (\`${testCmd}\`):\n${tail()}`);
-  process.exit(4);
-}
-say('tests pass');
+// 2. rebase on the current base: other workers merge while this one works. When the base moves again between the
+// rebase and the merge, the branch is rebased, tested and merged again, up to MOVED_RETRIES times
+const MOVED_RETRIES = 3;
+// the base has commits the tested head lacks (fetched first)
+const baseMoved = () => { fetchBase(); return run('git', ['merge-base', '--is-ancestor', `origin/${base}`, 'HEAD']).status !== 0; };
+let pr = '', head = '', m;
+for (let pass = 0; ; pass++) {
+  let moved = false;
+  fetchBase();
+  const rb = run('git', ['rebase', `origin/${base}`]);
+  if (rb.status !== 0) {
+    const files = run('git', ['diff', '--name-only', '--diff-filter=U']).stdout.trim().split('\n').filter(Boolean);
+    run('git', ['rebase', '--abort']);
+    console.error(`ship: rebase on origin/${base} conflicts in: ${files.join(', ') || '(unknown)'} — rebase aborted. ` +
+      `Run \`git rebase origin/${base}\`, resolve, \`git rebase --continue\`, then run ship again.`);
+    process.exit(3);
+  }
 
-// 4. push, PR, merge, clean up, close
-ok('git', ['push', '-q', '--force-with-lease', '-u', 'origin', `HEAD:${branch}`], 'git push');
-// `--head` matches the branch name only: a fork's PR from a branch of the same name must never be taken
-let pr = String(JSON.parse(ok('gh', ['pr', 'list', '-R', repo, '--head', branch, '--state', 'open', '--json', 'number,isCrossRepository'], 'gh pr list') || '[]')
-  .find((p) => p.isCrossRepository === false)?.number ?? '');
-// merge exactly the commit tested and pushed here: GitHub refuses if the PR's head has moved since
-const head = ok('git', ['rev-parse', 'HEAD'], 'git rev-parse');
-if (!pr) {
-  const extra = opt('body-file') ? readFileSync(opt('body-file'), 'utf8').trim() : '';
-  const url = ok('gh', ['pr', 'create', '-R', repo, '--base', base, '--head', branch, '--title', title, '--body', `Closes #${issue}${extra ? `
+  // 3. the tests, on exactly what will be merged
+  const t = await new Promise((resolve) => {
+    const child = spawn(testCmd, [], { shell: true, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'], detached: process.platform !== 'win32' });
+    let out = '', timedOut = false, settled = false;
+    const keep = (d) => { out = (out + d).slice(-1024 * 1024); };
+    child.stdout.on('data', keep); child.stderr.on('data', keep);
+    const done = (status) => { if (!settled) { settled = true; clearTimeout(timer); resolve({ status, out, timedOut }); } };
+    const timer = setTimeout(() => {
+      timedOut = true;
+      killTree(child.pid);
+      setTimeout(() => done(null), 5000).unref(); // a stray grandchild may still hold the pipes open
+    }, testTimeoutMs);
+    child.on('error', (e) => { out += String(e.message); done(1); });
+    child.on('close', (code) => done(code));
+  });
+  const tail = () => t.out.trim().split('\n').slice(-40).join('\n');
+  if (t.timedOut) {
+    console.error(`ship: tests timed out after ${+(testTimeoutMs / 60_000).toFixed(2)} min (\`${testCmd}\`), process tree killed:\n${tail()}`);
+    process.exit(4);
+  }
+  if (t.status !== 0) {
+    console.error(`ship: tests failed after rebasing on origin/${base} (\`${testCmd}\`):\n${tail()}`);
+    process.exit(4);
+  }
+  say('tests pass');
+
+  // 4. push, PR, merge, clean up, close
+  ok('git', ['push', '-q', '--force-with-lease', '-u', 'origin', `HEAD:${branch}`], 'git push');
+  // `--head` matches the branch name only: a fork's PR from a branch of the same name must never be taken
+  if (!pr) pr = String(JSON.parse(ok('gh', ['pr', 'list', '-R', repo, '--head', branch, '--state', 'open', '--json', 'number,isCrossRepository'], 'gh pr list') || '[]')
+    .find((p) => p.isCrossRepository === false)?.number ?? '');
+  // merge exactly the commit tested and pushed here: GitHub refuses if the PR's head has moved since
+  head = ok('git', ['rev-parse', 'HEAD'], 'git rev-parse');
+  if (!pr) {
+    const extra = opt('body-file') ? readFileSync(opt('body-file'), 'utf8').trim() : '';
+    const url = ok('gh', ['pr', 'create', '-R', repo, '--base', base, '--head', branch, '--title', title, '--body', `Closes #${issue}${extra ? `
 
 ${extra}` : ''}`], 'gh pr create');
-  pr = /\/pull\/(\d+)/.exec(url)?.[1] ?? '';
-}
-if (noMerge) {
-  writeFileSync(stateFile, JSON.stringify({ repo, base, issue, title, test: testCmd, testTimeout, pr }, null, 2));
-  console.log(`READY #${issue} PR #${pr}`);
-  process.exit(0);
-}
-// right after a push GitHub may still be computing mergeability: retry before falling back to auto-merge
-let m;
-for (let i = 1; i <= 5; i++) {
-  m = run('gh', ['pr', 'merge', pr, '-R', repo, '--squash', '--match-head-commit', head]);
+    pr = /\/pull\/(\d+)/.exec(url)?.[1] ?? '';
+  }
+  if (noMerge) {
+    writeFileSync(stateFile, JSON.stringify({ repo, base, issue, title, test: testCmd, testTimeout, pr }, null, 2));
+    console.log(`READY #${issue} PR #${pr}`);
+    process.exit(0);
+  }
+  // right after a push GitHub may still be computing mergeability: retry before falling back to auto-merge.
+  // A PR that landed on the base meanwhile makes the merge fail (`the merge commit cannot be cleanly created`):
+  // then the branch is rebased and tested again, up to MOVED_RETRIES times, instead of failing
+  for (let i = 1; i <= 5; i++) {
+    m = run('gh', ['pr', 'merge', pr, '-R', repo, '--squash', '--match-head-commit', head]);
+    if (m.status === 0 || (moved = baseMoved())) break;
+    sleep(Number(process.env.HX_SHIP_RETRY_MS ?? 3000) * i);
+  }
   if (m.status === 0) break;
-  sleep(Number(process.env.HX_SHIP_RETRY_MS ?? 3000) * i);
-}
-if (m.status !== 0) {
+  if (moved && pass < MOVED_RETRIES) { say(`origin/${base} moved during the merge: rebasing and testing again (${pass + 1}/${MOVED_RETRIES})`); continue; }
+
   // some repos only allow auto-merge
   const a = run('gh', ['pr', 'merge', pr, '-R', repo, '--squash', '--auto', '--match-head-commit', head]);
   if (a.status !== 0) { console.error(`ship: merging PR #${pr} failed: ${(m.stderr + a.stderr).trim().slice(-800)}`); process.exit(5); }

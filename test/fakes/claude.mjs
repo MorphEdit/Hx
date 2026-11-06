@@ -27,7 +27,7 @@
 //              names (FAKE_GRILL_NOWRITE=1: writes nothing, =blank: whitespace only) and exits
 //   issue:     the same for `hx issue`: writes a small issue to its output path (same FAKE_GRILL_NOWRITE)
 // NOTHINGTOBUILD in an issue body: an implement session closes it with a comment and prints its promise, no PR.
-// MAINRED in an issue body: its round-1 auditor pushes a BROKEN file to main; FAILSONBROKEN=X,Y: its shipped test command
+// MAINRED in an issue body: its first auditor pushes a BROKEN file to main; FAILSONBROKEN=X,Y: its shipped test command
 // fails X and Y while BROKEN exists.
 // IMPLQUESTION in an issue body: an implement session (audited or not) writes wip-<n>.txt in its worktree and ends its
 // first turn with a question and `<promise>NEEDS_HUMAN <n></promise>`, unless its prompt carries the owner's answer or
@@ -54,7 +54,8 @@
 // then waits (polling every 50 ms) until <file> exists: the session runs until the test releases it.
 // FAKE_CLAUDE_START_MS delays the stall mode's start, as a slow node startup on a loaded machine does.
 import { spawn, spawnSync } from 'node:child_process';
-import { appendFileSync, existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { appendFileSync, existsSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { loadJson, locked, saveJson } from './lock.mjs';
 
@@ -350,15 +351,22 @@ ${done()}`);
   if (st.role === 'audit') {
     const body = loadBoard().issues.find((i) => i.number === st.n).body;
     const failing = /AUDITNEVER/.test(body) || (/AUDITFAIL/.test(body) && st.round === 1);
-    // AUDITCONFLICT: round 1 passes, but meanwhile main gets a conflicting impl file, so the merge hits a rebase conflict
-    if (/AUDITCONFLICT/.test(body) && st.round === 1) {
+    // every audit of issue n writes the head it checked to HX_FAKE_DIR/audit-<origin>-<n>-<k>.sha (k = 1, 2, …; <origin> a
+    // hash of the origin's path: tests that share HX_FAKE_DIR reuse issue numbers on other origins)
+    const origin = createHash('sha1').update(spawnSync('git', ['remote', 'get-url', 'origin'], { encoding: 'utf8' }).stdout.trim()).digest('hex').slice(0, 8);
+    const k = 1 + readdirSync(process.env.HX_FAKE_DIR).filter((f) => f.startsWith(`audit-${origin}-${st.n}-`)).length;
+    if (!checkpoint) writeFileSync(path.join(process.env.HX_FAKE_DIR, `audit-${origin}-${st.n}-${k}.sha`), spawnSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).stdout.trim());
+    // AUDITCONFLICT<j> (j default 1): the first j audits pass, but meanwhile main gets a conflicting impl file, so each
+    // merge hits a rebase conflict
+    const conflicts = Number(/AUDITCONFLICT(\d*)/.exec(body)?.[1] || (/AUDITCONFLICT/.test(body) ? 1 : 0));
+    if (!checkpoint && k <= conflicts) {
       const g = (...a) => spawnSync('git', a, { encoding: 'utf8', env: { ...process.env, ...GIT_ID } });
       g('fetch', '-q', 'origin', 'main'); g('checkout', '-q', '--detach', 'origin/main');
-      writeFileSync(path.join(process.cwd(), `impl-${st.n}.txt`), 'someone else\n');
+      writeFileSync(path.join(process.cwd(), `impl-${st.n}.txt`), `someone else ${k}\n`);
       g('add', '-A'); g('commit', '-q', '-m', 'conflicting work'); g('push', '-q', 'origin', 'HEAD:main');
     }
-    // MAINRED: round 1 passes, but meanwhile a BROKEN file lands on main (no conflict), so main turns red
-    if (/MAINRED/.test(body) && st.round === 1) {
+    // MAINRED: the first audit passes, but meanwhile a BROKEN file lands on main (no conflict), so main turns red
+    if (/MAINRED/.test(body) && k === 1) {
       const g = (...a) => spawnSync('git', a, { encoding: 'utf8', env: { ...process.env, ...GIT_ID } });
       g('fetch', '-q', 'origin', 'main'); g('checkout', '-q', '--detach', 'origin/main');
       writeFileSync(path.join(process.cwd(), 'BROKEN'), 'x\n');
