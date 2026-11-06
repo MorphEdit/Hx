@@ -8,6 +8,7 @@ import type { AddressInfo } from 'node:net';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { budgetLine } from './budget.ts';
+import { eventsFrom } from './controlroom.ts';
 import { loadProject, type Project, STATE_DIR } from './config.ts';
 import { DEFAULT_FLEET_WORKERS, type Fleet, fleetDir, fleetWorkers, type ListedRepo, listRepos, readFleet, readHold, readRepos, slotsInUse } from './fleet.ts';
 import { githubLine } from './ghlimit.ts';
@@ -161,7 +162,8 @@ export function dashboardState(p: Project, board: () => BoardSeen, now = Date.no
   const machine = analyseMachine({ load: readLoadLines(dir), gates, log: logLines, usage: recs,
     workers: running ? live.workers : p.config.workers, now });
   return { repo: p.config.repo, waiting, runner, sessions, gate, health, supervised, autoStart, usage,
-    time: testTime(recs, gates, now), machine, log: tailLines(logFile, LOG_LINES), outcomes };
+    time: testTime(recs, gates, now), machine, log: tailLines(logFile, LOG_LINES), outcomes,
+    events: eventsFrom(logLines, localDay(new Date(now).toISOString()), p.config.labels.blocked) };
 }
 
 function send(res: ServerResponse, status: number, type: string, body: string, headers: Record<string, string> = {}): void {
