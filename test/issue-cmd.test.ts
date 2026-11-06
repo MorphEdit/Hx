@@ -59,6 +59,7 @@ test('hx issue "idea" --yes: one ready-for-agent issue titled from the "# " line
   assert.ok(!/\{\{\w+\}\}/.test(s.full), 'no placeholder left');
   assert.equal(s.trusted, 'me');
   assert.equal(s.testConcurrency, String(Math.max(1, os.availableParallelism() - 1)), 'HX_TEST_CONCURRENCY: n = 1 outside hx run');
+  assert.equal(s.testedTrees, path.resolve(root, '.hx', 'tested-trees.jsonl'), 'HX_TESTED_TREES: reuseTestedTrees is on by default');
   assert.deepEqual(s.args.slice(0, 4), ['--model', DEFAULTS.model, '--effort', DEFAULTS.effort]);
   assert.ok(!existsSync(path.join(fakeDir, 'grill-args.json')), 'not a grill session');
   assert.ok(s.full.includes(path.join(root, '.hx', 'issues')), 'output under .hx/issues');

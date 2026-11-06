@@ -157,7 +157,8 @@ test('hx\'s own ship --resume after a passed audit gets it, and ship.mjs hands i
   process.env.FAKE_SHIP_TEST = envCommand(out);
   board([issue(5)]);
   try {
-    const { rc, lines } = await run({ audit: true, testConcurrency: 3 }, { only: [5] });
+    // reuseTestedTrees off: hx's ship --resume would otherwise skip the tests on the tree the implementer's ship passed (#351)
+    const { rc, lines } = await run({ audit: true, testConcurrency: 3, reuseTestedTrees: false }, { only: [5] });
     assert.equal(rc, 0, lines.join('\n'));
   } finally { delete process.env.FAKE_SHIP_TEST; }
   const s = read();

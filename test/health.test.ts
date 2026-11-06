@@ -440,6 +440,28 @@ test('healthPass resume repair outside hx run (hx health --fix): ship --resume r
   assert.equal(readFileSync(out, 'utf8'), String(Math.max(1, os.availableParallelism() - 1)));
 });
 
+test('healthPass resume repair: ship --resume gets HX_TESTED_TREES (<stateDir>/tested-trees.jsonl) and records the run; none with reuseTestedTrees false', E2E, async () => {
+  const script = path.join(tmp, 'resume-trees.mjs');
+  writeFileSync(script, "import { writeFileSync } from 'node:fs'; writeFileSync(process.argv[2], process.env.HX_TESTED_TREES ?? 'unset');");
+  const out = path.join(tmp, 'resume-trees.txt');
+  const r = blockedRepo(62, { test: `node "${script}" "${out}"` });
+  await fix(r);
+  assert.equal(theIssue(62).state, 'CLOSED');
+  const file = path.resolve(r.stateDir, 'tested-trees.jsonl');
+  assert.equal(readFileSync(out, 'utf8'), file);
+  const recs = readFileSync(file, 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+  assert.equal(recs.length, 1);
+  assert.equal(recs[0].ok, true);
+
+  const out2 = path.join(tmp, 'resume-trees-off.txt');
+  const off = blockedRepo(63, { test: `node "${script}" "${out2}"` });
+  (off.config as any).reuseTestedTrees = false;
+  await fix(off);
+  assert.equal(theIssue(63).state, 'CLOSED');
+  assert.equal(readFileSync(out2, 'utf8'), 'unset');
+  assert.ok(!existsSync(path.join(off.stateDir, 'tested-trees.jsonl')));
+});
+
 test('healthPass blocked after PASS: CONFLICTING, ship exit 3 and exit 4 → back to ready-for-agent with a resume comment', E2E, async () => {
   const conflicting = blockedRepo(22, { mergeable: 'CONFLICTING' });
   await fix(conflicting);

@@ -16,6 +16,12 @@
 //               With no hx-ship.json but an open PR for the branch (a PR opened outside ship), the state is
 //               written from the PR: --repo, --base and --test come from hx, the issue from the branch name
 //
+// With HX_TESTED_TREES set (hx sets it to .hx/tested-trees.jsonl unless reuseTestedTrees is false), every full run of
+// the test command appends `{ tree, command, ok, at }` for the tree of the HEAD tested (a fail or a timeout: ok false).
+// --resume then skips the tests when the latest record for the rebased HEAD's tree and the test command is a pass:
+// `ship: tests: tree <short> already passed (<at>) — skipped`. --no-merge and a plain ship always run them; with the
+// variable unset ship neither records nor skips.
+//
 // Exit codes, each with a one-line reason on stderr:
 //   0 shipped · 2 bad arguments · 3 rebase conflict (rebase aborted; resolve by hand, then re-run)
 //   4 tests failed on the rebased branch, or ran past --test-timeout <minutes> (default 45; the whole
@@ -30,10 +36,13 @@ import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { ghCaller } from './ghwait.mjs';
+import { appendTestedTree, passedTree } from '../src/tested.ts';
 
 const args = process.argv.slice(2);
 const opt = (n) => { const i = args.indexOf(`--${n}`); return i < 0 ? undefined : args[i + 1]; };
 const noMerge = args.includes('--no-merge');
+const resume = args.includes('--resume');
+const treesFile = process.env.HX_TESTED_TREES || ''; // .hx/tested-trees.jsonl; unset: no records, no skip
 const gitDir = spawnSync('git', ['rev-parse', '--absolute-git-dir'], { encoding: 'utf8' }).stdout.trim();
 const stateFile = path.join(gitDir || '.', 'hx-ship.json');
 const gh = ghCaller('ship');
@@ -54,7 +63,7 @@ function fromPr() {
   return state;
 }
 let saved = {};
-if (args.includes('--resume')) {
+if (resume) {
   try { saved = JSON.parse(readFileSync(stateFile, 'utf8')); } catch { saved = fromPr() ?? process.exit(2); }
 }
 const repo = opt('repo') ?? saved.repo, base = opt('base') ?? saved.base ?? 'main', issue = opt('issue') ?? saved.issue,
@@ -145,31 +154,42 @@ for (let pass = 0; ; pass++) {
     process.exit(3);
   }
 
-  // 3. the tests, on exactly what will be merged
-  const t = await new Promise((resolve) => {
-    const child = spawn(testCmd, [], { shell: true, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'], detached: process.platform !== 'win32' });
-    let out = '', timedOut = false, settled = false;
-    const keep = (d) => { out = (out + d).slice(-1024 * 1024); };
-    child.stdout.on('data', keep); child.stderr.on('data', keep);
-    const done = (status) => { if (!settled) { settled = true; clearTimeout(timer); resolve({ status, out, timedOut }); } };
-    const timer = setTimeout(() => {
-      timedOut = true;
-      killTree(child.pid);
-      setTimeout(() => done(null), 5000).unref(); // a stray grandchild may still hold the pipes open
-    }, testTimeoutMs);
-    child.on('error', (e) => { out += String(e.message); done(1); });
-    child.on('close', (code) => done(code));
-  });
-  const tail = () => t.out.trim().split('\n').slice(-40).join('\n');
-  if (t.timedOut) {
-    console.error(`ship: tests timed out after ${+(testTimeoutMs / 60_000).toFixed(2)} min (\`${testCmd}\`), process tree killed:\n${tail()}`);
-    process.exit(4);
+  // 3. the tests, on exactly what will be merged; --resume skips them on a tree that already passed them
+  const tree = treesFile ? ok('git', ['rev-parse', 'HEAD^{tree}'], 'reading the tree') : '';
+  let prior = null;
+  try { prior = resume && tree ? passedTree(treesFile, tree, testCmd) : null; } catch {}
+  const record = (passed) => {
+    if (tree) try { appendTestedTree(treesFile, { tree, command: testCmd, ok: passed, at: new Date().toISOString() }); }
+    catch (e) { say(`could not record the tested tree in ${treesFile}: ${e.message}`); }
+  };
+  if (prior) say(`tests: tree ${tree.slice(0, 7)} already passed (${prior.at}) — skipped`);
+  else {
+    const t = await new Promise((resolve) => {
+      const child = spawn(testCmd, [], { shell: true, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'], detached: process.platform !== 'win32' });
+      let out = '', timedOut = false, settled = false;
+      const keep = (d) => { out = (out + d).slice(-1024 * 1024); };
+      child.stdout.on('data', keep); child.stderr.on('data', keep);
+      const done = (status) => { if (!settled) { settled = true; clearTimeout(timer); resolve({ status, out, timedOut }); } };
+      const timer = setTimeout(() => {
+        timedOut = true;
+        killTree(child.pid);
+        setTimeout(() => done(null), 5000).unref(); // a stray grandchild may still hold the pipes open
+      }, testTimeoutMs);
+      child.on('error', (e) => { out += String(e.message); done(1); });
+      child.on('close', (code) => done(code));
+    });
+    const tail = () => t.out.trim().split('\n').slice(-40).join('\n');
+    record(!t.timedOut && t.status === 0);
+    if (t.timedOut) {
+      console.error(`ship: tests timed out after ${+(testTimeoutMs / 60_000).toFixed(2)} min (\`${testCmd}\`), process tree killed:\n${tail()}`);
+      process.exit(4);
+    }
+    if (t.status !== 0) {
+      console.error(`ship: tests failed after rebasing on origin/${base} (\`${testCmd}\`):\n${tail()}`);
+      process.exit(4);
+    }
+    say('tests pass');
   }
-  if (t.status !== 0) {
-    console.error(`ship: tests failed after rebasing on origin/${base} (\`${testCmd}\`):\n${tail()}`);
-    process.exit(4);
-  }
-  say('tests pass');
 
   // 4. push, PR, merge, clean up, close
   ok('git', ['push', '-q', '--force-with-lease', '-u', 'origin', `HEAD:${branch}`], 'git push');

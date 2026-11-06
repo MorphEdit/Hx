@@ -55,6 +55,8 @@ test('hx grill "idea" --yes: one prd issue titled from the "# " line, exit 0', E
   assert.equal(seen.trusted, 'me', 'the grill session gets HX_TRUSTED (the gh login + trustedAuthors)');
   // outside hx run n = 1: cpus - 1, whatever else runs (#350)
   assert.equal(seen.testConcurrency, String(Math.max(1, os.availableParallelism() - 1)));
+  // reuseTestedTrees (default on): the absolute path of <stateDir>/tested-trees.jsonl (#351)
+  assert.equal(seen.testedTrees, path.resolve(root, '.hx', 'tested-trees.jsonl'));
 });
 
 test('without --yes: "n" files nothing and prints the path; "y" / "YES" file one issue', E2E, () => {
