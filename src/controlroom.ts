@@ -1,5 +1,6 @@
-// The control-room data of hx dashboard (PRD #367): run.log lines read as claims, stages and today's events. Pure: no I/O, no clock.
+// The control-room data of hx dashboard (PRD #367): run.log lines read as claims, stages, today's events, the timeline and the issue states. Pure: no I/O, no clock.
 import { localDay } from './usage.ts';
+import type { Plan, Ref } from './state.ts';
 
 /** One run.log line: its ISO time, its issue (null for a runner line) and its message. */
 export interface LogLine { t: string; issue: number | null; msg: string }
@@ -185,4 +186,142 @@ export function workerOf(timeline: Timeline, issue: number): string {
     }
   }
   return best?.worker ?? '—';
+}
+
+/** Tokens as the page shows them: `2.5M` (one decimal from a million), `288K` (whole thousands), else the number. */
+export function fmtTokens(n: number): string {
+  if (n >= 1e6) return `${(n / 1e6).toFixed(1)}M`;
+  if (n >= 1e3) return `${Math.round(n / 1e3)}K`;
+  return String(n);
+}
+
+/** A duration rounded to the minute: `44 min` under an hour, `1h29m` from an hour. */
+export function fmtSpan(ms: number): string {
+  const m = Math.max(0, Math.round(ms / 60_000));
+  return m < 60 ? `${m} min` : `${Math.floor(m / 60)}h${String(m % 60).padStart(2, '0')}m`;
+}
+
+/** The page's five statuses (PRD #367, Behaviour → "Page status words and dots"). */
+export type Status = 'done' | 'merging' | 'auditing' | 'implementing' | 'waiting';
+
+/** One issue or PRD in the control room. `prd` is the item's own number for a PRD, else its parent PRD (null when none);
+ *  `board` is its board or PRD row's status (null when none) and `held` its held merge, kept for "what next". */
+export interface Item {
+  number: number; prd: number | null; title: string; group: string; status: Status; word: string; stage: ImplStage | null;
+  since: string | null; waitsOn: string[]; worker: string; tokens: string; time: string; round: string; pr: string;
+  steps: { name: string; state: 'done' | 'now' | 'next'; note: string }[]; facts: [string, string][]; next: string;
+  board: string | null; held: boolean; closedAt: string | null;
+}
+export interface Group { key: string; title: string; progress: string }
+
+/** What issueStates reads of the board plan and of a live session. */
+type PlanPart = Pick<Plan, 'prds' | 'board' | 'parents'>;
+type LiveSession = { number: number; kind: string; since: string; title?: string };
+
+const PRD_KINDS: Record<string, string> = { gauntlet: 'gauntlet', decompose: 'decompose', review: 'review', security: 'security', bar: 'quality bar' };
+const STATUS_ORDER: Status[] = ['done', 'merging', 'auditing', 'implementing', 'waiting'];
+const STAGE_STATUS: Record<ImplStage, Status> = { impl: 'implementing', audit: 'auditing', merge: 'merging' };
+// hx's own closing lines for an issue (status rule 3)
+const isClosing = (msg: string) => ['DONE ✓ audited and merged', 'DONE ✓ closed without a PR', 'impl DONE ✓'].some((w) => msg.startsWith(w));
+const TURN = /^[\w-]+ turn \d+: (?:ok|error)\b/;
+const SPLIT = /^split #(\d+) → (.*)$/;
+
+/** The control room's issues (PRD #367, Data → issues): every open PRD, board row, live session (the self-review one left out)
+ *  and PRD or issue closed today, with its status and display strings, and the board groups in board order.
+ *  `plan` is undefined before the first board read; with `repo` (owner/name) its own blockers show as `#N`; now is `timeline.to`. */
+export function issueStates(a: { plan?: PlanPart; sessions: LiveSession[]; lines: string[]; timeline: Timeline; auditRounds: number; today: string; repo?: string }): { groups: Group[]; items: Item[] } {
+  const { plan, timeline, auditRounds, today } = a;
+  const now = timeline.to;
+  const lines = parseLines(a.lines);
+  const sessions = a.sessions.filter((s) => !(s.number === 0 || s.kind === 'selfreview'));
+  const prdRows = new Map((plan?.prds ?? []).map((r) => [r.number, r]));
+  const rows = new Map((plan?.board ?? []).map((r) => [r.number, r]));
+  const openPrdOf = (n: number): number | null => (plan && prdRows.has(plan.parents[n]) ? plan.parents[n] : null);
+
+  // today's closing lines (the latest per number), every issue hx closed in the lines read, and the latest split line listing each issue
+  const closedIssue = new Map<number, string>(), closedPrd = new Map<number, string>(), everDone = new Set<number>();
+  const splitOf = new Map<number, number>();
+  for (const l of lines) {
+    if (l.issue === null) continue;
+    if (isClosing(l.msg)) { everDone.add(l.issue); if (localDay(l.t) === today) closedIssue.set(l.issue, l.t); }
+    if (l.msg.startsWith('PRD closed ✓') && localDay(l.t) === today) closedPrd.set(l.issue, l.t);
+    const m = SPLIT.exec(l.msg);
+    if (m) for (const r of m[2].replace(/ \(.*$/, '').matchAll(/(?<![\w/])#(\d+)/g)) splitOf.set(Number(r[1]), Number(m[1]));
+  }
+  const claimTitle = (n: number): string | null => {
+    for (let i = lines.length - 1; i >= 0; i--) if (lines[i].issue === n) { const c = claimOf(lines[i]); if (c) return c.title; }
+    return null;
+  };
+
+  // a split group's members: the issues its split line is the latest to list, and no open PRD holds
+  const members = new Map<number, number[]>();
+  for (const [n, parent] of splitOf) if (openPrdOf(n) === null) members.set(parent, [...(members.get(parent) ?? []), n]);
+
+  const numbers = new Set<number>([...prdRows.keys(), ...rows.keys(), ...sessions.map((s) => s.number), ...closedPrd.keys(), ...closedIssue.keys()]);
+  const isPrd = (n: number) => prdRows.has(n) || closedPrd.has(n) || sessions.some((s) => s.number === n && s.kind in PRD_KINDS);
+  const ref = (r: Ref) => (a.repo && r.repo.toLowerCase() === a.repo.toLowerCase() ? `#${r.number}` : `${r.repo}#${r.number}`);
+  const groupOf = (n: number, prd: boolean, closed: boolean): string => {
+    if (prd) return closed ? 'closed' : prdRows.has(n) ? `prd:${n}` : 'other';
+    const p = openPrdOf(n);
+    if (p !== null) return `prd:${p}`;
+    const s = splitOf.get(n);
+    if (s !== undefined && members.has(s)) return `split:${s}`;
+    return closed ? 'closed' : 'other';
+  };
+
+  const items: Item[] = [...numbers].map((n) => {
+    const prd = isPrd(n), session = sessions.find((s) => s.number === n), row = rows.get(n), prow = prdRows.get(n);
+    const closedAt = (prd ? closedPrd.get(n) : closedIssue.get(n)) ?? null;
+    let status: Status = 'waiting', word = 'waiting', stage: ImplStage | null = null;
+    if (prd) {
+      if (closedAt) status = word = 'done';
+      else if (session && session.kind in PRD_KINDS) { status = 'implementing'; word = PRD_KINDS[session.kind]; }
+      else if (prow?.status === 'building') { status = 'implementing'; word = 'building'; }
+    } else if (session?.kind === 'impl') { stage = implStage(lines, n); status = word = STAGE_STATUS[stage]; }
+    else if (session?.kind === 'triage') status = word = 'implementing';
+    else if (closedAt) status = word = 'done';
+
+    // tokens, round and PR from the current claim's turn lines and its latest `audit n/N: PR #p` (or held-merge) line
+    const claim = currentClaim(lines, n);
+    let tokens = 0, turns = 0, round = 1, pr = 'not yet';
+    for (const { msg } of claim) {
+      if (TURN.test(msg)) { turns++; tokens += tokensIn(msg) ?? 0; }
+      let m = /^audit (\d+)\/\d+: PR #(\d+)/.exec(msg);
+      if (m) { round = Number(m[1]); pr = `#${m[2]}`; }
+      else if ((m = /merging held PR #(\d+) \(audit (\d+)\//.exec(msg))) { round = Number(m[2]); pr = `#${m[1]}`; }
+    }
+    // time: claim (else the session's since) → now while running, → the closing line when done; none while waiting
+    const start = claim.length ? Date.parse(claim[0].t) : session ? Date.parse(session.since) : null;
+    const end = session ? now : status === 'done' && closedAt ? Date.parse(closedAt) : null;
+    return {
+      number: n, prd: prd ? n : plan?.parents[n] ?? null,
+      title: prow?.title ?? row?.title ?? session?.title ?? claimTitle(n) ?? '',
+      group: groupOf(n, prd, status === 'done'), status, word, stage, since: session?.since ?? null,
+      waitsOn: (prow?.waitingOn ?? row?.waitingOn ?? []).map(ref), worker: workerOf(timeline, n),
+      tokens: turns ? fmtTokens(tokens) : session ? 'turn running' : '',
+      time: start !== null && end !== null ? fmtSpan(end - start) : '',
+      round: `${round} of ${auditRounds}`, pr, steps: [], facts: [], next: '',
+      board: prow?.status ?? row?.status ?? null, held: !!row?.held, closedAt,
+    };
+  });
+
+  const titleOf = (n: number) => prdRows.get(n)?.title ?? rows.get(n)?.title ?? claimTitle(n) ?? '';
+  const groups: Group[] = [...prdRows.values()].sort((x, y) => x.number - y.number)
+    .map((r) => ({ key: `prd:${r.number}`, title: `PRD #${r.number} · ${r.title}`, progress: `${r.closed}/${r.open + r.closed}` }));
+  for (const [parent, ms] of [...members].sort((x, y) => x[0] - y[0])) {
+    const t = titleOf(parent);
+    groups.push({ key: `split:${parent}`, title: t ? `#${parent} · ${t} (split)` : `#${parent} (split)`,
+      progress: `${ms.filter((k) => everDone.has(k)).length}/${ms.length}` });
+  }
+  const count = (key: string) => items.filter((i) => i.group === key).length;
+  if (count('other')) groups.push({ key: 'other', title: 'Other issues', progress: String(count('other')) });
+  if (count('closed')) groups.push({ key: 'closed', title: 'Closed today', progress: String(count('closed')) });
+
+  // board order: by group; then done, merging, auditing, implementing, waiting, by number; Closed today: PRDs, then newest close first
+  const at = (i: Item) => groups.findIndex((g) => g.key === i.group);
+  const isPrdItem = (i: Item) => Number(i.prd === i.number);
+  items.sort((x, y) => at(x) - at(y) || (x.group === 'closed'
+    ? isPrdItem(y) - isPrdItem(x) || Date.parse(y.closedAt!) - Date.parse(x.closedAt!) || x.number - y.number
+    : STATUS_ORDER.indexOf(x.status) - STATUS_ORDER.indexOf(y.status) || x.number - y.number));
+  return { groups, items };
 }
