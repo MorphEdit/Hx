@@ -292,8 +292,8 @@ for load.
   ceiling, the latest reading's CPU %), or `workers  3/3 (auto: no reading yet)` before the first reading; the
   dashboard's Now panel shows the same line in the runner row. Both read the running runner's `live.json`, not the
   config: nothing shows with `autoWorkers` off or no runner up.
-- **A fixed count.** `"autoWorkers": false` keeps `workers` sessions whatever the load: no sampling, the gate not
-  counted, no `workers:` lines. `HX_AUTO_WORKERS=0` in the environment does the same for one run (the tests set it).
+- **A fixed count.** `"autoWorkers": false` keeps `workers` sessions whatever the load: the gate not counted, no
+  `workers:` lines. The sampler still runs, for the load history (`.hx/load.jsonl`, see Files). `HX_AUTO_WORKERS=0` in the environment does the same for one run (the tests set it).
 
 ## Several repos
 
@@ -1077,6 +1077,10 @@ it reads. So Hx only works on text from **trusted accounts**: your `gh` login pl
 - `.hx/gate-runs.jsonl` — one line per pool gate run whose test command finished or timed out: `{ ts, sha, ok, durationMs, timedOut }`
   (`durationMs` is the test command only; the release gate is not recorded). `hx run` logs `gate is slow: …` once when the median of the last 5 is above 70% of `gateMinutes`
 - `.hx/tested-trees.jsonl` — one line per full run of ship's test command, while `reuseTestedTrees` is on: `{ tree, command, ok, at }` (`tree` = the tested commit's `git rev-parse <commit>^{tree}`, `ok` false for a fail or a timeout); appended, never rewritten, read by `ship --resume` to skip a tree that already passed
+- `.hx/load.jsonl` — the load history of `hx run`: one line per minute, `{ ts, cpuPct, freeMemGB, target, running, gate }`
+  (the CPU reading and free memory of the autoWorkers sampler, one decimal; the worker target, auto-scaled or the fixed
+  `workers`; the live sessions; whether a gate run is in progress). A minute with no reading yet writes no line; lines
+  older than 7 days are dropped when `hx run` starts. Written with `autoWorkers` off too
 - `.hx/health.json` — the health pass: when it first saw each `agent-working` issue with no live session, and the last pass's time and line (see [Self-check](#self-check))
 - `.hx/selfupdate.json` — the last self-update line, the shas (or tags) whose runner did not start (`bad`), the sha a rollback left the checkout at, the open watch window (`watch`), the last rollback (`rollback`) and the last good version (`good`); `.hx/selfupdate-ready` is the new runner's ready marker
 - `.hx/selfreview.json` — the head of `origin/<default>` the last self-review reviewed, and when: `{ sha, at }`
