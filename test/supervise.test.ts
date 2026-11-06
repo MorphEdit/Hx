@@ -49,7 +49,7 @@ test('backoff: 10 s, 30 s, 60 s, then 5 min; 5 crashes inside the window give up
   assert.ok(!tooManyCrashes([0, 100_000, 200_000, 300_000, 600_000], 5, W), 'the first crash is out of the window');
 });
 
-test('renameRetry: EPERM, EBUSY and EACCES are retried until the rename lands; another error, or one past the tries, is thrown (#356)', () => {
+test('renameRetry: EPERM, EBUSY and EACCES are retried until the rename lands; another error, or one past the tries, is thrown (#356)', E2E, () => {
   const err = (code: string) => Object.assign(new Error(code), { code });
   const flaky = (codes: string[]) => { const calls: string[][] = []; return { calls, rename: (a: string, b: string) => {
     calls.push([a, b]); const c = codes[calls.length - 1]; if (c) throw err(c); } }; };
