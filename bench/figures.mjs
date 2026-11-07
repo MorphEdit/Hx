@@ -5,12 +5,15 @@
 //   docs/figures/bench-summary.svg  — wall time, tokens and hidden tests side by side
 // The animations are plain CSS inside the SVG, so they play in a GitHub README with no GIF and no
 // ffmpeg; they follow the viewer's light/dark theme and stop on prefers-reduced-motion (final state).
-// First it renders the "Project benchmark" table in docs/benchmark.md from bench/results/project-*.json (bench/project-table.mjs).
+// First it renders the "Project benchmark" table in docs/benchmark.md (bench/project-table.mjs): each arm's newest
+// set of runs, read through bench/project-results.mjs from bench/results/project-<arm>.json (old single runs)
+// and bench/results/project/<arm>-<stamp>-<i>.json.
 // Run: node bench/figures.mjs
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { updateReadme } from './project-table.mjs';
+import { loadRuns, resultFiles } from './project-results.mjs';
+import { tableSets, updateReadme } from './project-table.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const out = path.join(here, '..', 'docs', 'figures');
@@ -20,11 +23,10 @@ const CONFIGS = [
   { id: 'hx3', name: 'Hx · 3 workers', note: 'fresh sessions, in parallel where Blocked by allows' },
 ];
 const readmePath = path.join(here, '..', 'docs', 'benchmark.md');
-const projectResults = readdirSync(path.join(here, 'results')).filter((f) => /^project-.+\.json$/.test(f)).sort()
-  .map((f) => JSON.parse(readFileSync(path.join(here, 'results', f), 'utf8')));
+const projectRuns = loadRuns(resultFiles(path.join(here, 'results')));
 const readme = readFileSync(readmePath, 'utf8');
-const nextReadme = updateReadme(readme, projectResults);
-if (nextReadme !== readme) { writeFileSync(readmePath, nextReadme); console.log(`docs/benchmark.md: Project benchmark table (${projectResults.length} arm(s))`); }
+const nextReadme = updateReadme(readme, projectRuns);
+if (nextReadme !== readme) { writeFileSync(readmePath, nextReadme); console.log(`docs/benchmark.md: Project benchmark table (${tableSets(projectRuns).length} arm(s))`); }
 
 const runs = CONFIGS.filter((c) => existsSync(path.join(here, 'results', `${c.id}.json`)))
   .map((c) => ({ ...c, r: JSON.parse(readFileSync(path.join(here, 'results', `${c.id}.json`), 'utf8')) }));

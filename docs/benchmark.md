@@ -124,10 +124,12 @@ and the call exits 1; the other runs' files stay. `bench/figures.mjs` writes the
 `bench/results/project-*.json`.
 
 <!-- project-bench:start -->
-| Arm | Hidden passed | Wall time | Tokens | Cost | Sessions | Issues closed/filed | Audit FAILs | Gate reds | Escaped defects | Capped |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| chat | 149/149 | 56.7 min | 0.77M | $1.06 | 1 (chat 1) | 0/0 | – | – | 0 | no |
-| hx3 | 149/149 | 122.0 min | 4.04M | $6.38 | 19 (critic 2, revise 2, decompose 1, impl 6, audit 6, review 1, security 1) | 5/5 | 1 | 0 | 0 | no |
+| Arm | n | Hidden passed | Fuzz divergences | Fuzz classes | Blind review | Coverage lines/branches | Wall time | Tokens | Cost | Sessions | Issues closed/filed | Audit FAILs | Gate reds | Escaped defects | Capped |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| chat | 1 (single run, supports no claim) | 149/149 | – | – | – | n/a | 56.7 min | 0.77M | $1.06 | 1 (chat 1) | 0/0 | – | – | 0 | no |
+| hx3 | 1 (single run, supports no claim) | 149/149 | – | – | – | n/a | 122.0 min | 4.04M | $6.38 | 19 (critic 2, revise 2, decompose 1, impl 6, audit 6, review 1, security 1) | 5/5 | 1 | 0 | 0 | no |
+
+- Config not recorded: project-chat, project-hx3.
 <!-- project-bench:end -->
 
 **First run, 2026-11-06** (`claude-opus-5-5`, medium effort, both arms):
