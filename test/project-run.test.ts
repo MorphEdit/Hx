@@ -1,15 +1,19 @@
 // The project benchmark runner's pure parts (bench/project-lib.mjs): the caps, escaped defects, the repo
-// setup step and the result fields. No gh, no claude, no usage spent.
+// setup step, the result fields, the arguments and the provenance; and the run loop (bench/project.mjs runSet) with
+// fake steps. No gh, no claude, no usage spent.
 import { E2E } from './isolate.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 // @ts-ignore: a plain .mjs bench module
-import { auditFails, capCheck, escapedDefects, gateReds, parseJsonl, sessionsByRole, setupRepo, usageTotals } from '../bench/project-lib.mjs';
+import { USAGE, auditFails, capCheck, chatSession, escapedDefects, gateReds, parseArgs, parseJsonl, provenanceRoles, sessionsByRole, setupRepo, usageTotals } from '../bench/project-lib.mjs';
+// @ts-ignore: a plain .mjs bench module
+import { chatArm, runSet } from '../bench/project.mjs';
+import { DEFAULTS, ROLES, roleModel, workerArgs, type Config } from '../src/config.ts';
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const project = path.join(root, 'bench', 'project');
@@ -18,7 +22,7 @@ const H = 3_600_000;
 const walk = (dir: string, rel = ''): string[] => readdirSync(path.join(dir, rel), { withFileTypes: true })
   .flatMap((d) => (d.isDirectory() ? walk(dir, path.join(rel, d.name)) : [path.join(rel, d.name).split(path.sep).join('/')]));
 
-test('capCheck: continue under both caps, stop at and past the hour cap and the dollar cap', () => {
+test('capCheck: continue under both caps, stop at and past the hour cap and the dollar cap', E2E, () => {
   const c = (elapsedMs: number, costUsd: number) => capCheck({ elapsedMs, costUsd, maxHours: 4, maxUsd: 60 });
   assert.equal(c(0, 0), 'continue');
   assert.equal(c(4 * H - 1, 59.99), 'continue');
@@ -29,7 +33,7 @@ test('capCheck: continue under both caps, stop at and past the hour cap and the 
   assert.equal(capCheck({ elapsedMs: 0.5 * H, costUsd: 1, maxHours: 0.5, maxUsd: 60 }), 'stop');
 });
 
-test('escapedDefects: failed for done, null for capped and early, 0 for a clean done run', () => {
+test('escapedDefects: failed for done, null for capped and early, 0 for a clean done run', E2E, () => {
   assert.equal(escapedDefects(7, 'done'), 7);
   assert.equal(escapedDefects(0, 'done'), 0);
   assert.equal(escapedDefects(7, 'capped'), null);
@@ -67,7 +71,7 @@ test('setupRepo: one commit whose tree is the template; nothing from hidden/ or 
   }
 });
 
-test('result helpers: sessions by role, token and cost sums, audit FAILs, gate reds', () => {
+test('result helpers: sessions by role, token and cost sums, audit FAILs, gate reds', E2E, () => {
   const u = (role: string, sessionId: string, input: number, output: number, costUsd: number) =>
     ({ role, sessionId, usage: { input, cacheWrite: 1, cacheRead: 2, output }, costUsd });
   const records = [u('impl', 'a', 10, 5, 0.5), u('impl', 'a', 20, 5, 0.25), u('impl', 'b', 1, 1, 1),
@@ -97,8 +101,165 @@ test('result helpers: sessions by role, token and cost sums, audit FAILs, gate r
   assert.deepEqual(parseJsonl('{"a":1}\n\nnot json\n{"b":2}\n'), [{ a: 1 }, { b: 2 }]);
 });
 
-test('bench/project.mjs parses, and no prompt names the hidden suite', () => {
+test('bench/project.mjs parses, and no prompt names the hidden suite', E2E, () => {
   execFileSync(process.execPath, ['--check', path.join(root, 'bench', 'project.mjs')]);
   const src = readFileSync(path.join(root, 'bench', 'project.mjs'), 'utf8');
   assert.ok(!/project[\\/]hidden|hidden (tests?|suite)/i.test(src.split('// 4.')[0].replace(/^\/\/.*$/gm, '')));
+});
+
+// what claude.ts gives every session: never part of a role's recorded flags
+const PER_SESSION = ['-p', '--output-format', '--verbose', '--permission-mode', '--model', '--effort', '--session-id', '--resume'];
+const LEAN = ['--strict-mcp-config', '--disable-slash-commands', '--setting-sources', 'project,local', '--tools', ...DEFAULTS.workerTools];
+const cfg = (over: Partial<Config> = {}): Config => ({ ...DEFAULTS, repo: 'o/r', defaultBranch: 'main', worktreeRoot: 'wt', ...over } as Config);
+
+test('parseArgs: --runs defaults to 1 and must be a positive integer; the caps as before', E2E, () => {
+  assert.deepEqual(parseArgs(['chat']), { arm: 'chat', runs: 1, maxHours: 4, maxUsd: 60 });
+  assert.deepEqual(parseArgs(['hx3', '--runs', '5', '--max-hours', '0.5', '--max-usd', '10']), { arm: 'hx3', runs: 5, maxHours: 0.5, maxUsd: 10 });
+  for (const bad of [['--runs', '0'], ['--runs', '-1'], ['--runs', '1.5'], ['--runs'], ['--runs', ''], ['--runs', 'x'], ['--runs', '--max-hours', '4'], ['--max-hours', '0'], ['--max-usd']])
+    assert.equal(parseArgs(['chat', ...bad]), null, bad.join(' '));
+  assert.equal(parseArgs(['hx1']), null);
+  assert.equal(parseArgs([]), null);
+  assert.match(USAGE, /<chat\|hx3> \[--runs N\]/);
+});
+
+test('bench/project.mjs: a bad --runs prints the usage line and exits 2, before any gh call', E2E, () => {
+  for (const bad of [['--runs', '0'], ['--runs', '-1'], ['--runs', '1.5'], ['--runs']]) {
+    let err: any;
+    try { execFileSync(process.execPath, [path.join(root, 'bench', 'project.mjs'), 'chat', ...bad], { encoding: 'utf8', stdio: 'pipe', env: { ...process.env, PATH: '' } }); }
+    catch (e) { err = e; }
+    assert.ok(err, bad.join(' '));
+    assert.equal(err.status, 2, bad.join(' '));
+    assert.equal(err.stderr.trim(), USAGE);
+  }
+});
+
+test('chatSession: the default model and effort, and the lean flags with --tools of the default workerTools', E2E, () => {
+  const s = chatSession();
+  assert.equal(s.model, DEFAULTS.model);
+  assert.equal(s.effort, DEFAULTS.effort);
+  assert.deepEqual(s.extraArgs, workerArgs(cfg()));
+  assert.deepEqual(s.extraArgs.slice(0, LEAN.length), LEAN);
+});
+
+test('chatArm: its session is given the lean flags, with --tools of the default workerTools, and chatSession\'s model and effort', E2E, async () => {
+  const work = mkdtempSync(path.join(os.tmpdir(), 'hxp-chat-'));
+  try {
+    mkdirSync(path.join(work, '.hx'));
+    const seen: any[] = [];
+    const run = async (o: any) => {
+      seen.push(o);
+      o.onTurn(1, 's1', { ok: true, durationMs: 10, usage: { input: 1, cacheWrite: 0, cacheRead: 0, output: 1 }, costUsd: 0.5 });
+      return { stopReason: 'promise', iterations: 1 };
+    };
+    const r = await chatArm({ arm: 'chat', repo: 'o/r', work, maxHours: 4, maxUsd: 60, log: () => {} }, { run });
+    assert.equal(seen.length, 1);
+    const flags: string[] = seen[0].extraArgs;
+    for (const f of ['--strict-mcp-config', '--disable-slash-commands']) assert.ok(flags.includes(f), f);
+    assert.equal(flags[flags.indexOf('--setting-sources') + 1], 'project,local');
+    const t = flags.indexOf('--tools');
+    assert.ok(t >= 0);
+    assert.deepEqual(flags.slice(t + 1, t + 1 + DEFAULTS.workerTools.length), DEFAULTS.workerTools);
+    assert.equal(seen[0].model, DEFAULTS.model);
+    assert.equal(seen[0].effort, DEFAULTS.effort);
+    assert.equal(r.ended, 'done');
+    assert.equal(r.usage.length, 1);
+  } finally {
+    rmSync(work, { recursive: true, force: true });
+  }
+});
+
+test('provenanceRoles hx3: every role, roleModels for the one it sets, roleModel defaults for the rest, workerArgs flags', E2E, () => {
+  const c = cfg({ roleModels: { review: { model: 'claude-sonnet-5-5', effort: 'high' } }, claudeArgs: ['--add-dir', 'x'] });
+  const roles = provenanceRoles('hx3', { config: c });
+  assert.deepEqual(Object.keys(roles).sort(), [...ROLES].sort());
+  assert.deepEqual([roles.review.model, roles.review.effort], ['claude-sonnet-5-5', 'high']);
+  for (const r of ROLES) {
+    if (r !== 'review') assert.deepEqual({ model: roles[r].model, effort: roles[r].effort }, roleModel(cfg(), r), r);
+    assert.deepEqual(roles[r].flags, workerArgs(c), r);
+    for (const f of PER_SESSION) assert.ok(!roles[r].flags.includes(f), `${r} ${f}`);
+  }
+  assert.equal(roles.bar.effort, 'high'); // roleModel's own default for bar
+});
+
+test('provenanceRoles chat: only role chat, with its model, effort and lean flags', E2E, () => {
+  const roles = provenanceRoles('chat');
+  assert.deepEqual(Object.keys(roles), ['chat']);
+  assert.deepEqual(roles.chat, { model: DEFAULTS.model, effort: DEFAULTS.effort, flags: chatSession().extraArgs });
+  assert.deepEqual(roles.chat.flags.slice(0, LEAN.length), LEAN);
+  for (const f of PER_SESSION) assert.ok(!roles.chat.flags.includes(f), f);
+  assert.deepEqual(provenanceRoles('chat', { chat: { model: 'm', effort: 'low', extraArgs: ['--a'] } }), { chat: { model: 'm', effort: 'low', flags: ['--a'] } });
+});
+
+/** Fake per-run steps: no gh, no claude. The setup writes .hx/config.json as the benchmark's edits leave it. */
+function fakeSteps(calls: any[], throwOn = 0) {
+  return {
+    setup: (ctx: any) => {
+      calls.push({ step: 'setup', i: ctx.i, ctx });
+      mkdirSync(path.join(ctx.work, '.hx'), { recursive: true });
+      writeFileSync(path.join(ctx.work, '.hx', 'config.json'), JSON.stringify({ workers: 3, worktreeRoot: ctx.worktreeRoot,
+        roleModels: { impl: { model: 'claude-sonnet-5-5', effort: 'low' } } }));
+    },
+    arm: (ctx: any) => {
+      calls.push({ step: 'arm', i: ctx.i });
+      if (ctx.i === throwOn) throw new Error('gh repo create failed');
+      return { usage: [{ role: 'impl', sessionId: `s${ctx.i}`, usage: { input: 1, cacheWrite: 0, cacheRead: 0, output: 1 }, costUsd: 1 }], ended: 'done', t0: 1_000, t1: 61_000 };
+    },
+    issues: (ctx: any) => { calls.push({ step: 'issues', i: ctx.i }); return [{ number: 1, state: 'CLOSED' }, { number: 2, state: 'OPEN' }]; },
+    clone: (ctx: any) => { calls.push({ step: 'clone', i: ctx.i, clone: ctx.clone }); },
+    grade: (dir: string) => { calls.push({ step: 'grade', dir }); return { passed: 9, failed: 1, total: 10, failures: ['x'] }; },
+  };
+}
+
+test('runSet --runs 3 with a fake arm: three results files under one stamp, each run its own repo, dirs and provenance', E2E, async () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'hxp-set-'));
+  try {
+    const resultsDir = path.join(dir, 'results', 'project');
+    const calls: any[] = [];
+    const out = await runSet({ arm: 'hx3', runs: 3, maxHours: 2, maxUsd: 30, owner: 'me', stamp: '202611071200', resultsDir, tmp: dir,
+      claudeBin: path.join(root, 'test', 'fakes', 'claude.mjs'), steps: fakeSteps(calls), print: () => {} });
+    assert.deepEqual(out, { stamp: '202611071200', files: [1, 2, 3].map((i) => path.join(resultsDir, `hx3-202611071200-${i}.json`)), failed: [] });
+    assert.deepEqual(readdirSync(resultsDir).sort(), ['hx3-202611071200-1.json', 'hx3-202611071200-2.json', 'hx3-202611071200-3.json']);
+    assert.ok(!existsSync(path.join(dir, 'results', 'project-hx3.json')));
+    const head = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim();
+    const setups = calls.filter((c) => c.step === 'setup').map((c) => c.ctx);
+    assert.equal(setups.length, 3);
+    for (const i of [1, 2, 3]) {
+      const ctx = setups[i - 1];
+      for (const p of [ctx.work, ctx.worktreeRoot, ctx.clone]) assert.equal(path.basename(p), `hx3-202611071200-${i}`, p);
+      assert.deepEqual([ctx.maxHours, ctx.maxUsd], [2, 30]);
+      const r = JSON.parse(readFileSync(path.join(resultsDir, `hx3-202611071200-${i}.json`), 'utf8'));
+      assert.equal(r.repo, `me/hx-project-hx3-202611071200-${i}`);
+      assert.deepEqual([r.run, r.stamp], [i, '202611071200']);
+      assert.deepEqual([r.passed, r.total, r.issuesFiled, r.issuesClosed, r.costUsd, r.wallMs, r.maxHours, r.maxUsd], [9, 10, 2, 1, 1, 60_000, 2, 30]);
+      assert.equal(r.provenance.claudeVersion, '2.0.0 (Claude Code)');
+      assert.equal(r.provenance.hxCommit, head);
+      assert.deepEqual(Object.keys(r.provenance.roles).sort(), [...ROLES].sort());
+      // from the config after the benchmark's edits, as hx run loads it
+      assert.deepEqual(r.provenance.roles.impl, { model: 'claude-sonnet-5-5', effort: 'low', flags: workerArgs(cfg()) });
+      assert.deepEqual(r.provenance.roles.review, { ...roleModel(cfg(), 'review'), flags: workerArgs(cfg()) });
+    }
+    for (const k of ['work', 'worktreeRoot', 'clone']) assert.equal(new Set(setups.map((c) => c[k])).size, 3, k);
+    assert.deepEqual(calls.filter((c) => c.step === 'grade').map((c) => c.dir), setups.map((c) => c.clone));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('runSet: a run that throws is logged with its i, the next run goes on, and it is reported failed', E2E, async () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'hxp-set-'));
+  try {
+    const resultsDir = path.join(dir, 'out');
+    const lines: string[] = [];
+    const out = await runSet({ arm: 'chat', runs: 3, owner: 'me', stamp: '202611071300', resultsDir, tmp: dir, commit: 'abc123',
+      claudeBin: path.join(root, 'test', 'fakes', 'claude.mjs'), steps: fakeSteps([], 2), print: (m: string) => lines.push(m) });
+    assert.deepEqual(out.failed, [2]);
+    assert.deepEqual(readdirSync(resultsDir).sort(), ['chat-202611071300-1.json', 'chat-202611071300-3.json']);
+    assert.ok(lines.some((l) => /\[project chat 2\/3\] run 2 failed: gh repo create failed/.test(l)), lines.join('\n'));
+    const r = JSON.parse(readFileSync(path.join(resultsDir, 'chat-202611071300-3.json'), 'utf8'));
+    assert.deepEqual(r.provenance, { claudeVersion: '2.0.0 (Claude Code)', hxCommit: 'abc123',
+      roles: { chat: { model: DEFAULTS.model, effort: DEFAULTS.effort, flags: chatSession().extraArgs } } });
+    assert.equal(r.auditFails, null);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
