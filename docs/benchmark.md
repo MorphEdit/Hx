@@ -227,6 +227,44 @@ Measured on 2026-11-06 with `hx usage --compare "2026-11-05 13:19"`, over 53.9 h
 - **Escaped defects:** no reverts and no `security` issues. The one `bug` issue, #328 (leftover test processes
   after a timeout), was filed by hand. It is about older code, not a change merged after the cutover.
 
+### Faster tests (2026-11-06 10:45)
+
+PRD #348 stopped the test runs fighting over the CPU. The cutover is the merge of #350, the shared test-concurrency
+budget. Later in the same batch:
+- #351 and #352: reuse a tree that already passed its tests;
+- #354 and #369: cut the slowest tests;
+- #353: show the reused gate runs in `hx usage --compare`.
+
+Measured on 2026-11-07 with `hx usage --compare "2026-11-06 10:45" --from "2026-11-05 13:19"`. "Before" starts at
+the higher-effort cutover, so both sides run the same models and efforts. That is 14.9 h of runs before and 15.7 h
+after:
+
+| Board | Before | After |
+|---|---|---|
+| Issues closed | 27 (1.8 / h) | 21 (1.3 / h) |
+| Tokens per closed issue | 6.2M | 4.3M |
+| Cost per closed issue | $4.61 | $3.47 |
+| Audit FAIL share | 10% | 13% |
+| Gate runs reused | 0 | 11 |
+| Median full gate run | 10m56s | 17m56s |
+| Gate-fix issues per hour of runs | 0.20 | 0.06 |
+| Sessions stopped: not mergeable | 2 | 0 |
+| Rebase test retries | 2 | 0 |
+
+**Reading it:**
+- **Cheaper per issue:** 31% fewer tokens and 25% lower cost per closed issue.
+- **Reuse works:** 11 gate runs reused a tree that had already passed. Each took seconds instead of a full run.
+- **Fewer reds and merge stops:** one red gate (#359, a test that hit its timeout on a loaded machine). No
+  unmergeable stops, and no rebase retries.
+- **Fewer issues per hour:** most of the "after" board was chains, where each issue waited on the one before it.
+  Often only one or two of the three workers had an issue they could take. Auto-scale also dropped to one worker
+  once, when other projects' runners kept the CPU above 80%.
+- **Full gate runs got slower:** the machine was busier. Other projects' runners shared it, at 44–85% CPU. The suite
+  itself got faster: see "Test suite speed" below.
+- **Small sample:** 21 issues after. The audit FAIL share (3 of 24) is within noise.
+- **Escaped defects:** no reverts, no `bug` issues and no `security` issues were filed after the cutover. The PRD
+  reviews of #348 and #367 found no gaps.
+
 
 ## Test suite speed
 
