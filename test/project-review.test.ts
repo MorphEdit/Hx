@@ -306,3 +306,50 @@ test('the default judge runner returns a usage limit as an error', async () => {
     if (prev === undefined) delete process.env.FAKE_JUDGE; else process.env.FAKE_JUDGE = prev;
   }
 });
+
+test('#415: a review where every judge failed writes nothing and fails loudly; --all pairs the run again', async () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'hx-rv-'));
+  const fa = path.join(dir, 'chat-202611070900-1.json'), fb = path.join(dir, 'hx3-202611071000-1.json');
+  writeFileSync(fa, JSON.stringify({ arm: 'chat', repo: 'o/a', startedAt: '2026-11-07T09:00:00Z' }));
+  writeFileSync(fb, JSON.stringify({ arm: 'hx3', repo: 'o/b', startedAt: '2026-11-07T10:00:00Z' }));
+  const clones: string[] = [];
+  const clone = (_repo: string, dest: string) => { clones.push(dest); mkdirSync(dest); writeFileSync(path.join(dest, 'main.js'), 'x\n'); };
+  const judge = async () => ({ error: 'usage limit' });
+  await assert.rejects(pr.reviewRuns(fa, fb, { judge, clone, brief, version: 'v9' }), (e: any) => {
+    assert.match(e.message, /no verdict: every judge failed \(judge error: usage limit\)/);
+    assert.equal(e.usageLimit, true);
+    return true;
+  });
+  for (const c of clones) assert.equal(existsSync(c), false, 'the clone is removed');
+  for (const f of [fa, fb]) assert.equal(JSON.parse(readFileSync(f, 'utf8')).reviews, undefined, 'nothing is appended');
+  const { pairs } = pr.pairRuns(results.loadRuns([fa, fb]));
+  assert.deepEqual(pairs.map((p: any) => [p.run.name, p.chat.name]), [['hx3-202611071000-1.json', 'chat-202611070900-1.json']]);
+});
+
+test('#415: --all pairing counts a run as reviewed only when a review has a score; an empty entry already written is retried', () => {
+  const r = (reviews: unknown, i = 1) => ({ arm: 'hx3', stamp: 's', i, name: `h${i}`, result: { reviews } });
+  const empty = { score: null, basedOn: 0, verdicts: [], missing: [{ judge: 1, order: 'AB', reason: 'judge error: usage limit' }] };
+  const runs = [
+    { arm: 'chat', stamp: 'c', i: 1, name: 'c1', result: { startedAt: '2026-01-01T00:00:00Z' } },
+    { arm: 'chat', stamp: 'c', i: 2, name: 'c2', result: { startedAt: '2026-01-01T01:00:00Z' } },
+    r([empty], 1), r([empty, { score: 6.5, basedOn: 6, verdicts: [] }], 2),
+  ];
+  assert.deepEqual(pr.pairRuns(runs).pairs.map((p: any) => [p.run.name, p.chat.name]), [['h1', 'c1']]);
+});
+
+test('#415: the --all loop goes on past a failed pair, and stops at a usage limit', async () => {
+  const said: string[] = [];
+  const todo = [['a1', 'b1'], ['a2', 'b2'], ['a3', 'b3'], ['a4', 'b4']];
+  const seen: string[] = [];
+  const run = async (fa: string) => {
+    seen.push(fa);
+    if (fa === 'a1') throw new Error('gh: not found');
+    if (fa === 'a3') throw Object.assign(new Error('no verdict: every judge failed (judge error: usage limit)'), { usageLimit: true });
+    return { x: { score: 6, basedOn: 6 }, y: { score: 5, basedOn: 6 }, costUsd: 1 };
+  };
+  const out = await pr.reviewPairs(todo, { run, say: (m: string) => said.push(m) });
+  assert.deepEqual(seen, ['a1', 'a2', 'a3'], 'nothing after the usage limit is tried');
+  assert.deepEqual(out, { reviewed: 1, failed: 2 });
+  assert.ok(said.some((m) => /a1.*gh: not found/.test(m)));
+  assert.ok(said.some((m) => /usage limit/.test(m) && /stop/.test(m)));
+});

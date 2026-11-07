@@ -25,6 +25,7 @@
 //   - score: the mean of verdicts[].value, or null; basedOn: how many verdicts it is based on;
 //   - judges: { role: 'judge', model, effort, flags, claudeVersion };
 //   - tokens ({ input, cacheWrite, cacheRead, output, total }) and costUsd: this run's half of the review's.
+//   A run is reviewed once one of its reviews has a score; project-review.mjs writes no entry without a verdict.
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
