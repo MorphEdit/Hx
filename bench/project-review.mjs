@@ -1,10 +1,11 @@
 // node bench/project-review.mjs <results-a> <results-b>    review those two runs
-// node bench/project-review.mjs --all                      review every non-chat run with no review yet
+// node bench/project-review.mjs --all                      review every non-chat run with no scored review yet
 // The blind review of two project-benchmark runs (PRD #397): each run's checkout is cloned from its results
 // file's `repo`, copied without .git, .hx, node_modules and every name of Hx, Claude, an arm or an author, and
 // shown to judge sessions as A and B, in both orders. Each judge scores both copies on the rubric of
 // bench/project/review-prompt.md. One entry is appended to the `reviews` list of both results files (the shape
-// bench/project-results.mjs documents); no other field of a results file is touched.
+// bench/project-results.mjs documents); no other field of a results file is touched. A review in which every
+// judge failed is no review: nothing is written, and --all tries that run again next time.
 // Spends real usage: 6 judge sessions per pair by default.
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
@@ -233,7 +234,8 @@ export function ghClone(repo, dest) {
 }
 
 /** Reviews the runs of two results files: each checkout cloned into a fresh temp directory, removed after
- *  (also on failure); then one entry appended to each file. */
+ *  (also on failure); then one entry appended to each file. A review with no verdict (every judge failed) throws
+ *  and writes nothing; its error has usageLimit set when every judge failed on a usage limit. */
 export async function reviewRuns(fileA, fileB, { clone = ghClone, ...opts } = {}) {
   const [a, b] = [fileA, fileB].map((f) => JSON.parse(readFileSync(f, 'utf8')));
   for (const [f, r] of [[fileA, a], [fileB, b]]) if (!r.repo) throw new Error(`${f}: no repo`);
@@ -243,6 +245,11 @@ export async function reviewRuns(fileA, fileB, { clone = ghClone, ...opts } = {}
     clone(a.repo, da);
     clone(b.repo, db);
     const r = await review(da, db, { ...opts, repoX: a.repo, repoY: b.repo });
+    if (r.x.basedOn === 0) {
+      const reasons = [...new Set(r.x.missing.map((m) => m.reason))];
+      throw Object.assign(new Error(`no verdict: every judge failed (${reasons.join('; ')})`),
+        { usageLimit: reasons.length > 0 && reasons.every((m) => /usage limit/.test(m)) });
+    }
     appendReview(fileA, reviewEntry(r, 'x', path.basename(fileB)));
     appendReview(fileB, reviewEntry(r, 'y', path.basename(fileA)));
     return r;
@@ -251,24 +258,47 @@ export async function reviewRuns(fileA, fileB, { clone = ghClone, ...opts } = {}
   }
 }
 
-/** --all: every run of a non-chat arm with no review yet, paired with the chat run of the same i in the newest
- *  chat set. → { pairs: [{ run, chat }], unmatched: [run] } (runs as loadRuns gives them). */
+/** --all: every run of a non-chat arm with no scored review yet (an entry with no verdict does not count),
+ *  paired with the chat run of the same i in the newest chat set. → { pairs: [{ run, chat }], unmatched: [run] }
+ *  (runs as loadRuns gives them). */
 export function pairRuns(runs) {
   const chat = newestSet(runs, 'chat');
   const pairs = [], unmatched = [];
   for (const run of runs) {
     if (run.arm === 'chat') continue;
-    if (Array.isArray(run.result.reviews) && run.result.reviews.length) continue;
+    if (Array.isArray(run.result.reviews) && run.result.reviews.some((r) => typeof r?.score === 'number')) continue;
     const c = chat?.runs.find((r) => r.i === run.i);
     if (c) pairs.push({ run, chat: c }); else unmatched.push(run);
   }
   return { pairs, unmatched };
 }
 
+const show = (f, r) => `${path.basename(f)} ${r.score === null ? '–' : r.score.toFixed(2)} (${r.basedOn} verdicts)`;
+
+/** Reviews each [fileA, fileB] pair in turn: a pair that fails is logged and the next one goes on, except a usage
+ *  limit, which stops the loop (every pair after it would fail the same way). → { reviewed, failed } */
+export async function reviewPairs(todo, { run = reviewRuns, say = () => {}, ...opts } = {}) {
+  let reviewed = 0, failed = 0;
+  for (const [fa, fb] of todo) {
+    say(`reviewing ${path.basename(fa)} against ${path.basename(fb)}`);
+    let r;
+    try {
+      r = await run(fa, fb, { log: say, ...opts });
+    } catch (e) {
+      failed++;
+      say(`failed ${path.basename(fa)} against ${path.basename(fb)}: ${e?.message ?? e}`);
+      if (e?.usageLimit) { say('usage limit: stopping; run again later to review the rest'); break; }
+      continue;
+    }
+    reviewed++;
+    say(`${show(fa, r.x)} · ${show(fb, r.y)} · $${r.costUsd.toFixed(2)}`);
+  }
+  return { reviewed, failed };
+}
+
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const say = (m) => console.log(`${new Date().toTimeString().slice(0, 8)} [project-review] ${m}`);
   const args = process.argv.slice(2);
-  const show = (f, r) => `${path.basename(f)} ${r.score === null ? '–' : r.score.toFixed(2)} (${r.basedOn} verdicts)`;
   let todo;
   if (args.length === 1 && args[0] === '--all') {
     const { pairs, unmatched } = pairRuns(loadRuns(resultFiles()));
@@ -280,9 +310,6 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     console.error('usage: node bench/project-review.mjs <results-a> <results-b> | --all');
     process.exit(1);
   }
-  for (const [fa, fb] of todo) {
-    say(`reviewing ${path.basename(fa)} against ${path.basename(fb)}`);
-    const r = await reviewRuns(fa, fb, { log: say });
-    say(`${show(fa, r.x)} · ${show(fb, r.y)} · $${r.costUsd.toFixed(2)}`);
-  }
+  const { failed } = await reviewPairs(todo, { say });
+  if (failed) process.exitCode = 1;
 }
