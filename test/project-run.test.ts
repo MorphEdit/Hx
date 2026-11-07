@@ -22,7 +22,7 @@ const H = 3_600_000;
 const walk = (dir: string, rel = ''): string[] => readdirSync(path.join(dir, rel), { withFileTypes: true })
   .flatMap((d) => (d.isDirectory() ? walk(dir, path.join(rel, d.name)) : [path.join(rel, d.name).split(path.sep).join('/')]));
 
-test('capCheck: continue under both caps, stop at and past the hour cap and the dollar cap', () => {
+test('capCheck: continue under both caps, stop at and past the hour cap and the dollar cap', E2E, () => {
   const c = (elapsedMs: number, costUsd: number) => capCheck({ elapsedMs, costUsd, maxHours: 4, maxUsd: 60 });
   assert.equal(c(0, 0), 'continue');
   assert.equal(c(4 * H - 1, 59.99), 'continue');
@@ -33,7 +33,7 @@ test('capCheck: continue under both caps, stop at and past the hour cap and the 
   assert.equal(capCheck({ elapsedMs: 0.5 * H, costUsd: 1, maxHours: 0.5, maxUsd: 60 }), 'stop');
 });
 
-test('escapedDefects: failed for done, null for capped and early, 0 for a clean done run', () => {
+test('escapedDefects: failed for done, null for capped and early, 0 for a clean done run', E2E, () => {
   assert.equal(escapedDefects(7, 'done'), 7);
   assert.equal(escapedDefects(0, 'done'), 0);
   assert.equal(escapedDefects(7, 'capped'), null);
@@ -71,7 +71,7 @@ test('setupRepo: one commit whose tree is the template; nothing from hidden/ or 
   }
 });
 
-test('result helpers: sessions by role, token and cost sums, audit FAILs, gate reds', () => {
+test('result helpers: sessions by role, token and cost sums, audit FAILs, gate reds', E2E, () => {
   const u = (role: string, sessionId: string, input: number, output: number, costUsd: number) =>
     ({ role, sessionId, usage: { input, cacheWrite: 1, cacheRead: 2, output }, costUsd });
   const records = [u('impl', 'a', 10, 5, 0.5), u('impl', 'a', 20, 5, 0.25), u('impl', 'b', 1, 1, 1),
@@ -101,7 +101,7 @@ test('result helpers: sessions by role, token and cost sums, audit FAILs, gate r
   assert.deepEqual(parseJsonl('{"a":1}\n\nnot json\n{"b":2}\n'), [{ a: 1 }, { b: 2 }]);
 });
 
-test('bench/project.mjs parses, and no prompt names the hidden suite', () => {
+test('bench/project.mjs parses, and no prompt names the hidden suite', E2E, () => {
   execFileSync(process.execPath, ['--check', path.join(root, 'bench', 'project.mjs')]);
   const src = readFileSync(path.join(root, 'bench', 'project.mjs'), 'utf8');
   assert.ok(!/project[\\/]hidden|hidden (tests?|suite)/i.test(src.split('// 4.')[0].replace(/^\/\/.*$/gm, '')));
@@ -112,7 +112,7 @@ const PER_SESSION = ['-p', '--output-format', '--verbose', '--permission-mode', 
 const LEAN = ['--strict-mcp-config', '--disable-slash-commands', '--setting-sources', 'project,local', '--tools', ...DEFAULTS.workerTools];
 const cfg = (over: Partial<Config> = {}): Config => ({ ...DEFAULTS, repo: 'o/r', defaultBranch: 'main', worktreeRoot: 'wt', ...over } as Config);
 
-test('parseArgs: --runs defaults to 1 and must be a positive integer; the caps as before', () => {
+test('parseArgs: --runs defaults to 1 and must be a positive integer; the caps as before', E2E, () => {
   assert.deepEqual(parseArgs(['chat']), { arm: 'chat', runs: 1, maxHours: 4, maxUsd: 60 });
   assert.deepEqual(parseArgs(['hx3', '--runs', '5', '--max-hours', '0.5', '--max-usd', '10']), { arm: 'hx3', runs: 5, maxHours: 0.5, maxUsd: 10 });
   for (const bad of [['--runs', '0'], ['--runs', '-1'], ['--runs', '1.5'], ['--runs'], ['--runs', ''], ['--runs', 'x'], ['--runs', '--max-hours', '4'], ['--max-hours', '0'], ['--max-usd']])
@@ -133,7 +133,7 @@ test('bench/project.mjs: a bad --runs prints the usage line and exits 2, before 
   }
 });
 
-test('chatSession: the default model and effort, and the lean flags with --tools of the default workerTools', () => {
+test('chatSession: the default model and effort, and the lean flags with --tools of the default workerTools', E2E, () => {
   const s = chatSession();
   assert.equal(s.model, DEFAULTS.model);
   assert.equal(s.effort, DEFAULTS.effort);
@@ -141,7 +141,7 @@ test('chatSession: the default model and effort, and the lean flags with --tools
   assert.deepEqual(s.extraArgs.slice(0, LEAN.length), LEAN);
 });
 
-test('chatArm: its session is given the lean flags, with --tools of the default workerTools, and chatSession\'s model and effort', async () => {
+test('chatArm: its session is given the lean flags, with --tools of the default workerTools, and chatSession\'s model and effort', E2E, async () => {
   const work = mkdtempSync(path.join(os.tmpdir(), 'hxp-chat-'));
   try {
     mkdirSync(path.join(work, '.hx'));
@@ -168,7 +168,7 @@ test('chatArm: its session is given the lean flags, with --tools of the default 
   }
 });
 
-test('provenanceRoles hx3: every role, roleModels for the one it sets, roleModel defaults for the rest, workerArgs flags', () => {
+test('provenanceRoles hx3: every role, roleModels for the one it sets, roleModel defaults for the rest, workerArgs flags', E2E, () => {
   const c = cfg({ roleModels: { review: { model: 'claude-sonnet-5-5', effort: 'high' } }, claudeArgs: ['--add-dir', 'x'] });
   const roles = provenanceRoles('hx3', { config: c });
   assert.deepEqual(Object.keys(roles).sort(), [...ROLES].sort());
@@ -181,7 +181,7 @@ test('provenanceRoles hx3: every role, roleModels for the one it sets, roleModel
   assert.equal(roles.bar.effort, 'high'); // roleModel's own default for bar
 });
 
-test('provenanceRoles chat: only role chat, with its model, effort and lean flags', () => {
+test('provenanceRoles chat: only role chat, with its model, effort and lean flags', E2E, () => {
   const roles = provenanceRoles('chat');
   assert.deepEqual(Object.keys(roles), ['chat']);
   assert.deepEqual(roles.chat, { model: DEFAULTS.model, effort: DEFAULTS.effort, flags: chatSession().extraArgs });
