@@ -107,16 +107,21 @@ baseline. The brief is `tally`: a time-tracking library and CLI with `start` / `
 `add`, day, week and project reports with rounding, overlap detection, CSV export and a strict parse of
 the log with line-numbered errors. Each run is graded by 80+ hidden tests the agents never see.
 
-Run it (creates a private repo on your GitHub account per arm and spends real usage, up to the caps:
-4 h and $60 per arm by default):
+Run it (creates a private repo on your GitHub account per run and spends real usage, up to the caps:
+4 h and $60 per run by default; `--runs N` runs an arm N times in a row, default 1):
 
 ```bash
-node bench/project.mjs chat --max-hours 4 --max-usd 60
-node bench/project.mjs hx3 --max-hours 4 --max-usd 60
+node bench/project.mjs chat --runs 1 --max-hours 4 --max-usd 60
+node bench/project.mjs hx3 --runs 1 --max-hours 4 --max-usd 60
 node bench/figures.mjs
 ```
 
-`bench/figures.mjs` writes the table below from `bench/results/project-*.json`.
+Each run writes `bench/results/project/<arm>-<stamp>-<i>.json` (one stamp per call, i = 1…N), with its
+provenance: the Claude Code version, the Hx commit, and each role's model, effort and flags. Both arms run
+with Hx's lean flags (`--strict-mcp-config`, `--disable-slash-commands`, `--setting-sources project,local`,
+`--tools`), so neither loads your own skills, plugins or MCP servers. A run that fails is named at the end
+and the call exits 1; the other runs' files stay. `bench/figures.mjs` writes the table below from
+`bench/results/project-*.json`.
 
 <!-- project-bench:start -->
 | Arm | Hidden passed | Wall time | Tokens | Cost | Sessions | Issues closed/filed | Audit FAILs | Gate reds | Escaped defects | Capped |
