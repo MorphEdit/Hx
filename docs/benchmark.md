@@ -107,25 +107,93 @@ baseline. The brief is `tally`: a time-tracking library and CLI with `start` / `
 `add`, day, week and project reports with rounding, overlap detection, CSV export and a strict parse of
 the log with line-numbered errors. Each run is graded by 80+ hidden tests the agents never see.
 
-Run it (creates a private repo on your GitHub account per run and spends real usage, up to the caps:
-4 h and $60 per run by default; `--runs N` runs an arm N times in a row, default 1):
+Run it. Each run of an arm creates a private repo on your GitHub account and spends real usage, up to
+the caps (`--max-hours` and `--max-usd`, 4 h and $60 per run by default):
 
 ```bash
-node bench/project.mjs chat --runs 1 --max-hours 4 --max-usd 60
-node bench/project.mjs hx3 --runs 1 --max-hours 4 --max-usd 60
-node bench/figures.mjs
+node bench/project.mjs chat --runs 5    # 5 runs of the single session, each up to the caps
+node bench/project.mjs hx3 --runs 5     # 5 runs of Hx with 3 workers, each up to the caps
+node bench/project-review.mjs --all     # the blind review: 6 judge sessions per pair of runs
+node bench/shiprule.mjs --baseline '<glob>' --change '<glob>'   # the ship rule: reads results only, no usage
+node bench/figures.mjs                  # redraws the table below: no usage
 ```
 
-Each run writes `bench/results/project/<arm>-<stamp>-<i>.json` (one stamp per call, i = 1…N), with its
-provenance: the Claude Code version, the Hx commit, and each role's model, effort and flags. Both arms run
-with Hx's lean flags (`--strict-mcp-config`, `--disable-slash-commands`, `--setting-sources project,local`,
-`--tools`), so neither loads your own skills, plugins or MCP servers. A run that fails is named at the end
-and the call exits 1; the other runs' files stay. After the hidden tests, every run (done, capped or ended
-early) is fuzzed against the reference (`fuzz`, `bench/project-fuzz.mjs` with its defaults: seed 1107, 1000 cases,
-5 s per case) and then its own tests are run under coverage (`coverage`, `bench/project-coverage.mjs`, 30 min
-limit), both on the same graded clone. A fuzz or coverage run that throws never blocks the results file: its field
-is left out and the message is recorded as `fuzzError` or `coverageError`. `bench/figures.mjs` writes the table below from
-`bench/results/project-*.json`.
+- `--runs N` (default 1) runs the arm N times in a row under one stamp. Each run gets its own repo, its own
+  caps and its own results file, `bench/results/project/<arm>-<stamp>-<i>.json` (i = 1…N). A run that fails
+  is named at the end and the call exits 1; the other runs' files stay. The old
+  `bench/results/project-<arm>.json` files still read, each as a single run.
+- `project-review.mjs --all` pairs every run of `hx3` that has no review yet with the `chat` run of the same
+  i in the newest `chat` set, and reviews each pair; a run with no such `chat` run is listed and skipped.
+  `node bench/project-review.mjs <results-a> <results-b>` reviews one pair. A pair costs 6 judge sessions
+  (3 judges, each in both orders), and each run is charged half.
+- `shiprule.mjs` takes two globs of results files of the same arm, e.g.
+  `'bench/results/project/hx3-202611100900-*.json'`. Quote them: the Windows shell does not expand a glob,
+  and the script expands it itself. A glob may match the files of several `--runs` calls.
+- `bench/figures.mjs` writes the table below from each arm's newest set (the call with the latest start).
+  Do not edit the table by hand.
+
+After the hidden tests, every run (done, capped or ended early) is fuzzed against the reference (`fuzz`,
+`bench/project-fuzz.mjs` with its defaults: seed 1107, 1000 cases, 5 s per case) and then its own tests are
+run under coverage (`coverage`, `bench/project-coverage.mjs`, 30 min limit), both on the same graded clone.
+A fuzz or coverage run that throws never blocks the results file: its field is left out and the message is
+recorded as `fuzzError` or `coverageError`.
+
+**Same config for both arms.** Both arms and the judges run with Hx's lean flags (`--strict-mcp-config`,
+`--disable-slash-commands`, `--setting-sources project,local`, `--tools`; the judges get only `Read`,
+`Glob` and `Grep`), so none loads your own skills, plugins or MCP servers. Each run records what it ran
+with under `provenance`: the Claude Code version, the Hx commit, and each role's model, effort and flags
+(the judges' are in each review, as role `judge`). The notes under the table compare them: a field that
+takes more than one value across the table's runs is named with each value and its runs. The Hx commit is
+not compared, since a baseline and a change differ there by design. A run with no `provenance` (an old
+file) is named as "config not recorded".
+
+**What the columns measure:**
+- **`n`:** how many runs the row is built from.
+- **Hidden passed:** the hidden tests the run passed, out of all of them.
+- **Fuzz divergences:** of 1000 generated `tally` command lines, each with a starting log and a clock, how
+  many give a different result from the reference (standard output, whether standard error is empty, the
+  exit status, or the log afterwards). The cases come from the brief only, each aimed at one of its edge
+  cases (line endings, a byte order mark, a malformed clock, overlaps, rounding, CSV quoting and more). A
+  case where the reference itself crashes is a generator bug: it is left out, never counted against the
+  arm.
+- **Fuzz classes:** how many distinct root causes those divergences have. A class is the edge case the
+  case aimed at plus what differed first, e.g. `line-endings / log`. This is the main fuzz number: one bug
+  the generator happens to hit 300 times is 300 divergences but one class, so the class count is not
+  dominated by whichever bug the generator hits most often. It counts how many different things are wrong.
+- **Blind review:** a score out of 10 from judge sessions that read the brief and both arms' code side by
+  side, with every name of Hx, Claude, an arm or an author removed, labelled only A and B. Three judges
+  score each copy on correctness, edge cases, error messages, clarity, tests and user documentation, once
+  as A/B and once as B/A, so each copy gets 6 verdicts; the score is their mean. `–` until
+  `project-review.mjs` has reviewed the run.
+- **Coverage lines/branches:** the share of the arm's own source lines and branches (its test files left
+  out) that its own `npm test` reaches, counted through every process the tests start. `n/a` when it has no
+  tests or they fail.
+- **Wall time, Tokens, Cost:** the run's, with its half of each blind review's tokens and cost.
+- **Sessions, Issues closed/filed, Audit FAILs, Gate reds, Escaped defects, Capped:** what the run did, as
+  before; Capped counts the runs that hit a cap.
+
+**Why several runs.** One agent run varies 20–40% in time and cost from the next, so a single run supports
+no claim: a row with `n` = 1 says "single run, supports no claim". With several runs, each cell shows the
+median (the middle run; with an even count, the mean of the two middle ones) and, in brackets, the range:
+the lowest and the highest run, e.g. `147 (145–149)/149`. The brackets are left out when every run has the
+same value. A run without a value is left out of that cell.
+
+**The ship rule** (`bench/shiprule.mjs`) says whether a change to Hx is safe to keep: whether a set of runs
+made with the change is no worse than a set made before it. It passes only if all of these hold:
+1. each set has at least 5 runs;
+2. the change's median hidden-test pass count is no lower than the baseline's;
+3. the change's median fuzz class count is no higher than the baseline's;
+4. no new fuzz class: none appears in the change that never appeared in any baseline run;
+5. the change's blind-review mean is at most 0.5 below the baseline's;
+6. the change's median escaped defects are no higher than the baseline's.
+
+With fewer than 5 runs in either set it prints "not enough runs" and how many each set is missing, runs no
+other check and exits 2: not a FAIL, just no verdict yet. Otherwise it prints each check with its numbers
+and PASS or FAIL, then the verdict: PASS exits 0, FAIL exits 1. A run without the value a check needs (an
+old file, a run never reviewed) is left out of that check, and a check with no data in either set FAILs.
+When the two sets' fuzz runs differ in seed, case count or generator, checks 3 and 4 FAIL as not
+comparable. It also prints the change in median wall time, tokens and cost, as information only: a time
+or cost win never makes a FAIL pass.
 
 <!-- project-bench:start -->
 | Arm | n | Hidden passed | Fuzz divergences | Fuzz classes | Blind review | Coverage lines/branches | Wall time | Tokens | Cost | Sessions | Issues closed/filed | Audit FAILs | Gate reds | Escaped defects | Capped |
