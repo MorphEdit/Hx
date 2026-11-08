@@ -1,18 +1,23 @@
 // The project benchmark runner's pure parts (bench/project-lib.mjs): the caps, escaped defects, the repo
 // setup step, the result fields, the arguments and the provenance; and the run loop (bench/project.mjs runSet) with
-// fake steps. No gh, no claude, no usage spent.
+// fake steps, and the fuzz and coverage after the hidden tests on a fake arm's graded clone. No gh, no claude, no
+// usage spent.
 import { E2E } from './isolate.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 // @ts-ignore: a plain .mjs bench module
 import { USAGE, auditFails, capCheck, chatSession, escapedDefects, gateReds, parseArgs, parseJsonl, provenanceRoles, sessionsByRole, setupRepo, usageTotals } from '../bench/project-lib.mjs';
 // @ts-ignore: a plain .mjs bench module
-import { chatArm, runSet } from '../bench/project.mjs';
+import { STEPS, chatArm, qualityLine, runSet } from '../bench/project.mjs';
+// @ts-ignore: a plain .mjs bench module
+import { coverage } from '../bench/project-coverage.mjs';
+// @ts-ignore: a plain .mjs bench module
+import { fuzz, genHash } from '../bench/project-fuzz.mjs';
 import { DEFAULTS, ROLES, roleModel, workerArgs, type Config } from '../src/config.ts';
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -207,6 +212,8 @@ function fakeSteps(calls: any[], throwOn = 0) {
     issues: (ctx: any) => { calls.push({ step: 'issues', i: ctx.i }); return [{ number: 1, state: 'CLOSED' }, { number: 2, state: 'OPEN' }]; },
     clone: (ctx: any) => { calls.push({ step: 'clone', i: ctx.i, clone: ctx.clone }); },
     grade: (dir: string) => { calls.push({ step: 'grade', dir }); return { passed: 9, failed: 1, total: 10, failures: ['x'] }; },
+    fuzz: (dir: string) => { calls.push({ step: 'fuzz', dir }); return { seed: 1107, count: 1, genHash: 'h', timeLimitMs: 5000, divergences: 0, classes: {}, excluded: { count: 0, examples: [] }, examples: {} }; },
+    coverage: (dir: string) => { calls.push({ step: 'coverage', dir }); return { tests: 'none', lines: 'n/a', branches: 'n/a' }; },
   };
 }
 
@@ -262,4 +269,146 @@ test('runSet: a run that throws is logged with its i, the next run goes on, and 
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+// --- fuzz and coverage after the hidden tests (#406): the fake arm, the real fuzz and coverage, run small ---
+
+const reference = path.join(project, 'reference');
+const SMALL_FUZZ = { count: 12, timeLimitMs: 60_000 };
+
+/** Fake steps whose clone step fills the grade clone with `fill(dir, i)`; the real fuzz and coverage, unless given. */
+function cloneSteps(fill: (dir: string, i: number) => void, ended: (i: number) => string = () => 'done', over: any = {}) {
+  return {
+    ...fakeSteps([]),
+    arm: (ctx: any) => ({ usage: [], ended: ended(ctx.i), t0: 0, t1: 1_000 }),
+    clone: (ctx: any) => { mkdirSync(ctx.clone, { recursive: true }); fill(ctx.clone, ctx.i); },
+    fuzz: STEPS.fuzz, coverage: STEPS.coverage,
+    ...over,
+  };
+}
+
+/** runSet over `steps` in a temp dir; `check` gets every run's results file and the log lines. */
+async function withSet(steps: any, opts: any, check: (results: any[], lines: string[]) => void) {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'hxp-q-'));
+  try {
+    const resultsDir = path.join(dir, 'out');
+    const lines: string[] = [];
+    const out = await runSet({ arm: 'chat', owner: 'me', stamp: '202611080900', resultsDir, tmp: dir, commit: 'abc',
+      claudeBin: path.join(root, 'test', 'fakes', 'claude.mjs'), steps, print: (m: string) => lines.push(m), ...opts });
+    assert.deepEqual(out.failed, [], lines.join('\n'));
+    check(out.files.map((f: string) => JSON.parse(readFileSync(f, 'utf8'))), lines);
+  } finally {
+    rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+  }
+}
+
+test('STEPS: the real fuzz and coverage; the CLI passes them no options, so they run with their defaults', E2E, () => {
+  assert.equal(STEPS.fuzz, fuzz);
+  assert.equal(STEPS.coverage, coverage);
+  const src = readFileSync(path.join(root, 'bench', 'project.mjs'), 'utf8');
+  assert.match(src.split('if (process.argv[1]')[1], /runSet\(\{ \.\.\.args, owner \}\)/);
+});
+
+test('runSet: a graded copy of the reference gets fuzz (seed, count, genHash, 0 divergences) and coverage; so does a capped run, still capped', E2E, async () => {
+  // run 1 ends done, with a passing own test added; run 2 is capped, a bare copy (no own tests)
+  const fill = (dir: string, i: number) => {
+    cpSync(reference, dir, { recursive: true });
+    if (i === 1) {
+      mkdirSync(path.join(dir, 'test'));
+      writeFileSync(path.join(dir, 'test', 'load.test.mjs'),
+        `import { test } from 'node:test';\nimport * as m from '../src/tally.js';\ntest('loads', () => { if (!m) throw new Error('no module'); });\n`);
+    }
+  };
+  await withSet(cloneSteps(fill, (i) => (i === 1 ? 'done' : 'capped')), { runs: 2, fuzzOptions: SMALL_FUZZ }, (results, lines) => {
+    assert.equal(results.length, 2);
+    for (const r of results) {
+      assert.deepEqual({ seed: r.fuzz.seed, count: r.fuzz.count, genHash: r.fuzz.genHash, divergences: r.fuzz.divergences, classes: r.fuzz.classes },
+        { seed: 1107, count: 12, genHash: genHash(), divergences: 0, classes: {} });
+      assert.ok(!('fuzzError' in r) && !('coverageError' in r));
+    }
+    const [done, capped] = results;
+    assert.equal(done.ended, 'done');
+    assert.equal(done.coverage.tests, 'passed');
+    assert.ok(done.coverage.lines.total > 0 && done.coverage.lines.covered > 0, JSON.stringify(done.coverage));
+    assert.deepEqual([capped.ended, capped.capped], ['capped', true]);
+    assert.deepEqual(capped.coverage, { tests: 'none', lines: 'n/a', branches: 'n/a' });
+    const closing = lines.filter((l) => /hidden 9\/10/.test(l));
+    assert.equal(closing.length, 2, lines.join('\n'));
+    const c = done.coverage;
+    assert.ok(closing[0].includes(`fuzz 0 divergences in 0 classes · coverage ${c.lines.covered}/${c.lines.total} lines, ${c.branches.covered}/${c.branches.total} branches`), closing[0]);
+    assert.ok(closing[1].includes('fuzz 0 divergences in 0 classes · coverage n/a (own tests none)'), closing[1]);
+  });
+});
+
+test('runSet: a graded checkout with no CLI records the no CLI class and coverage n/a', E2E, async () => {
+  const fill = (dir: string) => writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: 'tally', scripts: { test: 'node --test' } }));
+  await withSet(cloneSteps(fill), { fuzzOptions: SMALL_FUZZ }, ([r], lines) => {
+    assert.deepEqual([r.fuzz.divergences, r.fuzz.classes], [12, { 'no CLI': 12 }]);
+    assert.deepEqual(r.coverage, { tests: 'none', lines: 'n/a', branches: 'n/a' });
+    assert.ok(lines.some((l) => l.includes('fuzz 12 divergences in 1 classes · coverage n/a')), lines.join('\n'));
+  });
+});
+
+test('runSet: an own test that never ends, with a short coverage time limit, records failed and n/a; the results file is written', E2E, async () => {
+  const fill = (dir: string) => {
+    cpSync(reference, dir, { recursive: true });
+    mkdirSync(path.join(dir, 'test'));
+    writeFileSync(path.join(dir, 'test', 'hang.test.mjs'), `import { test } from 'node:test';\ntest('hangs', () => new Promise(() => setInterval(() => {}, 1000)));\n`);
+  };
+  // the short limit is the point here: the suite never ends, so it is killed at the limit whatever the machine's load
+  await withSet(cloneSteps(fill), { fuzzOptions: SMALL_FUZZ, coverageOptions: { timeoutMs: 3_000 } }, ([r], lines) => {
+    assert.deepEqual(r.coverage, { tests: 'failed', lines: 'n/a', branches: 'n/a' });
+    assert.equal(r.fuzz.divergences, 0);
+    assert.ok(lines.some((l) => l.includes('coverage n/a (own tests failed)')), lines.join('\n'));
+  });
+});
+
+test('runSet: a fuzz that throws leaves a written results file without fuzz, the error beside it and logged; coverage still runs', E2E, async () => {
+  let covered = 0;
+  const steps = cloneSteps((dir) => cpSync(reference, dir, { recursive: true }), undefined, {
+    coverage: () => { covered++; return { tests: 'none', lines: 'n/a', branches: 'n/a' }; },
+  });
+  // the injected failure: a reference that does not exist has no CLI, and the real fuzz throws on it
+  await withSet(steps, { fuzzOptions: { ...SMALL_FUZZ, reference: path.join(os.tmpdir(), 'hxp-no-such-reference') } }, ([r], lines) => {
+    assert.ok(!('fuzz' in r));
+    assert.match(r.fuzzError, /has no CLI/);
+    assert.deepEqual(r.coverage, { tests: 'none', lines: 'n/a', branches: 'n/a' });
+    assert.equal(covered, 1);
+    assert.ok(lines.some((l) => /fuzz failed: .*has no CLI/.test(l)), lines.join('\n'));
+    assert.ok(lines.some((l) => /hidden 9\/10 .*fuzz error: .*has no CLI.* · coverage n\/a/.test(l)), lines.join('\n'));
+  });
+});
+
+test('runSet: a coverage that throws leaves fuzz in place and coverageError beside it', E2E, async () => {
+  const steps = { ...fakeSteps([]), coverage: () => { throw new Error('injected coverage failure'); } };
+  await withSet(steps, {}, ([r], lines) => {
+    assert.equal(r.fuzz.divergences, 0);
+    assert.ok(!('coverage' in r));
+    assert.equal(r.coverageError, 'injected coverage failure');
+    assert.ok(lines.some((l) => l.includes('coverage failed: injected coverage failure')), lines.join('\n'));
+    assert.ok(lines.some((l) => l.includes('coverage error: injected coverage failure →')), lines.join('\n'));
+  });
+});
+
+test('runSet: grade, then fuzz, then coverage, all on the graded clone, with the options passed through', E2E, async () => {
+  const calls: any[] = [];
+  const steps = { ...fakeSteps(calls),
+    fuzz: (dir: string, o: any) => { calls.push({ step: 'fuzz', dir, o }); return { divergences: 1, classes: { 'a / stdout': 1 } }; },
+    coverage: (dir: string, o: any) => { calls.push({ step: 'coverage', dir, o }); return { tests: 'passed', lines: { covered: 3, total: 4 }, branches: { covered: 0, total: 0 } }; } };
+  await withSet(steps, { fuzzOptions: { count: 7 }, coverageOptions: { timeoutMs: 9 } }, (_r, lines) => {
+    const names = calls.map((c) => c.step);
+    assert.deepEqual(names.slice(names.indexOf('grade')), ['grade', 'fuzz', 'coverage']);
+    const [g, f, c] = calls.slice(names.indexOf('grade'));
+    assert.equal(f.dir, g.dir);
+    assert.equal(c.dir, g.dir);
+    assert.deepEqual([f.o, c.o], [{ count: 7 }, { timeoutMs: 9 }]);
+    assert.ok(lines.some((l) => l.includes('fuzz 1 divergences in 1 classes · coverage 3/4 lines, 0/0 branches')), lines.join('\n'));
+  });
+});
+
+test("qualityLine: divergences and classes, lines and branches, the own tests' state, or each error", E2E, () => {
+  const lb = { tests: 'passed', lines: { covered: 1, total: 2 }, branches: { covered: 0, total: 1 } };
+  assert.equal(qualityLine({ fuzz: { divergences: 5, classes: { a: 3, b: 2 } }, coverage: lb }), 'fuzz 5 divergences in 2 classes · coverage 1/2 lines, 0/1 branches');
+  assert.equal(qualityLine({ fuzzError: 'x', coverage: { tests: 'failed', lines: 'n/a', branches: 'n/a' } }), 'fuzz error: x · coverage n/a (own tests failed)');
+  assert.equal(qualityLine({ fuzz: { divergences: 0, classes: {} }, coverageError: 'y' }), 'fuzz 0 divergences in 0 classes · coverage error: y');
 });

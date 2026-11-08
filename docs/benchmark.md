@@ -120,7 +120,11 @@ Each run writes `bench/results/project/<arm>-<stamp>-<i>.json` (one stamp per ca
 provenance: the Claude Code version, the Hx commit, and each role's model, effort and flags. Both arms run
 with Hx's lean flags (`--strict-mcp-config`, `--disable-slash-commands`, `--setting-sources project,local`,
 `--tools`), so neither loads your own skills, plugins or MCP servers. A run that fails is named at the end
-and the call exits 1; the other runs' files stay. `bench/figures.mjs` writes the table below from
+and the call exits 1; the other runs' files stay. After the hidden tests, every run (done, capped or ended
+early) is fuzzed against the reference (`fuzz`, `bench/project-fuzz.mjs` with its defaults: seed 1107, 1000 cases,
+5 s per case) and then its own tests are run under coverage (`coverage`, `bench/project-coverage.mjs`, 30 min
+limit), both on the same graded clone. A fuzz or coverage run that throws never blocks the results file: its field
+is left out and the message is recorded as `fuzzError` or `coverageError`. `bench/figures.mjs` writes the table below from
 `bench/results/project-*.json`.
 
 <!-- project-bench:start -->
