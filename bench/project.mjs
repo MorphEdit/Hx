@@ -4,7 +4,8 @@
 //   hx3  — the brief filed with `hx prd`, then `hx run --watch --workers 3` until the PRD closes
 // Both run with Hx's lean flags: the chat session gets `workerArgs` of the default config, and `hx run` gives every
 // session `workerArgs` of the arm's config. Each run stops at --max-hours or --max-usd, whichever comes first. Then a
-// fresh clone of the default branch is graded by the hidden suite (bench/project-grade.mjs).
+// fresh clone of the default branch is graded by the hidden suite (bench/project-grade.mjs), then fuzzed against the
+// reference (bench/project-fuzz.mjs) and its own tests run under coverage (bench/project-coverage.mjs), in that order.
 //
 //   node bench/project.mjs <chat|hx3> [--runs N] [--max-hours 4] [--max-usd 60]
 // One stamp per call; runs i = 1…N in a row, each with its own private GitHub repo <owner>/hx-project-<arm>-<stamp>-<i>
@@ -20,6 +21,8 @@ import { fileURLToPath } from 'node:url';
 import { runGoal } from '../src/agent.ts';
 import { DEFAULTS, loadProject } from '../src/config.ts';
 import { resolveCmd } from '../src/exec.ts';
+import { coverage } from './project-coverage.mjs';
+import { fuzz } from './project-fuzz.mjs';
 import { grade } from './project-grade.mjs';
 import { USAGE, auditFails, capCheck, chatSession, escapedDefects, gateReds, parseArgs, parseJsonl, provenanceRoles, sessionsByRole, setupRepo, usageTotals } from './project-lib.mjs';
 
@@ -150,8 +153,26 @@ function clone(ctx) {
   sh('gh', ['repo', 'clone', ctx.repo, ctx.clone, '--', '-q']);
 }
 
-/** The real per-run steps; a test passes its own. */
-export const STEPS = { setup, arm: (ctx) => (ctx.arm === 'chat' ? chatArm(ctx) : hx3Arm(ctx)), issues, clone, grade };
+/** The real per-run steps; a test passes its own. `fuzz` and `coverage` take (dir, options). */
+export const STEPS = { setup, arm: (ctx) => (ctx.arm === 'chat' ? chatArm(ctx) : hx3Arm(ctx)), issues, clone, grade, fuzz, coverage };
+
+/** `step(dir, options)` as { value } or, when it throws, { error } (the message): it never blocks the results file. */
+async function guarded(step, dir, options, what, log) {
+  try { return { value: await step(dir, options) }; } catch (e) {
+    const error = String(e?.message ?? e);
+    log(`${what} failed: ${error}`);
+    return { error };
+  }
+}
+
+/** The closing line's quality part: fuzz divergences and classes, coverage lines / branches or the tests' state. */
+export function qualityLine({ fuzz: f, fuzzError, coverage: c, coverageError }) {
+  const fz = f ? `fuzz ${f.divergences} divergences in ${Object.keys(f.classes ?? {}).length} classes` : `fuzz error: ${fuzzError}`;
+  const cell = (x) => (x && typeof x === 'object' ? `${x.covered}/${x.total}` : 'n/a');
+  const cv = !c ? `coverage error: ${coverageError}`
+    : c.tests === 'passed' ? `coverage ${cell(c.lines)} lines, ${cell(c.branches)} branches` : `coverage n/a (own tests ${c.tests})`;
+  return `${fz} · ${cv}`;
+}
 
 // 5. the runs and their results
 /** Runs `arm` `runs` times in a row under one stamp, each run on its own repo, directories and caps, and writes each
@@ -159,7 +180,7 @@ export const STEPS = { setup, arm: (ctx) => (ctx.arm === 'chat' ? chatArm(ctx) :
  *  Returns `{ stamp, files, failed }` (`failed`: the i of each run that threw). */
 export async function runSet({
   arm, runs = 1, maxHours = 4, maxUsd = 60, owner, stamp = makeStamp(), resultsDir = RESULTS, tmp = os.tmpdir(),
-  claudeBin = 'claude', commit = hxCommit(), steps = STEPS, print = console.log,
+  claudeBin = 'claude', commit = hxCommit(), steps = STEPS, print = console.log, fuzzOptions = {}, coverageOptions = {},
 }) {
   const files = [], failed = [];
   mkdirSync(resultsDir, { recursive: true });
@@ -179,6 +200,13 @@ export async function runSet({
       const ghIssues = await steps.issues(ctx);
       await steps.clone(ctx);
       const score = await steps.grade(ctx.clone);
+      // after the hidden tests, fuzz first: the arm's own tests cannot change what is fuzzed
+      const fz = await guarded(steps.fuzz, ctx.clone, fuzzOptions, 'fuzz', log);
+      const cov = await guarded(steps.coverage, ctx.clone, coverageOptions, 'coverage', log);
+      const quality = {
+        ...(fz.error === undefined ? { fuzz: fz.value } : { fuzzError: fz.error }),
+        ...(cov.error === undefined ? { coverage: cov.value } : { coverageError: cov.error }),
+      };
       const readState = (f) => { const p = path.join(ctx.work, '.hx', f); return existsSync(p) ? readFileSync(p, 'utf8') : ''; };
       const totals = usageTotals(usage);
       const session = arm === 'chat' ? roles.chat : roles.impl;
@@ -191,13 +219,14 @@ export async function runSet({
         auditFails: arm === 'chat' ? null : auditFails(readState('run.log')),
         gateReds: arm === 'chat' ? null : gateReds(readState('gate-runs.jsonl')),
         escapedDefects: escapedDefects(score.failed, ended),
+        ...quality,
         ended, capped: ended === 'capped',
         provenance,
       };
       const file = path.join(resultsDir, `${name}.json`);
       writeFileSync(file, JSON.stringify(result, null, 2) + '\n');
       files.push(file);
-      log(`hidden ${result.passed}/${result.total} · ${result.ended} · ${result.issuesClosed}/${result.issuesFiled} issues closed · $${result.costUsd.toFixed(2)} · ${(result.tokens.total / 1e6).toFixed(2)}M tokens → ${file}`);
+      log(`hidden ${result.passed}/${result.total} · ${result.ended} · ${result.issuesClosed}/${result.issuesFiled} issues closed · $${result.costUsd.toFixed(2)} · ${(result.tokens.total / 1e6).toFixed(2)}M tokens · ${qualityLine(quality)} → ${file}`);
     } catch (e) {
       failed.push(i);
       log(`run ${i} failed: ${e?.message ?? e}`);
