@@ -31,6 +31,22 @@ test('isolate: HX_* / FAKE_* / GIT_DIR from the caller are dropped, HX_HOME is a
   assert.ok(env.GIT_CONFIG_GLOBAL);
 });
 
+test('isolate: git config the caller passes in the environment (GIT_CONFIG_PARAMETERS, GIT_CONFIG_COUNT) is dropped: safe.bareRepository=explicit from a Claude Code session never stops a test reading its bare origin (#417)', () => {
+  const bare = path.join(mkdtempSync(path.join(os.tmpdir(), 'hx-iso-')), 'origin.git');
+  const code = `await import(${JSON.stringify(pathToFileURL(path.join(here, 'isolate.ts')).href)});
+    const { execFileSync } = await import('node:child_process');
+    execFileSync('git', ['init', '-q', '--bare', '-b', 'main', ${JSON.stringify(bare)}], { stdio: 'pipe' });
+    const head = execFileSync('git', ['symbolic-ref', 'HEAD'], { cwd: ${JSON.stringify(bare)}, encoding: 'utf8', stdio: 'pipe' }).trim();
+    console.log(JSON.stringify({ head, env: Object.fromEntries(Object.entries(process.env).filter(([k]) => /^GIT_CONFIG_(PARAMETERS|COUNT|KEY_|VALUE_)/.test(k))) }));`;
+  const r = spawnSync(process.execPath, ['--disable-warning=ExperimentalWarning', '--input-type=module', '-e', code], { encoding: 'utf8',
+    env: { ...process.env, GIT_CONFIG_PARAMETERS: "'safe.bareRepository=explicit' 'core.fsmonitor='",
+      GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'safe.bareRepository', GIT_CONFIG_VALUE_0: 'explicit' } });
+  assert.equal(r.status, 0, r.stderr);
+  const out = JSON.parse(r.stdout.trim().split('\n').pop()!);
+  assert.equal(out.head, 'refs/heads/main', 'git runs with a bare repo as its cwd');
+  assert.deepEqual(out.env, {});
+});
+
 test('every end-to-end test file (fake gh / claude, ship.mjs, runPool) imports isolate.ts first and gives each test() E2E', () => {
   const e2e = readdirSync(here).filter((f) => f.endsWith('.test.ts') && f !== 'isolate.test.ts')
     .map((f) => ({ f, src: readFileSync(path.join(here, f), 'utf8') }))
