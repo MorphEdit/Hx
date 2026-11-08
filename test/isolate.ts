@@ -12,6 +12,9 @@ for (const k of Object.keys(process.env)) if (/^(HX_|FAKE_)/i.test(k)) delete pr
 // HX_HOME: hx init and hx run record their repo in <HX_HOME>/.hx/repos.json; never the real home
 process.env.HX_HOME = mkdtempSync(path.join(os.tmpdir(), 'hx-home-'));
 for (const k of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTORY', 'GIT_COMMON_DIR']) delete process.env[k];
+// git config passed in the environment, like `-c`: a Claude Code session sets safe.bareRepository=explicit, and git
+// then refuses to run in the tests' bare origins (#417)
+for (const k of Object.keys(process.env)) if (/^GIT_CONFIG_(PARAMETERS|COUNT|KEY_\d+|VALUE_\d+)$/i.test(k)) delete process.env[k];
 
 // git: no user/system config (signing, hooks, credential helpers, pagers), never a prompt. Only the settings that
 // cost time and change nothing a test checks: no auto gc / maintenance after each fetch, commit and push (a full PRD
