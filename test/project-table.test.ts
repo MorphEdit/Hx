@@ -318,3 +318,67 @@ test('figures.mjs reads old single files and every bench/results/project/<arm>-<
   runFigures(dir);
   assert.equal(readFileSync(path.join(dir, 'docs', 'benchmark.md'), 'utf8'), out, 'nothing changed: byte-identical');
 });
+
+/** docs/benchmark.md's "Project benchmark" section, without the table figures.mjs renders, each run of white space one space. */
+function projectProse() {
+  const doc = readFileSync(path.join(root, 'docs', 'benchmark.md'), 'utf8');
+  const at = doc.indexOf('## Project benchmark');
+  assert.ok(at >= 0, 'docs/benchmark.md has a Project benchmark section');
+  const end = doc.indexOf('\n## ', at + 1);
+  const section = doc.slice(at, end < 0 ? undefined : end);
+  return (section.slice(0, section.indexOf(START)) + section.slice(section.indexOf(END) + END.length)).replace(/\s+/g, ' ');
+}
+
+test('docs: the Project benchmark section explains each new column, n, the class count and why one run supports no claim (#407)', () => {
+  const prose = projectProse();
+  for (const col of ['**Fuzz divergences:**', '**Fuzz classes:**', '**Blind review:**', '**Coverage lines/branches:**', '**`n`:**']) {
+    assert.ok(prose.includes(col), `the prose names the column ${col}`);
+  }
+  assert.match(prose, /not dominated by whichever bug the generator hits most often/);
+  assert.match(prose, /supports no claim/);
+  assert.match(prose, /20–40%/);
+  assert.match(prose, /median/);
+  assert.match(prose, /range/);
+});
+
+test('docs: the Project benchmark section lists each command with its cost, and the new results location (#407)', () => {
+  const prose = projectProse();
+  assert.match(prose, /node bench\/project\.mjs chat --runs 5/);
+  assert.match(prose, /node bench\/project\.mjs hx3 --runs 5/);
+  assert.match(prose, /node bench\/project-review\.mjs --all/);
+  assert.match(prose, /6 judge sessions per pair/);
+  assert.match(prose, /node bench\/shiprule\.mjs --baseline '[^']+' --change '[^']+'/);
+  assert.match(prose, /node bench\/figures\.mjs/);
+  assert.match(prose, /bench\/results\/project\/<arm>-<stamp>-<i>\.json/);
+  assert.ok(!prose.includes('table below from `bench/results/project-*.json`'),
+    'the old line about bench/results/project-*.json is gone');
+  assert.match(prose, /provenance/);
+  assert.match(prose, /judges/);
+});
+
+test('docs: the Project benchmark section explains the ship rule: its checks, exit 2 / 0 / 1, and that a cost win never makes a FAIL pass (#407)', () => {
+  const prose = projectProse();
+  assert.match(prose, /not enough runs/);
+  assert.match(prose, /exits 2/);
+  assert.match(prose, /PASS exits 0/);
+  assert.match(prose, /FAIL exits 1/);
+  assert.match(prose, /never makes a FAIL pass/);
+  for (const check of ['at least 5 runs', 'hidden-test', 'fuzz class', 'new fuzz class', '0.5', 'escaped defects']) {
+    assert.ok(prose.includes(check), `the ship rule names ${check}`);
+  }
+});
+
+test('docs: the table in docs/benchmark.md is what figures.mjs renders from bench/results, and the First run text stays (#407)', () => {
+  const doc = readFileSync(path.join(root, 'docs', 'benchmark.md'), 'utf8');
+  assert.equal(updateReadme(doc, loadRuns(resultFiles(path.join(bench, 'results')))), doc);
+  assert.ok(doc.includes('**First run, 2026-11-06** (`claude-opus-5-5`, medium effort, both arms):'));
+});
+
+test('CLAUDE.md: the bench/ line names the project benchmark files and the results location (#407)', () => {
+  const md = readFileSync(path.join(root, 'CLAUDE.md'), 'utf8');
+  const line = md.slice(md.indexOf('- `bench/`'), md.indexOf('\n- ', md.indexOf('- `bench/`') + 1));
+  for (const f of ['project-fuzz-gen.mjs', 'project-fuzz.mjs', 'project-coverage.mjs', 'project-results.mjs', 'project-review.mjs', 'shiprule.mjs',
+    'bench/results/project/<arm>-<stamp>-<i>.json']) {
+    assert.ok(line.includes(f), `the bench/ line names ${f}`);
+  }
+});
