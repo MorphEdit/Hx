@@ -103,6 +103,13 @@ export function gh(a, { input = () => '', cwd = process.cwd(), inProcess = false
       if (opt('-q')) print(prs[0] ? `${prs[0].number}\n` : '\n');
       else print(JSON.stringify(prs.map((p) => ({ number: p.number, title: p.title, headRefName: p.head,
         mergeable: p.mergeable ?? 'MERGEABLE', isCrossRepository: !!p.fork }))));
+    } else if (a[0] === 'pr' && a[1] === 'diff') {
+      // --name-only: a PR's `files` (paths, one per line); state.prDiffFails makes it fail
+      if (s.prDiffFails) { printErr('HTTP 502: Bad Gateway'); exit(1); }
+      const pr = (s.prs ?? []).find((p) => p.number === Number(a[2]));
+      if (!pr) { printErr(`no pull requests found for "${a[2]}"`); exit(1); }
+      if (!a.includes('--name-only')) { printErr('fake gh: pr diff supports --name-only only'); exit(1); }
+      print((pr.files ?? []).map((f) => f + '\n').join(''));
     } else if (a[0] === 'pr' && a[1] === 'close') {
       // a PR's comment is stored as { pr, body }; --delete-branch is recorded on the PR (tests check it is never passed)
       mutate((cur) => {

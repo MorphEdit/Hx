@@ -293,3 +293,15 @@ export async function listIssuePrs(repo: string, state: 'open' | 'merged'): Prom
 export async function closePr(repo: string, n: number, commentBody: string): Promise<void> {
   await ghOk(['pr', 'close', String(n), '-R', repo, '--comment', commentBody]);
 }
+
+/** The number of every open PR in `repo`, whatever its head branch, forks included (hx overlap). */
+export async function listOpenPrNumbers(repo: string): Promise<number[]> {
+  const out = await ghOk(['pr', 'list', '-R', repo, '--state', 'open', '--limit', '1000', '--json', 'number']);
+  return (JSON.parse(out) as any[]).map((p) => Number(p.number)).filter((n) => Number.isInteger(n));
+}
+
+/** The paths PR `n` changes, as `gh pr diff --name-only` lists them. */
+export async function prFiles(repo: string, n: number): Promise<string[]> {
+  const out = await ghOk(['pr', 'diff', String(n), '--name-only', '-R', repo]);
+  return out.split('\n').map((l) => l.trim()).filter(Boolean);
+}

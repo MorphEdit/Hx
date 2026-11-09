@@ -33,6 +33,7 @@ import { service, syncAutoStart } from './service.ts';
 import type { Question } from './state.ts';
 import { splitLines } from './size.ts';
 import { change, compare, parseTime, SMALL_SAMPLE, type Period } from './compare.ts';
+import { overlap } from './overlap.ts';
 import { fmt, localDay, mismatchedSessions, readUsage, summarize, totalTokens, type UsageRow } from './usage.ts';
 
 const HELP = `usage: hx <command> [options]
@@ -115,6 +116,9 @@ const HELP = `usage: hx <command> [options]
   doctor                   check the prerequisites (node, git, gh and its login, the agent CLI, the repo's
                            GitHub origin, .hx/config.json, labels, gate, rtdd), each with a fix for this OS;
                            exit 1 when a required one fails
+  overlap <path>...        the open agent-working issues (their i<N> worktree's diff on this machine) and open
+                           PRs that touch these paths (relative to the repo root): one "<path>: issue #n, PR #m"
+                           line each and exit 1; none: "no overlap", exit 0; a gh or git failure: exit 2
   health [--fix]           one health pass: stale PRs from issue/<N> branches, agent-blocked issues (after a
                            passed audit: merged or sent back; by a transient error: unblocked), gate-fix issues on a
                            twice-green main, leftover worktrees, stuck agent-working labels, the environment (doctor
@@ -173,6 +177,7 @@ export async function main(argv: string[]): Promise<number> {
     case 'dashboard': return dashboard(args);
     case 'doctor': return doctorCmd();
     case 'health': return healthCmd(args);
+    case 'overlap': return overlapCmd(args);
     case 'update': return (await import('../bin/install.mjs')).install(args, { update: true });
     case 'fleet': return args[0] === 'dashboard' ? fleetDashboard(args.slice(1)) : args[0] === 'run' ? fleetRun(args.slice(1)) : args[0] === 'forget' ? fleetForget(args[1]) : fleet(args);
     case 'install-skill': console.log(installSkill()); return 0;
@@ -180,6 +185,15 @@ export async function main(argv: string[]): Promise<number> {
     case '--version': case '-v': console.log(hxVersion()); return 0;
     default: console.error(`unknown command: ${cmd}\n\n${HELP}`); return 2;
   }
+}
+
+/** `hx overlap <path>...`: 1 with one line per overlapping path, 0 with `no overlap`, 2 when it cannot tell. */
+async function overlapCmd(args: string[]): Promise<number> {
+  if (!args.length) { console.error('usage: hx overlap <path>...'); return 2; }
+  let lines: string[];
+  try { lines = await overlap(loadProject(), args); } catch (e: any) { console.error(`hx overlap: ${e?.message ?? e}`); return 2; }
+  console.log(lines.length ? lines.join('\n') : 'no overlap');
+  return lines.length ? 1 : 0;
 }
 
 /** `hx health [--fix]`: one health pass, each check's line, then the summary line. */
