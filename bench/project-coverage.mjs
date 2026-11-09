@@ -128,7 +128,7 @@ export async function coverage(checkout, { timeoutMs = 30 * 60_000 } = {}) {
   const covDir = mkdtempSync(path.join(os.tmpdir(), 'hx-cov-'));
   const home = mkdtempSync(path.join(os.tmpdir(), 'hx-cov-home-'));
   try {
-    const r = await runShell('npm test', { cwd: dir, timeoutMs, env: testEnv(covDir, home) });
+    const r = await runShell('npm test', { cwd: dir, timeoutMs, env: testEnv(covDir, home), sweep: true });
     if (r.code !== 0 || r.timedOut) return none('failed');
     // the text as V8 compiled it: Node drops a byte order mark first
     const byKey = new Map(sources.map((f) => [key(path.join(dir, f)),

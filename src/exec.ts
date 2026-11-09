@@ -137,6 +137,36 @@ export async function killByPath(dir: string, root: string, procs?: Proc[]): Pro
   return pids.length;
 }
 
+/** The pids under `roots` by parent id, at any depth, the roots themselves left out. Windows keeps an exited
+ *  parent's id on its children, so a root that is gone still finds what it started. */
+export function descendants(procs: Proc[], roots: Iterable<number>): number[] {
+  const kids = new Map<number, number[]>();
+  for (const p of procs) if (p.pid !== p.ppid) kids.set(p.ppid, [...(kids.get(p.ppid) ?? []), p.pid]);
+  const seen = new Set<number>(roots), out: number[] = [];
+  for (const queue = [...seen]; queue.length;) {
+    for (const k of kids.get(queue.shift()!) ?? []) if (!seen.has(k)) { seen.add(k); out.push(k); queue.push(k); }
+  }
+  return out;
+}
+
+/** Kill `pid`'s tree, then, pass by pass, what it left behind: a process started while taskkill /T ran, or whose
+ *  parent was killed before it, is out of taskkill's reach but still names a killed pid as its parent. Ends after a
+ *  pass that finds nothing new, or after `passes`. Returns every pid it killed beyond `pid`. */
+export async function killTreeSwept(pid: number, o: { list?: () => Promise<Proc[]>; kill?: (pid: number) => Promise<void>; passes?: number } = {}): Promise<number[]> {
+  const list = o.list ?? (() => listProcesses());
+  const kill = o.kill ?? ((p: number) => new Promise<void>((gone) => killTree(p, false, gone)));
+  const known = new Set<number>([pid, ...descendants(await list(), [pid])]);
+  await kill(pid);
+  for (let i = 0; i < (o.passes ?? 5); i++) {
+    const left = descendants(await list(), known);
+    if (!left.length) break;
+    for (const p of left) known.add(p);
+    await Promise.all(left.map(kill));
+  }
+  known.delete(pid);
+  return [...known];
+}
+
 export interface ShellResult {
   code: number;
   output: string; // stdout then stderr, the last 1 MB of each
@@ -148,8 +178,10 @@ export interface ShellResult {
 
 /** Run a shell command line; after `timeoutMs`, or when `signal` aborts, the whole process tree is killed
  *  and `timedOut` / `aborted` is set. An abort settles once the tree is gone; with `killLater` it settles at
- *  once and `killed` is that wait (taskkill alone takes seconds on a loaded Windows machine). */
-export function runShell(command: string, opts: { cwd?: string; timeoutMs: number; signal?: AbortSignal; killLater?: boolean; env?: Record<string, string> }): Promise<ShellResult> {
+ *  once and `killed` is that wait (taskkill alone takes seconds on a loaded Windows machine). With `sweep`, a
+ *  time limit kills with killTreeSwept and settles once that is done: nothing the command started keeps running
+ *  in its directory (a process started while the tree was killed would hold it on Windows). */
+export function runShell(command: string, opts: { cwd?: string; timeoutMs: number; signal?: AbortSignal; killLater?: boolean; env?: Record<string, string>; sweep?: boolean }): Promise<ShellResult> {
   // already aborted: nothing to start, so nothing to kill (a taskkill under load would take seconds)
   if (opts.signal?.aborted) return Promise.resolve({ code: 130, output: '', timedOut: false, aborted: true, killed: Promise.resolve() });
   return new Promise((resolve) => {
@@ -157,16 +189,23 @@ export function runShell(command: string, opts: { cwd?: string; timeoutMs: numbe
       ...(opts.env ? { env: { ...process.env, ...opts.env } } : {}), detached: process.platform !== 'win32' }); // its own process group, so the tree can be killed elsewhere
     const keep = (s: string, d: Buffer) => (s + d.toString()).slice(-1024 * 1024);
     let out = '', err = '', timedOut = false, aborted = false, settled = false;
-    let killed: Promise<void> | undefined;
+    let killed: Promise<void> | undefined, swept: Promise<unknown> | undefined;
     child.stdout.on('data', (d: Buffer) => { out = keep(out, d); });
     child.stderr.on('data', (d: Buffer) => { err = keep(err, d); });
     const done = (code: number) => {
       if (settled) return;
       settled = true; clearTimeout(timer); opts.signal?.removeEventListener('abort', onAbort);
-      resolve({ code: aborted ? 130 : timedOut ? 124 : code, output: `${out}\n${err}`, timedOut, ...(aborted ? { aborted } : {}), ...(killed ? { killed } : {}), pid: child.pid });
+      const result = () => resolve({ code: aborted ? 130 : timedOut ? 124 : code, output: `${out}\n${err}`, timedOut, ...(aborted ? { aborted } : {}), ...(killed ? { killed } : {}), pid: child.pid });
+      if (swept) swept.then(result); else result();
     };
     const timer = setTimeout(() => {
       timedOut = true;
+      if (opts.sweep) {
+        const cap = new Promise((r) => setTimeout(r, 60_000).unref()); // in case a process query hangs
+        swept = Promise.race([killTreeSwept(child.pid!).catch(() => []), cap]);
+        swept.then(() => done(124));
+        return;
+      }
       killTree(child.pid, true);
       setTimeout(() => done(124), 5000).unref(); // a stray grandchild may still hold the pipes open
     }, opts.timeoutMs);
