@@ -254,8 +254,9 @@ hx overlap src/a.ts src/b.ts          # paths relative to the repo root; `git di
 It checks two kinds of source, and changes nothing (no label, comment, PR or worktree is touched):
 
 - every open issue labelled `agent-working` (`labels.working`): the files of
-  `git diff --name-only origin/<defaultBranch>` in its impl worktree `<worktreeRoot>/i<N>`, committed and
-  uncommitted changes to tracked files alike (a new untracked file is not seen). It sees only worktrees on this
+  `git diff --name-only --merge-base origin/<defaultBranch>` in its impl worktree `<worktreeRoot>/i<N>`: what it
+  changed since it branched, committed and uncommitted changes to tracked files alike (a new untracked file is not
+  seen; a file that changed only on `<defaultBranch>` after the branch point is not the issue's). It sees only worktrees on this
   machine: an issue whose `i<N>` directory is not here touches no files (its open PR is still checked);
 - every open PR of the repo, whatever its head branch (hx's `issue/<N>`, `hx/*`, a person's branch, a fork):
   the files of `gh pr diff <m> --name-only`.
