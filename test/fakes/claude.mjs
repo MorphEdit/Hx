@@ -10,7 +10,8 @@
 //              nothing at all, SECURITYNOCOMMENT = signs off without the comment, SECURITYTWO = round 1 files
 //              two and gh lists the higher number first
 //              (SECURITYSTRANGER: an untrusted account, mallory, posts one instead)
-//   revise:    appends its marker to the body with `gh issue edit --body-file` (REVISENOOP in the body: changes nothing)
+//   revise:    appends its marker to the body with `gh issue edit --body-file` (REVISENOOP in the body: changes nothing);
+//              when its findings hold the engine check (no counted criteria), an `## Acceptance criteria` section too
 //   triage:    posts a verdict comment per the issue body (see finish())
 //   bar:       the quality bar run (Role: bar) writes fake.json (its side, the result wanted) into the two output dirs
 //              its prompt names; the judge (Role: bar judge) reads them and answers. In the PRD body: BARNOPROV = the run
@@ -333,7 +334,12 @@ ${done()}`);
     const body = loadBoard().issues.find((i) => i.number === st.n).body;
     if (/REVISENOOP/.test(body)) return reply(`nothing to change. ${done()}`);
     const f = path.join(process.env.HX_FAKE_DIR, `revise-${sid}.md`);
-    writeFileSync(f, `${body}\n\n## Assumptions\n- fast = under 1s\n${REVISED}\n`);
+    const item = '- [ ] search answers under 1s';
+    const engine = /hx engine check/.test(prompt);
+    const heading = /^## Acceptance criteria[ \t]*$/m;
+    const filled = engine && heading.test(body) ? body.replace(heading, (h) => `${h}\n${item}`) : body;
+    const criteria = engine && !heading.test(body) ? `\n\n## Acceptance criteria\n${item}` : '';
+    writeFileSync(f, `${filled}${criteria}\n\n## Assumptions\n- fast = under 1s\n${REVISED}\n`);
     const repo = /Repo (\S+)/.exec(prompt)[1];
     const r = spawnSync(process.execPath, [process.env.HX_GH_BIN, 'issue', 'edit', String(st.n), '-R', repo, '--body-file', f], { encoding: 'utf8' });
     return reply(r.status === 0 ? `body updated. ${done()}` : `gh failed: ${r.stderr}`);

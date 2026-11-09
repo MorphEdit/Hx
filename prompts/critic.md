@@ -12,7 +12,7 @@ Run every command in the foreground and wait for it. Never start a command in th
 2. Read the code the PRD touches.
 3. Find what would make two competent implementers build different things, or what cannot be tested:
    an ambiguity, a contradiction, a missing acceptance criterion, a conflict with the existing code,
-   a missing error or edge case.
+   a missing error or edge case. A PRD with no `## Acceptance criteria` section, or one with no items, is a finding.
 
 Style, wording and nice-to-haves are NOT findings. FAIL only if there is at least one real finding.
 

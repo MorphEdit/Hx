@@ -98,7 +98,7 @@ test('PRD flow: decompose → build → review (gap, then sign-off) → close, P
   b.issues.push(prd(20, 'Auth'), prd(21, 'Billing', '## Blocked by\n#20\n'));
   b.comments = [];
   writeFileSync(stateFile, JSON.stringify(b));
-  const p = { ...setupProject(), config: { ...baseConfig(), reviewRounds: 3, security: false } }; // the security pass: test/security.test.ts
+  const p = { ...setupProject(), config: { ...baseConfig(), reviewRounds: 3, security: false, singleChildMaxCriteria: 0 } }; // the security pass: test/security.test.ts; decompose, not the one-child path the gauntlet's criteria open (PRD #436)
 
   const lines: string[] = [];
   const orig = console.log;

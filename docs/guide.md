@@ -698,6 +698,14 @@ PRD #20 [prd] ──gauntlet──▶ [prd-hardened] ──decompose──▶ ch
   the code; on FAIL a reviser rewrites the body to resolve its findings (the original body is kept once in
   a `<!-- hx-prd-original -->` comment). Every round posts a `<!-- hx-gauntlet -->` comment. A PASS, or
   `gauntletRounds` rounds, labels the PRD `prd-hardened`. A PRD that already has children never goes back.
+- The engine check: after the critic's `VERDICT` line, hx reads the PRD body. When it has no
+  `## Acceptance criteria` section with items, the round is a FAIL even if the critic said PASS, and the
+  fixed finding below goes to the reviser: alone on a critic PASS, after the critic's findings on a critic FAIL.
+  `- The PRD has no "## Acceptance criteria" section with items — the one-child path and the review need testable criteria — hx engine check`
+  The reviser adds the section, one `- [ ]` item per user-visible behaviour the body already asks for and no
+  new requirement, so a hand-written PRD can take the one-child path too. The last round checks too: its
+  reviser runs before `prd-hardened`. The round's run.log FAIL line shows the engine finding, its
+  `<!-- hx-gauntlet -->` comment all the findings. With `gauntlet: false` there is no check.
 - A small PRD gets one child and no decompose session: see [One child for a small PRD](#one-child-for-a-small-prd).
 - A PRD's own `## Blocked by` sequences PRDs: nothing of PRD #21 runs until #20 is closed.
   PRDs without blockers run in parallel.

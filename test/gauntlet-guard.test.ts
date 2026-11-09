@@ -54,3 +54,13 @@ test('fenceFindings drops only marker lines', () => {
   assert.equal(fenceFindings('- a\r\n- b'), '- a\n- b');
   assert.equal(fenceFindings(`- a\n  ${END.toLowerCase()}  \n- b\n--- BEGIN CRITIC FINDINGS ---`), '- a\n- b');
 });
+
+test('critic lists a missing or empty acceptance-criteria section; the reviser adds one from the body, no new requirement (PRD #436)', () => {
+  const critic = flat(prompt('critic.md'));
+  assert.ok(critic.includes('A PRD with no `## Acceptance criteria` section, or one with no items, is a finding.'));
+  const revise = flat(prompt('revise.md'));
+  for (const s of ['when the body has no `## Acceptance criteria` section with items, add one', 'one `- [ ]` item per user-visible behaviour the body already asks for',
+    'checkable by a test', 'not of a single test case', 'no item the body does not already ask for, no new requirement',
+    'add no requirement the original body did not ask for'])
+    assert.ok(revise.includes(s), s);
+});

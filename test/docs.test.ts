@@ -630,3 +630,16 @@ test('guide: the one-child path section and the singleChildMaxCriteria row (#425
   const at = (s: string) => sec.indexOf(s);
   assert.ok(at('1. `singleChildMaxCriteria`') < at('2. The PRD has no') && at('2. The PRD has no') < at('3. A pool of one') && at('3. A pool of one') < at('4. The section'));
 });
+
+test('guide: the gauntlet\'s engine check for acceptance criteria (PRD #436)', async () => {
+  const { CRITERIA_FINDING } = await import('../src/prd.ts');
+  const g = read('docs/guide.md');
+  const at = g.indexOf('- The engine check:');
+  assert.ok(at >= 0 && at < g.indexOf('### One child for a small PRD'), 'in the gauntlet section');
+  const entry = g.slice(at, g.indexOf('\n- ', at + 1)).replace(/\s+/g, ' ');
+  assert.ok(g.includes(CRITERIA_FINDING), 'the engine finding word for word');
+  for (const s of ['`## Acceptance criteria` section with items', 'even if the critic said PASS', 'alone on a critic PASS',
+    'after the critic\'s findings on a critic FAIL', 'one `- [ ]` item per user-visible behaviour', 'no new requirement',
+    'its reviser runs before `prd-hardened`', 'run.log FAIL line', '`<!-- hx-gauntlet -->`', 'With `gauntlet: false` there is no check'])
+    assert.ok(entry.includes(s), s);
+});
