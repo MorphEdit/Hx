@@ -198,11 +198,31 @@ or cost win never makes a FAIL pass.
 <!-- project-bench:start -->
 | Arm | n | Hidden passed | Fuzz divergences | Fuzz classes | Blind review | Coverage lines/branches | Wall time | Tokens | Cost | Sessions | Issues closed/filed | Audit FAILs | Gate reds | Escaped defects | Capped |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| chat | 1 (single run, supports no claim) | 149/149 | – | – | – | n/a | 56.7 min | 0.77M | $1.06 | 1 (chat 1) | 0/0 | – | – | 0 | no |
-| hx3 | 1 (single run, supports no claim) | 149/149 | – | – | – | n/a | 122.0 min | 4.04M | $6.38 | 19 (critic 2, revise 2, decompose 1, impl 6, audit 6, review 1, security 1) | 5/5 | 1 | 0 | 0 | no |
-
-- Config not recorded: project-chat, project-hx3.
+| chat | 5 | 149/149 | 46 (28–62) | 6 (5–6) | 7.9 (7.7–8.1) | 98% (97%–99%)/45% (41%–48%) | 3.2 min (2.6 min–3.5 min) | 0.68M (0.62M–0.78M) | $1.82 ($1.60–$1.99) | 1 (chat 1) | 0/0 | – | – | 0 | 0 |
+| hx3 | 5 | 149/149 | 64 (56–64) | 7 (5–7) | 7.5 (7.5–7.9) | 99% (99%–100%)/49% (44%–91%) | 26.3 min (23.3 min–28.3 min) | 4.32M (3.83M–5.14M) | $7.59 ($6.82–$7.86) | 19 (17–22) (critic 2, revise 2, decompose 1, impl 6, audit 6, review 1, security 1) | 5 (5–6)/5 (5–6) | 1 (0–2) | 0 | 0 | 0 |
 <!-- project-bench:end -->
+
+**Five runs per arm, 2026-11-08** (`claude-opus-5-5`, medium effort, both arms, Hx at 5f903ba, Claude Code
+2.1.314, the lean flags on both arms). The table's cost includes each run's half of its blind-review pair
+(about $1.10 a run).
+- **Correctness:** both arms passed all 149 hidden tests in every run, with no escaped defect.
+- **Fuzz:** neither arm is clean, and Hx is not better. The median is 6 root-cause classes for the single
+  session and 7 for hx3. Four classes appear in all 10 runs of both arms (CSV quoting, dash-led arguments
+  and a byte order mark changing the exit status, and unusual names and notes changing the log). A class
+  that every build shares may come from the brief rather than from either arm, so those four are worth a
+  look at the brief and the reference before they count against an arm.
+- **Blind review:** the judges scored the single session higher in all 5 pairs: 7.9 against 7.5 (median,
+  out of 10).
+- **Own-test coverage:** about the same. Lines 98% against 99%, branches 45% against 49%.
+- **Speed and cost:** the single session took a median 3.2 min and $0.68 before the review, and hx3 took
+  26.3 min and $6.53. That is 8 times the time and 10 times the cost. The single session was much faster
+  than in the first run (57 min); this benchmark does not show why.
+- **Load:** both arms ran at the same time on the same 12-CPU machine, with Hx's own runner paused.
+
+What this says: on a brief that fits one session, five runs agree with the first one. Hx costs about ten
+times as much and improves no quality measure; the blind judges preferred the single session every time.
+Hx's extra steps can only pay off on work that does not fit one session, which this benchmark does not
+have yet.
 
 **First run, 2026-11-06** (`claude-opus-5-5`, medium effort, both arms):
 - **Correctness:** both arms passed all 149 hidden tests, and neither had an escaped defect.
