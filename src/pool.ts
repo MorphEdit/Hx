@@ -25,7 +25,7 @@ import { checkGit, checkRelease, crashRollback, currentVersion, gateAtOld, hando
   updateSelfUpdate, watchEvent, watchGood, watchOpen, watchVerdict, writeSelfUpdate, type Check, type WatchEvent } from './selfupdate.ts';
 import { findingBody, parseFindings, readSelfReview, selfReviewDecision, SELFREVIEW_PROMISE, writeSelfReview } from './selfreview.ts';
 import { BAR_JUDGE_PROMISE, BAR_PROMISE, barCapComment, barLine, barMarker, barRound, barStatus, gapIssueBody, parseJudgeReply, pickMapping, readMapping, refDir, roundDir, writeMapping, type Side } from './bar.ts';
-import { parseQualityBar, singleChild, singleChildBody, singleChildLine } from './prd.ts';
+import { CRITERIA_FINDING, criteriaCheck, parseQualityBar, singleChild, singleChildBody, singleChildLine } from './prd.ts';
 import { cappedQuestion, cappedQuestionNote, IMPL_TOO_MANY_QUESTIONS, ownerAnswer, ownerAnswerNote, questionFromReply, TOO_MANY_QUESTIONS } from './question.ts';
 import { HELD_STATUS, heldComment, mergeFailure, readHeld, setHeld } from './held.ts';
 import { decideTarget, initialTarget, loadReading, mayClaim, startSampler, type LoadReading, type LoadSnapshot } from './load.ts';
@@ -1465,17 +1465,19 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
       await removeWorktree(p.root, wt.dir);
       let summary = `${fmt(sessionTokens)} tokens`;
       if (stopped(cr)) return handBack(cr, summary);
-      const v = auditVerdict(cr.done ? cr.last?.text ?? '' : '');
-      if (!v) return fail(cr, cr.done ? 'the critic gave no VERDICT line'
+      const cv = auditVerdict(cr.done ? cr.last?.text ?? '' : '');
+      if (!cv) return fail(cr, cr.done ? 'the critic gave no VERDICT line'
         : cr.stopReason === 'max-iterations' ? `no completion after ${cr.iterations} turns` : `agent error: ${cr.last?.error ?? 'unknown'}`, summary);
+      // the engine check: a PRD with no counted acceptance criteria fails the round whatever the critic said (PRD #436)
+      const before = await gh.issueBody(c.repo, n);
+      const v = criteriaCheck(before, cv);
       if (v.pass) {
         await gh.comment(c.repo, n, `${GAUNTLET_MARKER}\n**hx gauntlet round ${round}/${N}: PASS ✓**\n\n${v.findings}`).catch(() => {});
         await relabel(c.repo, n, [L.hardened], [L.working]);
         log(`gauntlet round ${round}/${N}: PASS ✓ — labelled ${L.hardened} (${summary})`, n);
         return { ...cr, done: true };
       }
-      log(`gauntlet round ${round}/${N}: FAIL ✗ — ${v.findings.split('\n')[0].slice(0, 140)}`, n);
-      const before = await gh.issueBody(c.repo, n);
+      log(`gauntlet round ${round}/${N}: FAIL ✗ — ${(v.engine ? CRITERIA_FINDING : v.findings.split('\n')[0]).slice(0, 140)}`, n);
       // keep the body as it was before the first revision, once
       if (!(await gh.commentBodies(c.repo, n, ctx.trusted)).some(firstLineIs(ORIGINAL_MARKER)))
         await gh.comment(c.repo, n, `${ORIGINAL_MARKER}\n${before}`);

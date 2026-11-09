@@ -1,7 +1,7 @@
 // The one-child path's pure parts (PRD #422, #425): the decision, the child's body, the log line, the config key.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { singleChild, singleChildBody, singleChildLine } from '../src/prd.ts';
+import { CRITERIA_FINDING, criteriaCheck, singleChild, singleChildBody, singleChildLine } from '../src/prd.ts';
 import { parseBlockedBy, parseParent, plan } from '../src/state.ts';
 import { DEFAULTS, singleChildError } from '../src/config.ts';
 
@@ -73,4 +73,16 @@ test('plan: the decompose action carries the PRD body; a PRD with a child gets n
   const p2 = plan([prd, kid], 'me/app', L, new Map());
   assert.ok(!p2.actions.some((a) => a.kind === 'decompose'), JSON.stringify(p2.actions));
   assert.equal(p2.prds[0].status, 'building');
+});
+
+test('criteriaCheck: no or empty criteria fail the round; the engine finding alone on PASS, last on FAIL (PRD #436)', () => {
+  assert.equal(CRITERIA_FINDING, '- The PRD has no "## Acceptance criteria" section with items — the one-child path and the review need testable criteria — hx engine check');
+  assert.equal(CRITERIA_FINDING.length, 137, 'not cut by the 140-character log line');
+  const pass = { pass: true, findings: '- none' };
+  const fail = { pass: false, findings: '- a\n- b' };
+  assert.deepEqual(criteriaCheck('## Problem\nslow\n', pass), { pass: false, findings: CRITERIA_FINDING, engine: true });
+  assert.deepEqual(criteriaCheck('## Acceptance criteria\n\n## Quality bar\n- x\n', { pass: true, findings: '(none given)' }), { pass: false, findings: CRITERIA_FINDING, engine: true });
+  assert.deepEqual(criteriaCheck('no section', fail), { pass: false, findings: `- a\n- b\n${CRITERIA_FINDING}`, engine: true });
+  assert.deepEqual(criteriaCheck(prdBody(1), pass), { ...pass, engine: false });
+  assert.deepEqual(criteriaCheck(prdBody(3), fail), { ...fail, engine: false });
 });

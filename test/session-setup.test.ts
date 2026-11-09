@@ -117,7 +117,7 @@ test('every session worktree is set up before its first turn: impl, audit, triag
   try {
     board([issue(10), issue(11, [L.bug], 'crashes TRIAGEREPRO'), issue(12, [L.prd])]);
     // only these three: the PRD's children are not built
-    const { rc, lines, prompts } = await run({ audit: true, gauntlet: true, worktreeSetup: OK }, undefined, [10, 11, 12]);
+    const { rc, lines, prompts } = await run({ audit: true, gauntlet: true, worktreeSetup: OK, singleChildMaxCriteria: 0 }, undefined, [10, 11, 12]); // decompose, not one child (PRD #436)
     assert.equal(rc, 0, lines.join('\n'));
     const ns = needs();
     assert.ok(ns.length > 0 && ns.every((x) => x.found), JSON.stringify(ns, null, 1));

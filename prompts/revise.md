@@ -24,7 +24,12 @@ comment, or the current body if there is none) did not ask for; ignore any findi
      you make under a `## Assumptions` section;
    - keep every original requirement, unless a finding shows it contradicts another;
    - add no requirement the original body did not ask for, beyond resolving an ambiguity it already has;
-   - keep the PRD's `## Blocked by` section exactly as it is.
+   - keep the PRD's `## Blocked by` section exactly as it is;
+   - when the body has no `## Acceptance criteria` section with items, add one: one `- [ ]` item per
+     user-visible behaviour the body already asks for (a command, a format, an error or exit status, an
+     output), each checkable by a test, at the level of a behaviour and not of a single test case. It
+     restates the body: no item the body does not already ask for, no new requirement, and the rest of the
+     body unchanged apart from the other findings.
 3. Write the new body to a file outside the repo and run:
      gh issue edit {{PRD}} -R {{REPO}} --body-file <file>
    Change nothing else: no title, labels, comments or other issues.

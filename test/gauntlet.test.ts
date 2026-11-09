@@ -1,5 +1,7 @@
 // The gauntlet end to end: real git (a local bare origin), fake gh and claude.
 //   critic FAIL → the reviser rewrites the PRD body → … → prd-hardened → decompose.
+// The fake reviser adds an acceptance-criteria section when the engine check asks for one, so these tests turn the
+// one-child path off (singleChildMaxCriteria 0) unless they are about it.
 import { E2E, pooled, sessionEnvs } from './isolate.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -22,6 +24,7 @@ mkdirSync(fakeDir);
 const { runPool } = await import('../src/pool.ts');
 const { DEFAULTS } = await import('../src/config.ts');
 const { readUsage } = await import('../src/usage.ts');
+const { CRITERIA_FINDING, countCriteria } = await import('../src/prd.ts');
 
 const L = DEFAULTS.labels;
 const git = (cwd: string, ...a: string[]) => execFileSync('git', a, { cwd, encoding: 'utf8', stdio: 'pipe' }).trim();
@@ -34,7 +37,7 @@ git(root, 'push', '-q', 'origin', 'HEAD:main');
 const stateDir = path.join(root, '.hx');
 mkdirSync(stateDir);
 const project = (extra = {}) => ({ root, stateDir, config: { ...DEFAULTS, repo: 'me/app', defaultBranch: 'main', worktreeRoot: path.join(tmp, 'wt'),
-  claudeBin: path.join(here, 'fakes', 'claude.mjs'), maxIterations: 3, pollSeconds: 1, audit: false, gate: false, ...extra } });
+  claudeBin: path.join(here, 'fakes', 'claude.mjs'), maxIterations: 3, pollSeconds: 1, audit: false, gate: false, singleChildMaxCriteria: 0, ...extra } });
 
 const board = (issues: any[]) => writeFileSync(stateFile, JSON.stringify({ comments: [], prs: [], issues }));
 const read = () => JSON.parse(readFileSync(stateFile, 'utf8'));
@@ -148,4 +151,76 @@ test('hx init creates prd-hardened; hx status prints the gauntlet status', E2E, 
   const st = hx('status');
   assert.equal(st.status, 0, st.stdout + st.stderr);
   assert.match(st.stdout, /PRD #6\s+gauntlet\s+feature 6/);
+});
+
+// the engine check (PRD #436): a PRD with no counted acceptance criteria fails the round whatever the critic said
+const PASSING = '<!-- fake-revised -->'; // the fake critic passes a body that holds the fake reviser's marker
+const failLines = (lines: string[], n: number) => lines.filter((l) => l.includes(`[#${n}] gauntlet round`) && / FAIL /.test(l))
+  .map((l) => l.slice(l.indexOf('gauntlet round')));
+
+test('engine check: no criteria section and a critic PASS → FAIL, the reviser gets the engine finding alone and adds the section', E2E, async () => {
+  board([prd(7, `Make search fast.\n${PASSING}\n`)]);
+  const { rc, lines } = await run([7], { singleChildMaxCriteria: 15 });
+  assert.equal(rc, 0, lines.join('\n'));
+  const g = marked(7, '<!-- hx-gauntlet -->');
+  assert.equal(g.length, 2);
+  assert.equal(g[0].body, `<!-- hx-gauntlet -->\n**hx gauntlet round 1/2: FAIL ✗ → revised**\n\n${CRITERIA_FINDING}`, 'the critic\'s "none" is dropped');
+  assert.match(g[1].body, /^<!-- hx-gauntlet -->\n\*\*hx gauntlet round 2\/2: PASS ✓\*\*/);
+  assert.deepEqual(failLines(lines, 7), [`gauntlet round 1/2: FAIL ✗ — ${CRITERIA_FINDING}`]);
+  const p = read().issues.find((i: any) => i.number === 7);
+  assert.equal(countCriteria(p.body), 1, 'the reviser added the section');
+  assert.ok(p.labels.includes(L.hardened));
+  assert.equal(marked(7, '<!-- hx-prd-original -->').length, 1);
+  assert.equal(kids(7).length, 1, 'the one-child path applies to the hand-written PRD');
+  assert.match(kids(7)[0].body, /## Acceptance criteria\n- \[ \] search answers under 1s/);
+});
+
+test('engine check: an empty criteria section is treated the same way', E2E, async () => {
+  board([prd(8, `Make search fast.\n\n## Acceptance criteria\n\nto do\n\n## Notes\n- keep it\n${PASSING}\n`)]);
+  const { rc, lines } = await run([8]);
+  assert.equal(rc, 0, lines.join('\n'));
+  const g = marked(8, '<!-- hx-gauntlet -->');
+  assert.equal(g.length, 2);
+  assert.equal(g[0].body, `<!-- hx-gauntlet -->\n**hx gauntlet round 1/2: FAIL ✗ → revised**\n\n${CRITERIA_FINDING}`);
+  assert.match(g[1].body, /round 2\/2: PASS ✓/);
+  assert.deepEqual(failLines(lines, 8), [`gauntlet round 1/2: FAIL ✗ — ${CRITERIA_FINDING}`]);
+  assert.equal(countCriteria(read().issues.find((i: any) => i.number === 8).body), 1);
+});
+
+test('engine check: a counted criteria section and a critic PASS → prd-hardened, no reviser session', E2E, async () => {
+  board([prd(9, `Make search fast.\n\n## Acceptance criteria\n- [ ] answers under 1s\n${PASSING}\n`)]);
+  const { rc, lines } = await run([9]);
+  assert.equal(rc, 0, lines.join('\n'));
+  const g = marked(9, '<!-- hx-gauntlet -->');
+  assert.equal(g.length, 1);
+  assert.match(g[0].body, /round 1\/2: PASS ✓\*\*\n\n- none$/);
+  assert.ok(read().issues.find((i: any) => i.number === 9).labels.includes(L.hardened));
+  assert.equal(marked(9, '<!-- hx-prd-original -->').length, 0);
+  assert.ok(!readUsage(stateDir).some((r) => r.issue === 9 && r.role === 'revise'), 'no reviser');
+  assert.deepEqual(failLines(lines, 9), []);
+});
+
+test('engine check on the last round: a critic FAIL gets the engine finding last, the reviser runs before prd-hardened', E2E, async () => {
+  board([prd(10, 'Make search fast.\n')]);
+  const { rc, lines } = await run([10], { gauntletRounds: 1 });
+  assert.equal(rc, 0, lines.join('\n'));
+  const g = marked(10, '<!-- hx-gauntlet -->');
+  assert.equal(g.length, 1);
+  assert.equal(g[0].body, `<!-- hx-gauntlet -->\n**hx gauntlet round 1/1: FAIL ✗ → revised**\n\n- PRD #10 says "fast" — two readings — body line 1\n${CRITERIA_FINDING}`);
+  assert.deepEqual(failLines(lines, 10), [`gauntlet round 1/1: FAIL ✗ — ${CRITERIA_FINDING}`]);
+  assert.ok(lines.some((l) => /\[#10\] gauntlet round 1\/1 done — round cap reached, labelled prd-hardened/.test(l)), lines.join('\n'));
+  const p = read().issues.find((i: any) => i.number === 10);
+  assert.equal(countCriteria(p.body), 1, 'the section is there before decompose');
+  assert.ok(p.labels.includes(L.hardened));
+  assert.ok(readUsage(stateDir).some((r) => r.issue === 10 && r.role === 'revise'));
+  assert.equal(kids(10).length, 2, 'decomposed');
+});
+
+test('engine check: gauntlet false — no check, a PRD with no criteria is decomposed as today', E2E, async () => {
+  board([prd(11, 'Make search fast.\n')]);
+  const { rc } = await run([11], { gauntlet: false, singleChildMaxCriteria: 15 });
+  assert.equal(rc, 0);
+  assert.equal(marked(11, '<!-- hx-gauntlet -->').length, 0);
+  assert.equal(countCriteria(read().issues.find((i: any) => i.number === 11).body), 0);
+  assert.equal(kids(11).length, 2, 'decomposed');
 });

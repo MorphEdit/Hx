@@ -62,6 +62,17 @@ export function countCriteria(body: string): number {
   return indents.filter((n) => n === top).length;
 }
 
+/** The gauntlet's engine finding (PRD #436): the one fixed line a round adds when the PRD has no counted criteria. */
+export const CRITERIA_FINDING = '- The PRD has no "## Acceptance criteria" section with items — the one-child path and the review need testable criteria — hx engine check';
+
+/** A gauntlet round's verdict after the engine check (PRD #436). When `countCriteria(body)` is 0 the round is a FAIL
+ *  (`engine` true): on a critic PASS its findings are the engine finding alone, on a critic FAIL the critic's then the
+ *  engine finding. Otherwise the critic's verdict as it is. */
+export function criteriaCheck(body: string, v: { pass: boolean; findings: string }): { pass: boolean; findings: string; engine: boolean } {
+  if (countCriteria(body) > 0) return { ...v, engine: false };
+  return { pass: false, findings: v.pass ? CRITERIA_FINDING : `${v.findings}\n${CRITERIA_FINDING}`, engine: true };
+}
+
 /** Why the engine files one child for a PRD instead of starting a decompose session (PRD #422), or null to decompose.
  *  The first rule that applies decides: `max` 0 (off) → null; no criteria → null; a pool of one (`workers` 1, autoWorkers
  *  off) → 'pool'; at most `max` criteria → 'count'; else null. `workers` and `auto` are the run's (`--workers`, HX_AUTO_WORKERS). */
