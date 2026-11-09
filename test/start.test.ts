@@ -135,6 +135,18 @@ test('hx start without an idea on an empty board asks what to build; no answer o
   assert.equal(r.board().issues.length, 1);
 });
 
+test('hx start "idea": grill writes no PRD (Direct accepted) → exit 1 at the PRD step, nothing filed, no plan, no run', E2E, () => {
+  const r = repo({ config: true });
+  const p = hx(r, ['start', 'fix one typo', '--yes'], '', { FAKE_GRILL_NOWRITE: '1' });
+  assert.equal(p.code, 1, p.out);
+  assert.match(p.out, /init: already done/);
+  assert.match(p.out, /PRD: grilling the idea/);
+  assert.match(p.out, /no PRD written — nothing filed/);
+  assert.doesNotMatch(p.out, /plan:|Start d+ worker|run: hx run|skills: /);
+  assert.equal(r.board().issues.length, 0);
+  assert.ok(!existsSync(path.join(r.root, '.hx', 'live.json')), 'no run, no session');
+});
+
 test('hx help lists start', E2E, () => {
   const p = spawnSync(process.execPath, [HX, 'help'], { encoding: 'utf8' });
   assert.match(p.stdout, /^\s+start \[/m);

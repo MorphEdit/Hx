@@ -5,6 +5,7 @@ import type { Config } from './config.ts';
 import { render } from './state.ts';
 import { ISSUE_SCRIPT } from './pool.ts';
 import { claude } from './agents/claude.ts';
+import { tierTable } from './tiers.ts';
 
 const PROMPTS = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'prompts');
 
@@ -50,7 +51,7 @@ export interface GrillVars {
 /** An interactive session's prompt (`grill` or `issue`): the rendered prompts/<name>.md inline, or — when too long — a pointer to it written to promptFile. */
 export function sessionPrompt(name: 'grill' | 'issue', vars: GrillVars, promptFile: string): string {
   const text = render(readFileSync(path.join(PROMPTS, `${name}.md`), 'utf8'),
-    { REPO: vars.repo, BASE: vars.base, IDEA: vars.idea, OUTPUT: vars.output, ISSUE_SCRIPT });
+    { REPO: vars.repo, BASE: vars.base, IDEA: vars.idea, OUTPUT: vars.output, ISSUE_SCRIPT, TIERS: tierTable() });
   if (text.length <= INLINE_PROMPT_MAX) return text;
   mkdirSync(path.dirname(promptFile), { recursive: true });
   writeFileSync(promptFile, text);

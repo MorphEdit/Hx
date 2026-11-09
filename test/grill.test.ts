@@ -5,6 +5,8 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { DEFAULTS, workerArgs } from '../src/config.ts';
 import { grillArgs, grillPaths, grillPrompt, ideaFrom, INLINE_PROMPT_MAX, issuePaths, sessionPrompt } from '../src/grill.ts';
+import { tierNumberRegex, tierTable } from '../src/tiers.ts';
+import { docsText } from './docs-text.ts';
 
 const tmp = () => mkdtempSync(path.join(tmpdir(), 'hx-grill-'));
 
@@ -109,4 +111,73 @@ test('prompts/issue.md: placeholders, shape, one question at a time, issue scrip
   assert.match(t, /bigger than one issue[\s\S]*hx grill/);
   assert.match(t, /never edit any file other\s+than `\{\{OUTPUT\}\}`/);
   for (const s of ['# <title>', '## What to do', '## Acceptance criteria', '## Edge cases', '## Blocked by']) assert.ok(t.includes(s), s);
+});
+
+// The tier check (#426, PRD #422): after the interview, before the PRD is written; Direct writes no PRD.
+const grillMd = () => readFileSync(new URL('../prompts/grill.md', import.meta.url), 'utf8');
+
+test('sessionPrompt grill: the rendered prompt holds tierTable(), inline and through the prompt file', () => {
+  const dir = tmp();
+  const promptFile = path.join(dir, 'prds', 'x.prompt.md');
+  const out = sessionPrompt('grill', { repo: 'me/app', base: 'main', idea: 'add dark mode', output: 'o.md' }, promptFile);
+  assert.ok(out.includes(tierTable()), 'inline');
+  assert.ok(!out.includes('{{TIERS}}'));
+  assert.ok(!existsSync(promptFile));
+  const long = sessionPrompt('grill', { repo: 'me/app', base: 'main', idea: 'x. '.repeat(3000), output: 'o.md' }, promptFile);
+  assert.match(long, /^Role: grill\nRead .+ first/);
+  assert.ok(readFileSync(promptFile, 'utf8').includes(tierTable()), 'prompt file');
+});
+
+test('prompts/grill.md: {{TIERS}} and no tier number of its own', () => {
+  const t = grillMd();
+  assert.ok(t.includes('{{TIERS}}'));
+  const rest = t.replaceAll('{{TIERS}}', '');
+  assert.equal(rest.match(new RegExp(tierNumberRegex().source, 'g')), null, 'a tier number outside {{TIERS}}');
+  // the check itself catches one
+  assert.match(rest + ' about 45 min', tierNumberRegex());
+});
+
+test('prompts/grill.md: the tier step comes after the interview and before "Write the PRD", and covers the check', () => {
+  const t = grillMd();
+  const interview = t.indexOf('4. Challenge vague answers');
+  const tiers = t.indexOf('{{TIERS}}');
+  const write = t.indexOf('Write the PRD to `{{OUTPUT}}`');
+  assert.ok(interview >= 0 && tiers > interview && write > tiers, `${interview} < ${tiers} < ${write}`);
+  const step = t.slice(t.lastIndexOf('\n', tiers - 2), write);
+  assert.match(step, /tier, the reason, and a rough estimate for both the\s+direct path and the fleet, in minutes and dollars/);
+  assert.match(step, /estimates are rough/);
+  assert.match(step, /no data for this kind of work, say the estimate is\s+a guess and still offer the choice/);
+  assert.match(step, /follow an override in either direction/);
+  assert.match(step, /will not be around \(an unattended request\), do not offer Direct: the choice is between\s+One child and Fleet/);
+  assert.match(step, /Direct accepted: write nothing to `\{\{OUTPUT\}\}`/);
+  assert.match(step, /fits one session[\s\S]*ordinary Claude Code session[\s\S]*hx skill[\s\S]*`\/exit`/);
+  assert.match(step, /One child or Fleet accepted, or Direct overridden: go on to step 6/);
+  for (const k of ['singleChildMaxCriteria', 'workers', 'autoWorkers']) assert.ok(step.includes(`\`${k}\``), k);
+  assert.match(step, /do not change them/);
+  assert.match(t, /\n6\. Write the PRD to/);
+  assert.match(t, /\n7\. Show the user the finished PRD/);
+});
+
+test('prompts/grill.md: the Rules line is word for word what it was', () => {
+  assert.ok(grillMd().replace(/\r\n/g, '\n').endsWith(
+    'Rules: never create issues, comment on GitHub, commit or push, and never edit any file other than\n'
+    + '`{{OUTPUT}}` — hx files the PRD, not you.\n'));
+});
+
+test('prompts/issue.md: no tier check — no {{TIERS}}, and the issue session\'s prompt holds no tier table', () => {
+  const t = readFileSync(new URL('../prompts/issue.md', import.meta.url), 'utf8');
+  assert.ok(!t.includes('{{TIERS}}'));
+  const dir = tmp();
+  const promptFile = path.join(dir, 'issues', 'x.prompt.md');
+  const out = sessionPrompt('issue', { repo: 'me/app', base: 'main', idea: 'fix it', output: 'o.md' }, promptFile);
+  assert.ok(!out.includes(tierTable()) && !out.includes('| **Direct** |'));
+  const long = sessionPrompt('issue', { repo: 'me/app', base: 'main', idea: 'x. '.repeat(3000), output: 'o.md' }, promptFile);
+  assert.match(long, /^Role: issue\nRead .+ first/);
+  assert.ok(!readFileSync(promptFile, 'utf8').includes(tierTable()));
+});
+
+test('docs: hx grill\'s tier check and what Direct does to hx grill and hx start', () => {
+  const d = docsText();
+  assert.match(d, /hx grill "dark mode"[\s\S]*?checks the tier[\s\S]*?Direct accepted: no PRD is written[\s\S]*?no PRD written — nothing filed" and exits 1/);
+  assert.match(d, /grill session checks the tier first[\s\S]*?accept Direct it writes no PRD,\s+and `hx start` stops here with exit 1/);
 });

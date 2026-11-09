@@ -83,6 +83,8 @@ run: hx run --watch --workers 2
 2. **init** — runs `hx init` when `.hx/config.json` is missing (`init: already done` otherwise).
 3. **PRD** — an idea (text or a `.md` file) is always grilled into a PRD. Without one, an open PRD or ready
    issue on the board counts as done; else it asks `What should hx build?`.
+   The grill session checks the tier first (see `hx grill` under Usage): when you accept Direct it writes no PRD,
+   and `hx start` stops here with exit 1 (`no PRD written — nothing filed`): no plan, no workers.
 4. **plan** — the `hx run --dry-run` output, then `Start N worker(s) now? [Y/n]` (`--workers N`, default
    `workers` from the config). `n` stops here: run `hx run --watch` when you are ready.
 5. **run** — `hx run --watch`.
@@ -118,6 +120,13 @@ hx prd feature.md       # file a PRD issue (title from the file's first "# " lin
                         # criteria (Direct tier: at most 8) — this work may fit one session" and still files
 hx grill "dark mode"    # an interactive claude session interviews you into a PRD (idea: text or a .md file),
                         # shows it and files it on confirm (--yes: no question); kept in .hx/prds/
+                        # after the interview and before the PRD it checks the tier (the Tiers table from
+                        # src/tiers.ts): it names Direct, One child or Fleet, why, and a rough time and cost
+                        # for the direct path and the fleet; you decide, either way (no Direct when you will
+                        # not be around). Direct accepted: no PRD is written; make the change in an ordinary
+                        # Claude Code session (the hx skill's Direct path), and hx grill prints
+                        # "no PRD written — nothing filed" and exits 1. One child or Fleet: the PRD as usual;
+                        # hx decides between them (singleChildMaxCriteria, workers, autoWorkers)
 hx issue "fix typo"     # a shorter session grills one small task into one issue, filed ready-for-agent on
                         # confirm (--bug: label bug, triaged first; --yes; --title T); kept in .hx/issues/
 hx issue --file x.md    # file an issue file the same way, without a session (--bug, --title T)
