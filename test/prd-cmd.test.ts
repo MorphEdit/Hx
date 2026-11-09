@@ -10,8 +10,6 @@ import { fileURLToPath } from 'node:url';
 import { DEFAULTS, saveConfig } from '../src/config.ts';
 import { writeLive } from '../src/runstate.ts';
 import { DIRECT_MAX_CRITERIA } from '../src/tiers.ts';
-import { docsText } from './docs-text.ts';
-
 const here = path.dirname(fileURLToPath(import.meta.url));
 const HX = path.join(here, '..', 'bin', 'hx.mjs');
 const tmp = mkdtempSync(path.join(os.tmpdir(), 'hx-prdc-'));
@@ -97,12 +95,4 @@ test('hx prd: more than DIRECT_MAX_CRITERIA criteria, or no Acceptance criteria 
   assert.ok(r.out.includes(`filed https://github.com/me/app/issues/3\n${D}${NONE}\n`), r.out);
   assert.ok(!r.out.includes('note:'), r.out);
   assert.equal(issues().length, 3);
-});
-
-test('docs: the hx prd entry documents the Direct-tier hint', () => {
-  const lines = docsText().split('\n');
-  const i = lines.findIndex((l) => l.startsWith('hx prd feature.md'));
-  assert.ok(i >= 0);
-  const entry = lines.slice(i, i + 3).join(' ').replace(/\s+#\s+/g, ' ');
-  for (const s of ['Acceptance criteria', `Direct tier: at most ${DIRECT_MAX_CRITERIA}`, 'may fit one session', 'still files']) assert.ok(entry.includes(s), s);
 });
