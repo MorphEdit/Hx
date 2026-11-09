@@ -224,6 +224,35 @@ times as much and improves no quality measure; the blind judges preferred the si
 Hx's extra steps can only pay off on work that does not fit one session, which this benchmark does not
 have yet.
 
+**Experiment: one child up to 30 criteria, 2026-11-09/10** (same model, effort and Claude Code as the five
+runs above; Hx at 0b9d8cf, with the gauntlet's acceptance-criteria check of #437, and the bench's
+`--config singleChildMaxCriteria=30`). Results are in `bench/results/experiments/criteria30/project/`, out of
+the table above and of `--all`. Each run was reviewed against the `chat` run of the same i from 2026-11-08.
+
+```bash
+node bench/project.mjs hx3 --runs 5 --config singleChildMaxCriteria=30
+node bench/shiprule.mjs --baseline 'bench/results/project/hx3-202611081012-*.json' --change 'bench/results/experiments/criteria30/project/hx3-*.json'
+```
+
+- **Why 30:** the gauntlet now gives the brief an `## Acceptance criteria` section, but the reviser derived
+  23 behaviours from it, above the default threshold of 15. One run at 15
+  (`bench/results/experiments/criteria15/project/`) still decomposed into 5 issues, so the experiment raised
+  the threshold to see what one child does on this brief.
+- **The path:** all 5 runs took the one-child path: no decompose session, 2 issues (the PRD and its child),
+  9 or 10 sessions instead of a median 19. Three of the five children needed a second implementer round
+  after the audit.
+- **Ship rule: FAIL**, on one check only. Hidden tests 149 → 149, fuzz classes (median) 7 → 6, blind
+  review 7.60 → 7.66, escaped defects 0 → 0, all PASS. Check 4 FAILs: one fuzz class, `plain / exit status`,
+  appears in run 2 (2 of 1000 cases) and in no baseline run. In both cases `tally start` gets no project
+  and the log has a wrong line: the reference reports the usage error (exit 1), run 2 reads the log first
+  and reports the log error (exit 2). The brief does not say which error wins, so the class is a gap in the
+  brief as much as in the build, but the rule counts it.
+- **Speed and cost (information only):** median wall time 26.3 → 16.3 min, cost with review halves $7.59 →
+  $4.25, tokens 4.32M → 1.97M.
+
+What this says: on this brief one child keeps the quality of the full fleet at a little over half the cost
+and about 60% of the time, but by the ship rule it is not yet shown to be no worse. The default stays 15.
+
 **First run, 2026-11-06** (`claude-opus-5-5`, medium effort, both arms):
 - **Correctness:** both arms passed all 149 hidden tests, and neither had an escaped defect.
 - **Speed and cost:** the single session was about twice as fast and six times cheaper. The brief fits in
