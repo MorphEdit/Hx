@@ -7,6 +7,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DEFAULTS } from '../src/config.ts';
 import { docsText } from './docs-text.ts';
+import { DIRECT_MAX_CRITERIA } from '../src/tiers.ts';
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const read = (f: string) => (f === 'README.md' ? docsText() : readFileSync(path.join(root, f), 'utf8'));
@@ -603,4 +604,12 @@ test('docs/benchmark.md: Test suite speed has #369\'s rows after #354\'s: a run,
   // appended to each table right after #354's rows
   const lines = sec.split('\n');
   for (const l of mine) assert.ok(lines[lines.indexOf(l) - 1].startsWith('| #354 |') || mine.includes(lines[lines.indexOf(l) - 1]), l);
+});
+
+test('docs: the hx prd entry documents the Direct-tier hint (#423)', () => {
+  const lines = docsText().split('\n');
+  const i = lines.findIndex((l) => l.startsWith('hx prd feature.md'));
+  assert.ok(i >= 0);
+  const entry = lines.slice(i, i + 3).join(' ').replace(/\s+#\s+/g, ' ');
+  for (const s of ['Acceptance criteria', `Direct tier: at most ${DIRECT_MAX_CRITERIA}`, 'may fit one session', 'still files']) assert.ok(entry.includes(s), s);
 });

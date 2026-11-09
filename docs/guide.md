@@ -113,7 +113,9 @@ hx init                 # writes .hx/config.json and creates the GitHub labels; 
                         # when .env is git-ignored; no .gitattributes: offers one with
                         # "* text=auto eol=lf" (--yes adds it)
 hx bug "status hangs"   # file a bug issue (label bug, text or a .md file; --title T); hx run triages it
-hx prd feature.md       # file a PRD issue (title from the file's first "# " line)
+hx prd feature.md       # file a PRD issue (title from the file's first "# " line); with 1 to 8 items under
+                        # "## Acceptance criteria" it then prints the Direct-tier hint "note: N acceptance
+                        # criteria (Direct tier: at most 8) — this work may fit one session" and still files
 hx grill "dark mode"    # an interactive claude session interviews you into a PRD (idea: text or a .md file),
                         # shows it and files it on confirm (--yes: no question); kept in .hx/prds/
 hx issue "fix typo"     # a shorter session grills one small task into one issue, filed ready-for-agent on

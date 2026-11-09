@@ -46,3 +46,18 @@ export function parseQualityBar(body: string): QualityBar | null {
   const dimensions = judged < 0 ? [] : lines.slice(judged + 1).filter((l) => l.startsWith('- ')).map((l) => l.slice(2).trim()).filter(Boolean);
   return { product: beat?.[1] ?? '', url: beat?.[2] ?? '', dimensions };
 }
+
+/** The number of items in a PRD's `## Acceptance criteria` list (up to the next `## ` heading), 0 when there is
+ *  none. An item is a list line (`- `, `* `, `- [ ] `, `1. `, `1) `) at the smallest indentation of the section's
+ *  list lines; deeper bullets and continuation lines belong to their item. */
+export function countCriteria(body: string): number {
+  const h = /^##[ \t]+Acceptance criteria[ \t]*$/im.exec(body ?? '');
+  if (!h) return 0;
+  let section = body.slice(h.index + h[0].length);
+  const next = /^##[ \t]+/m.exec(section);
+  if (next) section = section.slice(0, next.index);
+  const indents = section.split(/\r?\n/).map((l) => /^([ \t]*)(?:[-*]|\d+[.)])[ \t]+\S/.exec(l)?.[1].length).filter((n) => n !== undefined);
+  if (!indents.length) return 0;
+  const top = Math.min(...indents);
+  return indents.filter((n) => n === top).length;
+}
