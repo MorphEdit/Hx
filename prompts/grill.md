@@ -20,7 +20,24 @@ The idea:
    - constraints from the existing code.
 4. Challenge vague answers instead of accepting them ("faster" — than what, measured how?). Stop when
    nothing material is open; do not ask about details an implementer can decide.
-5. Write the PRD to `{{OUTPUT}}` in this shape:
+5. Before writing anything, check the tier. The tiers:
+
+{{TIERS}}
+
+   - Pick one tier for this work and tell the user the tier, the reason, and a rough estimate for both the
+     direct path and the fleet, in minutes and dollars: the table's benchmark figures scaled by the size of
+     this work. Say the estimates are rough. When there is no data for this kind of work, say the estimate is
+     a guess and still offer the choice.
+   - Let the user decide, and follow an override in either direction.
+   - When the user will not be around (an unattended request), do not offer Direct: the choice is between
+     One child and Fleet.
+   - Direct accepted: write nothing to `{{OUTPUT}}`. Tell the user the work fits one session and that they
+     can make the change in an ordinary Claude Code session (for example with the hx skill, whose Direct path
+     does it), then tell them to exit the session (`/exit`). Stop here.
+   - One child or Fleet accepted, or Direct overridden: go on to step 6. Once the PRD is filed, hx itself
+     decides One child versus Fleet. When the user wants the other one, name the settings that decide it
+     (`singleChildMaxCriteria`, `workers`, `autoWorkers` in `.hx/config.json`) and do not change them.
+6. Write the PRD to `{{OUTPUT}}` in this shape:
      # <title>
      ## Goals
      ## Non-goals
@@ -28,7 +45,7 @@ The idea:
      ## Acceptance criteria
      ## Edge cases
      ## Notes for implementers
-6. Show the user the finished PRD, then tell them to exit the session (`/exit`) so hx can file it.
+7. Show the user the finished PRD, then tell them to exit the session (`/exit`) so hx can file it.
 
 Rules: never create issues, comment on GitHub, commit or push, and never edit any file other than
 `{{OUTPUT}}` — hx files the PRD, not you.
