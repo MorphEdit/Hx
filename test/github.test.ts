@@ -11,7 +11,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const board = path.join(mkdtempSync(path.join(os.tmpdir(), 'hx-gh-')), 'board.json');
 process.env.HX_GH_BIN = path.join(here, 'fakes', 'gh.mjs');
 process.env.HX_FAKE_STATE = board;
-const { openPrFor, hasAnyPrFor, closeIssue } = await import('../src/github.ts');
+const { openPrFor, hasAnyPrFor, closeIssue, listOpenPrNumbers, prFiles } = await import('../src/github.ts');
 
 const prs = (list: any[]) => writeFileSync(board, JSON.stringify({ comments: [], issues: [], prs: list }));
 
@@ -43,4 +43,19 @@ test('closeIssue: the comment is optional (a size split closes not planned witho
   const s = JSON.parse(readFileSync(board, 'utf8'));
   assert.deepEqual(s.issues.map((i: any) => [i.number, i.state, i.stateReason]), [[7, 'CLOSED', 'NOT_PLANNED'], [8, 'CLOSED', 'COMPLETED']]);
   assert.deepEqual(s.comments.map((c: any) => [c.issue, c.body]), [[8, 'done here']], 'no empty comment on #7');
+});
+
+test('listOpenPrNumbers: every open PR whatever its head (issue/<N>, hx/*, a person\'s branch, a fork); not merged or closed', E2E, async () => {
+  prs([{ number: 1, head: 'issue/7', state: 'OPEN' }, { number: 2, head: 'hx/prd-3', state: 'OPEN' }, { number: 3, head: 'feature/x', state: 'OPEN' },
+    { number: 4, head: 'patch-1', state: 'OPEN', fork: true }, { number: 5, head: 'issue/8', state: 'MERGED' }, { number: 6, head: 'y', state: 'CLOSED' }]);
+  assert.deepEqual(await listOpenPrNumbers('me/app'), [1, 2, 3, 4]);
+  prs([]);
+  assert.deepEqual(await listOpenPrNumbers('me/app'), []);
+});
+
+test('prFiles: the paths gh pr diff --name-only lists; a failure throws', E2E, async () => {
+  prs([{ number: 9, head: 'feature/x', state: 'OPEN', files: ['src/a.ts', 'docs/guide.md'] }, { number: 10, head: 'z', state: 'OPEN' }]);
+  assert.deepEqual(await prFiles('me/app', 9), ['src/a.ts', 'docs/guide.md']);
+  assert.deepEqual(await prFiles('me/app', 10), []);
+  await assert.rejects(prFiles('me/app', 11), /pr diff 11 --name-only/);
 });

@@ -141,6 +141,7 @@ hx usage --compare "2026-11-04 09:00"   # the runs before and after a change, si
 hx dashboard [--open]   # a read-only page on http://127.0.0.1:4777/ (localhost only; --port N)
 hx dashboard --fleet [--open]   # one page over every hx repo on this machine (alias: hx fleet dashboard)
 hx fleet run --watch    # one hx run per repo in the fleet, sharing one worker cap (see Several repos)
+hx overlap src/a.ts     # the agent-working issues and open PRs touching these paths (see Checking for overlap)
 hx install-skill        # write the /hx Claude Code skill to ~/.claude/skills/hx/SKILL.md: ask Claude Code to build with hx
 hx update [--force]     # install the latest hx release, check it runs, run hx doctor
 hx --version            # the installed version
@@ -189,6 +190,33 @@ Each filing command ends with one line saying what happens next (after `It will 
 | running, paused or pausing | `hx run (pid N) is pausing — run  hx resume  to continue.` |
 | not running | `no hx run is running — start it with  hx run --watch` |
 | not running, paused | `no hx run is running and hx is paused — run  hx resume, then  hx run --watch` |
+
+## Checking for overlap (`hx overlap`)
+
+Before you change files by hand in a repo where hx is running (the hx skill's Direct path does this), ask
+whether a worker or another PR is already changing them:
+
+```bash
+hx overlap src/a.ts src/b.ts          # paths relative to the repo root; `git diff --name-only main` output fits
+```
+
+It checks two kinds of source, and changes nothing (no label, comment, PR or worktree is touched):
+
+- every open issue labelled `agent-working` (`labels.working`): the files of
+  `git diff --name-only origin/<defaultBranch>` in its impl worktree `<worktreeRoot>/i<N>`, committed and
+  uncommitted changes to tracked files alike (a new untracked file is not seen). It sees only worktrees on this
+  machine: an issue whose `i<N>` directory is not here touches no files (its open PR is still checked);
+- every open PR of the repo, whatever its head branch (hx's `issue/<N>`, `hx/*`, a person's branch, a fork):
+  the files of `gh pr diff <m> --name-only`.
+
+Paths are compared relative to the repo root, with `\` turned into `/` and a leading `./` dropped (an absolute
+path inside the repo is made relative); a path given twice is reported once. Output and exit codes:
+
+| Result | Output | Exit |
+|---|---|---|
+| overlap | one line per path, sorted by path: `src/a.ts: issue #7, PR #9, PR #12` (issues first, then PRs, each in ascending order) | exit code 1 |
+| none | `no overlap` | exit code 0 |
+| a `gh` or git failure, no path given, or no `.hx/config.json` | the error on stderr | exit code 2 |
 
 ## Dashboard
 
