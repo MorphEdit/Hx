@@ -69,7 +69,7 @@ export function parseJsonl(text) {
   return out;
 }
 
-export const USAGE = 'usage: node bench/project.mjs <chat|hx3> [--runs N] [--max-hours 4] [--max-usd 60]';
+export const USAGE = 'usage: node bench/project.mjs <chat|hx3> [--runs N] [--max-hours 4] [--max-usd 60] [--config key=value ...]';
 
 /** The CLI's arguments: `{ arm, runs, maxHours, maxUsd }`, or null for the usage line (an unknown arm, `--runs` not a
  *  positive integer, a cap not a positive number, a flag with no value). */
@@ -87,7 +87,17 @@ export function parseArgs(argv) {
   const maxHours = flag('--max-hours', 4, (v) => v > 0);
   const maxUsd = flag('--max-usd', 60, (v) => v > 0);
   if (runs === null || maxHours === null || maxUsd === null) return null;
-  return { arm, runs, maxHours, maxUsd };
+  // --config key=value (repeatable): overrides of the arm's .hx/config.json; the value is JSON when it parses, else a string
+  const config = {};
+  for (let i = 0; i < argv.length; i++) {
+    if (argv[i] !== '--config') continue;
+    const m = /^([A-Za-z_][\w]*)=(.*)$/.exec(argv[i + 1] ?? '');
+    if (!m) return null;
+    let v = m[2];
+    try { v = JSON.parse(v); } catch { /* a plain string */ }
+    config[m[1]] = v;
+  }
+  return Object.keys(config).length ? { arm, runs, maxHours, maxUsd, config } : { arm, runs, maxHours, maxUsd };
 }
 
 /** What the `chat` arm's one session is given: the default model and effort, and Hx's lean flags as `extraArgs`

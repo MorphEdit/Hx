@@ -198,11 +198,60 @@ or cost win never makes a FAIL pass.
 <!-- project-bench:start -->
 | Arm | n | Hidden passed | Fuzz divergences | Fuzz classes | Blind review | Coverage lines/branches | Wall time | Tokens | Cost | Sessions | Issues closed/filed | Audit FAILs | Gate reds | Escaped defects | Capped |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| chat | 1 (single run, supports no claim) | 149/149 | – | – | – | n/a | 56.7 min | 0.77M | $1.06 | 1 (chat 1) | 0/0 | – | – | 0 | no |
-| hx3 | 1 (single run, supports no claim) | 149/149 | – | – | – | n/a | 122.0 min | 4.04M | $6.38 | 19 (critic 2, revise 2, decompose 1, impl 6, audit 6, review 1, security 1) | 5/5 | 1 | 0 | 0 | no |
-
-- Config not recorded: project-chat, project-hx3.
+| chat | 5 | 149/149 | 46 (28–62) | 6 (5–6) | 7.9 (7.7–8.1) | 98% (97%–99%)/45% (41%–48%) | 3.2 min (2.6 min–3.5 min) | 0.68M (0.62M–0.78M) | $1.82 ($1.60–$1.99) | 1 (chat 1) | 0/0 | – | – | 0 | 0 |
+| hx3 | 5 | 149/149 | 64 (56–64) | 7 (5–7) | 7.5 (7.5–7.9) | 99% (99%–100%)/49% (44%–91%) | 26.3 min (23.3 min–28.3 min) | 4.32M (3.83M–5.14M) | $7.59 ($6.82–$7.86) | 19 (17–22) (critic 2, revise 2, decompose 1, impl 6, audit 6, review 1, security 1) | 5 (5–6)/5 (5–6) | 1 (0–2) | 0 | 0 | 0 |
 <!-- project-bench:end -->
+
+**Five runs per arm, 2026-11-08** (`claude-opus-5-5`, medium effort, both arms, Hx at 5f903ba, Claude Code
+2.1.314, the lean flags on both arms). The table's cost includes each run's half of its blind-review pair
+(about $1.10 a run).
+- **Correctness:** both arms passed all 149 hidden tests in every run, with no escaped defect.
+- **Fuzz:** neither arm is clean, and Hx is not better. The median is 6 root-cause classes for the single
+  session and 7 for hx3. Four classes appear in all 10 runs of both arms (CSV quoting, dash-led arguments
+  and a byte order mark changing the exit status, and unusual names and notes changing the log). A class
+  that every build shares may come from the brief rather than from either arm, so those four are worth a
+  look at the brief and the reference before they count against an arm.
+- **Blind review:** the judges scored the single session higher in all 5 pairs: 7.9 against 7.5 (median,
+  out of 10).
+- **Own-test coverage:** about the same. Lines 98% against 99%, branches 45% against 49%.
+- **Speed and cost:** the single session took a median 3.2 min and $0.68 before the review, and hx3 took
+  26.3 min and $6.53. That is 8 times the time and 10 times the cost. The single session was much faster
+  than in the first run (57 min); this benchmark does not show why.
+- **Load:** both arms ran at the same time on the same 12-CPU machine, with Hx's own runner paused.
+
+What this says: on a brief that fits one session, five runs agree with the first one. Hx costs about ten
+times as much and improves no quality measure; the blind judges preferred the single session every time.
+Hx's extra steps can only pay off on work that does not fit one session, which this benchmark does not
+have yet.
+
+**Experiment: one child up to 30 criteria, 2026-11-09/10** (same model, effort and Claude Code as the five
+runs above; Hx at 0b9d8cf, with the gauntlet's acceptance-criteria check of #437, and the bench's
+`--config singleChildMaxCriteria=30`). Results are in `bench/results/experiments/criteria30/project/`, out of
+the table above and of `--all`. Each run was reviewed against the `chat` run of the same i from 2026-11-08.
+
+```bash
+node bench/project.mjs hx3 --runs 5 --config singleChildMaxCriteria=30
+node bench/shiprule.mjs --baseline 'bench/results/project/hx3-202611081012-*.json' --change 'bench/results/experiments/criteria30/project/hx3-*.json'
+```
+
+- **Why 30:** the gauntlet now gives the brief an `## Acceptance criteria` section, but the reviser derived
+  23 behaviours from it, above the default threshold of 15. One run at 15
+  (`bench/results/experiments/criteria15/project/`) still decomposed into 5 issues, so the experiment raised
+  the threshold to see what one child does on this brief.
+- **The path:** all 5 runs took the one-child path: no decompose session, 2 issues (the PRD and its child),
+  9 or 10 sessions instead of a median 19. Three of the five children needed a second implementer round
+  after the audit.
+- **Ship rule: FAIL**, on one check only. Hidden tests 149 → 149, fuzz classes (median) 7 → 6, blind
+  review 7.60 → 7.66, escaped defects 0 → 0, all PASS. Check 4 FAILs: one fuzz class, `plain / exit status`,
+  appears in run 2 (2 of 1000 cases) and in no baseline run. In both cases `tally start` gets no project
+  and the log has a wrong line: the reference reports the usage error (exit 1), run 2 reads the log first
+  and reports the log error (exit 2). The brief does not say which error wins, so the class is a gap in the
+  brief as much as in the build, but the rule counts it.
+- **Speed and cost (information only):** median wall time 26.3 → 16.3 min, cost with review halves $7.59 →
+  $4.25, tokens 4.32M → 1.97M.
+
+What this says: on this brief one child keeps the quality of the full fleet at a little over half the cost
+and about 60% of the time, but by the ship rule it is not yet shown to be no worse. The default stays 15.
 
 **First run, 2026-11-06** (`claude-opus-5-5`, medium effort, both arms):
 - **Correctness:** both arms passed all 149 hidden tests, and neither had an escaped defect.

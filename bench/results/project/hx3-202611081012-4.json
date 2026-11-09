@@ -1,0 +1,2878 @@
+{
+  "arm": "hx3",
+  "run": 4,
+  "stamp": "202611081012",
+  "repo": "MorphEdit/hx-project-hx3-202611081012-4",
+  "model": "claude-opus-5-5",
+  "effort": "medium",
+  "startedAt": "2026-11-08T11:39:48.844Z",
+  "maxHours": 4,
+  "maxUsd": 60,
+  "passed": 149,
+  "failed": 0,
+  "total": 149,
+  "failures": [],
+  "wallMs": 1396478,
+  "tokens": {
+    "input": 268,
+    "cacheWrite": 379083,
+    "cacheRead": 2915082,
+    "output": 101762,
+    "total": 3396195
+  },
+  "costUsd": 5.656909499999999,
+  "sessions": {
+    "critic": 2,
+    "revise": 2,
+    "decompose": 1,
+    "impl": 5,
+    "audit": 5,
+    "review": 1,
+    "security": 1
+  },
+  "issuesFiled": 5,
+  "issuesClosed": 5,
+  "auditFails": 0,
+  "gateReds": 0,
+  "escapedDefects": 0,
+  "fuzz": {
+    "seed": 1107,
+    "count": 1000,
+    "genHash": "73c4dbb5a9e921b0177d3ce55f0223e93abb26601fe2b68107b1521e3d3501ff",
+    "timeLimitMs": 5000,
+    "divergences": 64,
+    "classes": {
+      "bad-now / exit status": 18,
+      "csv-quoting / exit status": 10,
+      "bom-utf8 / exit status": 20,
+      "dash-args / exit status": 5,
+      "line-endings / exit status": 4,
+      "bom-utf8 / log": 4,
+      "names-notes / log": 3
+    },
+    "excluded": {
+      "count": 0,
+      "examples": []
+    },
+    "examples": {
+      "bad-now / exit status": [
+        {
+          "case": {
+            "id": 1,
+            "feature": "bad-now",
+            "args": [
+              "add",
+              "delta",
+              "2024-02-28T23:45",
+              "2024-02-29T02:30",
+              "the",
+              "call"
+            ],
+            "log": {
+              "base64": "MjAyNC0wMi0yMFQxNjo0NSAyMDI0LTAyLTIwVDE5OjAwIHgxIGJ1ZyBzdGFuZHVwIHRlc3RzCjIwMjQtMDItMjBUMjE6MTUgMjAyNC0wMi0yMVQwMTowMCBnYW1tYSB0ZXN0cwoyMDI0LTAyLTIyVDE3OjMwIDIwMjQtMDItMjJUMjA6NDUgYmV0YSB0ZXN0cyBidWcKMjAyNC0wMi0yNVQyMzozMCAyMDI0LTAyLTI2VDAxOjE1IGdhbW1hIHRlYW0gY2FsbAo=",
+              "text": "2024-02-20T16:45 2024-02-20T19:00 x1 bug standup tests\n2024-02-20T21:15 2024-02-21T01:00 gamma tests\n2024-02-22T17:30 2024-02-22T20:45 beta tests bug\n2024-02-25T23:30 2024-02-26T01:15 gamma team call\n"
+            }
+          },
+          "env": {
+            "TALLY_NOW": "yesterday",
+            "TALLY_LOG": "tally.log",
+            "logExisted": true
+          },
+          "reference": {
+            "stdout": {
+              "base64": "YWRkZWQgZGVsdGEgMjAyNC0wMi0yOFQyMzo0NSB0byAyMDI0LTAyLTI5VDAyOjMwICgyOjQ1KQo=",
+              "text": "added delta 2024-02-28T23:45 to 2024-02-29T02:30 (2:45)\n"
+            },
+            "stderr": {
+              "base64": "",
+              "text": ""
+            },
+            "status": 0,
+            "signal": null,
+            "timedOut": false,
+            "log": {
+              "base64": "MjAyNC0wMi0yMFQxNjo0NSAyMDI0LTAyLTIwVDE5OjAwIHgxIGJ1ZyBzdGFuZHVwIHRlc3RzCjIwMjQtMDItMjBUMjE6MTUgMjAyNC0wMi0yMVQwMTowMCBnYW1tYSB0ZXN0cwoyMDI0LTAyLTIyVDE3OjMwIDIwMjQtMDItMjJUMjA6NDUgYmV0YSB0ZXN0cyBidWcKMjAyNC0wMi0yNVQyMzozMCAyMDI0LTAyLTI2VDAxOjE1IGdhbW1hIHRlYW0gY2FsbAoyMDI0LTAyLTI4VDIzOjQ1IDIwMjQtMDItMjlUMDI6MzAgZGVsdGEgdGhlIGNhbGwK",
+              "text": "2024-02-20T16:45 2024-02-20T19:00 x1 bug standup tests\n2024-02-20T21:15 2024-02-21T01:00 gamma tests\n2024-02-22T17:30 2024-02-22T20:45 beta tests bug\n2024-02-25T23:30 2024-02-26T01:15 gamma team call\n2024-02-28T23:45 2024-02-29T02:30 delta the call\n"
+            }
+          },
+          "arm": {
+            "stdout": {
+              "base64": "",
+              "text": ""
+            },
+            "stderr": {
+              "base64": "dGFsbHk6IGJhZCBUQUxMWV9OT1cgInllc3RlcmRheSIgKGV4cGVjdGVkIFlZWVktTU0tRERUSEg6TU0pCg==",
+              "text": "tally: bad TALLY_NOW \"yesterday\" (expected YYYY-MM-DDTHH:MM)\n"
+            },
+            "status": 1,
+            "signal": null,
+            "timedOut": false,
+            "log": {
+              "base64": "MjAyNC0wMi0yMFQxNjo0NSAyMDI0LTAyLTIwVDE5OjAwIHgxIGJ1ZyBzdGFuZHVwIHRlc3RzCjIwMjQtMDItMjBUMjE6MTUgMjAyNC0wMi0yMVQwMTowMCBnYW1tYSB0ZXN0cwoyMDI0LTAyLTIyVDE3OjMwIDIwMjQtMDItMjJUMjA6NDUgYmV0YSB0ZXN0cyBidWcKMjAyNC0wMi0yNVQyMzozMCAyMDI0LTAyLTI2VDAxOjE1IGdhbW1hIHRlYW0gY2FsbAo=",
+              "text": "2024-02-20T16:45 2024-02-20T19:00 x1 bug standup tests\n2024-02-20T21:15 2024-02-21T01:00 gamma tests\n2024-02-22T17:30 2024-02-22T20:45 beta tests bug\n2024-02-25T23:30 2024-02-26T01:15 gamma team call\n"
+            }
+          }
+        },
+        {
+          "case": {
+            "id": 80,
+            "feature": "bad-now",
+            "args": [
+              "add",
+              "acme",
+              "2024-04-02T22:30",
+              "2024-04-02T23:00"
+            ],
+            "log": {
+              "base64": "MjAyNC0wNC0wMlQxMTowMCAyMDI0LTA0LTAyVDE1OjAwIHpldGE5CjIwMjQtMDQtMDJUMTU6NDUgMjAyNC0wNC0wMlQxODoxNSBiZXRhIGRlcGxveSBmaXgKMjAyNC0wNC0wMlQwNzo0NSAyMDI0LTA0LTAyVDEwOjE1IGdhbW1hIHRlc3RzIHRlYW0gYnVnIHJldmlldwoyMDI0LTA0LTAyVDIwOjAwIDIwMjQtMDQtMDJUMjE6NDUgZ2FtbWEgY2FsbCBkb2NzCjIwMjQtMDMtMzBUMjE6MzAgMjAyNC0wMy0zMFQyMzo0NSB4MSBidWcKMjAyNC0wNC0wMlQyMzo0NSAyMDI0LTA0LTAzVDAxOjQ1IHpldGE5IHN0YW5kdXAgbG9naW4gbG9naW4gZG9jcwo=",
+              "text": "2024-04-02T11:00 2024-04-02T15:00 zeta9\n2024-04-02T15:45 2024-04-02T18:15 beta deploy fix\n2024-04-02T07:45 2024-04-02T10:15 gamma tests team bug review\n2024-04-02T20:00 2024-04-02T21:45 gamma call docs\n2024-03-30T21:30 2024-03-30T23:45 x1 bug\n2024-04-02T23:45 2024-04-03T01:45 zeta9 standup login login docs\n"
+            }
+          },
+          "env": {
+            "TALLY_NOW": "2024-04-00T09:00",
+            "TALLY_LOG": "tally.log",
+            "logExisted": true
+          },
+          "reference": {
+            "stdout": {
+              "base64": "YWRkZWQgYWNtZSAyMDI0LTA0LTAyVDIyOjMwIHRvIDIwMjQtMDQtMDJUMjM6MDAgKDA6MzApCg==",
+              "text": "added acme 2024-04-02T22:30 to 2024-04-02T23:00 (0:30)\n"
+            },
+            "stderr": {
+              "base64": "",
+              "text": ""
+            },
+            "status": 0,
+            "signal": null,
+            "timedOut": false,
+            "log": {
+              "base64": "MjAyNC0wNC0wMlQxMTowMCAyMDI0LTA0LTAyVDE1OjAwIHpldGE5CjIwMjQtMDQtMDJUMTU6NDUgMjAyNC0wNC0wMlQxODoxNSBiZXRhIGRlcGxveSBmaXgKMjAyNC0wNC0wMlQwNzo0NSAyMDI0LTA0LTAyVDEwOjE1IGdhbW1hIHRlc3RzIHRlYW0gYnVnIHJldmlldwoyMDI0LTA0LTAyVDIwOjAwIDIwMjQtMDQtMDJUMjE6NDUgZ2FtbWEgY2FsbCBkb2NzCjIwMjQtMDMtMzBUMjE6MzAgMjAyNC0wMy0zMFQyMzo0NSB4MSBidWcKMjAyNC0wNC0wMlQyMzo0NSAyMDI0LTA0LTAzVDAxOjQ1IHpldGE5IHN0YW5kdXAgbG9naW4gbG9naW4gZG9jcwoyMDI0LTA0LTAyVDIyOjMwIDIwMjQtMDQtMDJUMjM6MDAgYWNtZQo=",
+              "text": "2024-04-02T11:00 2024-04-02T15:00 zeta9\n2024-04-02T15:45 2024-04-02T18:15 beta deploy fix\n2024-04-02T07:45 2024-04-02T10:15 gamma tests team bug review\n2024-04-02T20:00 2024-04-02T21:45 gamma call docs\n2024-03-30T21:30 2024-03-30T23:45 x1 bug\n2024-04-02T23:45 2024-04-03T01:45 zeta9 standup login login docs\n2024-04-02T22:30 2024-04-02T23:00 acme\n"
+            }
+          },
+          "arm": {
+            "stdout": {
+              "base64": "",
+              "text": ""
+            },
+            "stderr": {
+              "base64": "dGFsbHk6IGJhZCBUQUxMWV9OT1cgIjIwMjQtMDQtMDBUMDk6MDAiIChleHBlY3RlZCBZWVlZLU1NLUREVEhIOk1NKQo=",
+              "text": "tally: bad TALLY_NOW \"2024-04-00T09:00\" (expected YYYY-MM-DDTHH:MM)\n"
+            },
+            "status": 1,
+            "signal": null,
+            "timedOut": false,
+            "log": {
+              "base64": "MjAyNC0wNC0wMlQxMTowMCAyMDI0LTA0LTAyVDE1OjAwIHpldGE5CjIwMjQtMDQtMDJUMTU6NDUgMjAyNC0wNC0wMlQxODoxNSBiZXRhIGRlcGxveSBmaXgKMjAyNC0wNC0wMlQwNzo0NSAyMDI0LTA0LTAyVDEwOjE1IGdhbW1hIHRlc3RzIHRlYW0gYnVnIHJldmlldwoyMDI0LTA0LTAyVDIwOjAwIDIwMjQtMDQtMDJUMjE6NDUgZ2FtbWEgY2FsbCBkb2NzCjIwMjQtMDMtMzBUMjE6MzAgMjAyNC0wMy0zMFQyMzo0NSB4MSBidWcKMjAyNC0wNC0wMlQyMzo0NSAyMDI0LTA0LTAzVDAxOjQ1IHpldGE5IHN0YW5kdXAgbG9naW4gbG9naW4gZG9jcwo=",
+              "text": "2024-04-02T11:00 2024-04-02T15:00 zeta9\n2024-04-02T15:45 2024-04-02T18:15 beta deploy fix\n2024-04-02T07:45 2024-04-02T10:15 gamma tests team bug review\n2024-04-02T20:00 2024-04-02T21:45 gamma call docs\n2024-03-30T21:30 2024-03-30T23:45 x1 bug\n2024-04-02T23:45 2024-04-03T01:45 zeta9 standup login login docs\n"
+            }
+          }
+        },
+        {
+          "case": {
+            "id": 156,
+            "feature": "bad-now",
+            "args": [
+              "csv"
+            ],
+            "log": {
+              "base64": "MjAyNi0xMS0yNVQxMDo0NSAyMDI2LTExLTI1VDEyOjAwIGJldGEgZGVwbG95Cg==",
+              "text": "2026-11-25T10:45 2026-11-25T12:00 beta deploy\n"
+            }
+          },
+          "env": {
+            "TALLY_NOW": "2026/11/27T03:00",
+            "TALLY_LOG": "tally.log",
+            "logExisted": true
+          },
+          "reference": {
+            "stdout": {
+              "base64": "cHJvamVjdCxzdGFydCxlbmQsbWludXRlcyxub3RlCmJldGEsMjAyNi0xMS0yNVQxMDo0NSwyMDI2LTExLTI1VDEyOjAwLDc1LGRlcGxveQo=",
+              "text": "project,start,end,minutes,note\nbeta,2026-11-25T10:45,2026-11-25T12:00,75,deploy\n"
+            },
+            "stderr": {
+              "base64": "",
+              "text": ""
+            },
+            "status": 0,
+            "signal": null,
+            "timedOut": false,
+            "log": {
+              "base64": "MjAyNi0xMS0yNVQxMDo0NSAyMDI2LTExLTI1VDEyOjAwIGJldGEgZGVwbG95Cg==",
+              "text": "2026-11-25T10:45 2026-11-25T12:00 beta deploy\n"
+            }
+          },
+          "arm": {
+            "stdout": {
+              "base64": "",
+              "text": ""
+            },
+            "stderr": {
+              "base64": "dGFsbHk6IGJhZCBUQUxMWV9OT1cgIjIwMjYvMTEvMjdUMDM6MDAiIChleHBlY3RlZCBZWVlZLU1NLUREVEhIOk1NKQo=",
+              "text": "tally: bad TALLY_NOW \"2026/11/27T03:00\" (expected YYYY-MM-DDTHH:MM)\n"
+            },
+            "status": 1,
+            "signal": null,
+            "timedOut": false,
+            "log": {
+              "base64": "MjAyNi0xMS0yNVQxMDo0NSAyMDI2LTExLTI1VDEyOjAwIGJldGEgZGVwbG95Cg==",
+              "text": "2026-11-25T10:45 2026-11-25T12:00 beta deploy\n"
+            }
+          }
+        },
+        {
+          "case": {
+            "id": 231,
+            "feature": "bad-now",
+            "args": [
+              "csv"
+            ],
+            "log": {
+              "base64": "",
+              "text": ""
+            }
+          },
+          "env": {
+            "TALLY_NOW": " 2025-03-09T07:45",
+            "TALLY_LOG": "tally.log",
+            "logExisted": true
+          },
+          "reference": {
+            "stdout": {
+              "base64": "cHJvamVjdCxzdGFydCxlbmQsbWludXRlcyxub3RlCg==",
+              "text": "project,start,end,minutes,note\n"
+            },
+            "stderr": {
+              "base64": "",
+              "text": ""
+            },
+            "status": 0,
+            "signal": null,
+            "timedOut": false,
+            "log": {
+              "base64": "",
+              "text": ""
+            }
+          },
+          "arm": {
+            "stdout": {
+              "base64": "",
+              "text": ""
+            },
+            "stderr": {
+              "base64": "dGFsbHk6IGJhZCBUQUxMWV9OT1cgIiAyMDI1LTAzLTA5VDA3OjQ1IiAoZXhwZWN0ZWQgWVlZWS1NTS1ERFRISDpNTSkK",
+              "text": "tally: bad TALLY_NOW \" 2025-03-09T07:45\" (expected YYYY-MM-DDTHH:MM)\n"
+            },
+            "status": 1,
+            "signal": null,
+            "timedOut": false,
+            "log": {
+              "base64": "",
+              "text": ""
+            }
+          }
+        },
+        {
+          "case": {
+            "id": 392,
+            "feature": "bad-now",
+            "args": [
+              "add",
+              "acme",
+              "2024-03-13T07:15",
+              "2024-03-13T09:15",
+              "review",
+              "plan",
+              "standup"
+            ],
+            "log": {
+              "base64": "MjAyNC0wMy0xM1QxODo0NSAyMDI0LTAzLTEzVDIyOjE1IG9wcyBjYWxsIHN0YW5kdXAgdGVhbQoyMDI0LTAzLTEzVDIyOjMwIDIwMjQtMDMtMTNUMjM6MDAgYWNtZSB0aGUgcmV2aWV3CjIwMjQtMDMtMTRUMDA6MzAgMjAyNC0wMy0xNFQwMTowMCB4MQoyMDI0LTAzLTE0VDAxOjQ1IDIwMjQtMDMtMTRUMDQ6NDUgeDEgYnVnCg==",
+              "text": "2024-03-13T18:45 2024-03-13T22:15 ops call standup team\n2024-03-13T22:30 2024-03-13T23:00 acme the review\n2024-03-14T00:30 2024-03-14T01:00 x1\n2024-03-14T01:45 2024-03-14T04:45 x1 bug\n"
+            }
+          },
+          "env": {
+            "TALLY_NOW": "2024-03-17T9:15",
+            "TALLY_LOG": "tally.log",
+            "logExisted": true
+          },
+          "reference": {
+            "stdout": {
+              "base64": "YWRkZWQgYWNtZSAyMDI0LTAzLTEzVDA3OjE1IHRvIDIwMjQtMDMtMTNUMDk6MTUgKDI6MDApCg==",
+              "text": "added acme 2024-03-13T07:15 to 2024-03-13T09:15 (2:00)\n"
+            },
+            "stderr": {
+              "base64": "",
+              "text": ""
+            },
+            "status": 0,
+            "signal": null,
+            "timedOut": false,
+            "log": {
+              "base64": "MjAyNC0wMy0xM1QxODo0NSAyMDI0LTAzLTEzVDIyOjE1IG9wcyBjYWxsIHN0YW5kdXAgdGVhbQoyMDI0LTAzLTEzVDIyOjMwIDIwMjQtMDMtMTNUMjM6MDAgYWNtZSB0aGUgcmV2aWV3CjIwMjQtMDMtMTRUMDA6MzAgMjAyNC0wMy0xNFQwMTowMCB4MQoyMDI0LTAzLTE0VDAxOjQ1IDIwMjQtMDMtMTRUMDQ6NDUgeDEgYnVnCjIwMjQtMDMtMTNUMDc6MTUgMjAyNC0wMy0xM1QwOToxNSBhY21lIHJldmlldyBwbGFuIHN0YW5kdXAK",
+              "text": "2024-03-13T18:45 2024-03-13T22:15 ops call standup team\n2024-03-13T22:30 2024-03-13T23:00 acme the review\n2024-03-14T00:30 2024-03-14T01:00 x1\n2024-03-14T01:45 2024-03-14T04:45 x1 bug\n2024-03-13T07:15 2024-03-13T09:15 acme review plan standup\n"
+            }
+          },
+          "arm": {
+            "stdout": {
+              "base64": "",
+              "text": ""
+            },
+            "stderr": {
+              "base64": "dGFsbHk6IGJhZCBUQUxMWV9OT1cgIjIwMjQtMDMtMTdUOToxNSIgKGV4cGVjdGVkIFlZWVktTU0tRERUSEg6TU0pCg==",
+              "text": "tally: bad TALLY_NOW \"2024-03-17T9:15\" (expected YYYY-MM-DDTHH:MM)\n"
+            },
+            "status": 1,
+            "signal": null,
+            "timedOut": false,
+            "log": {
+              "base64": "MjAyNC0wMy0xM1QxODo0NSAyMDI0LTAzLTEzVDIyOjE1IG9wcyBjYWxsIHN0YW5kdXAgdGVhbQoyMDI0LTAzLTEzVDIyOjMwIDIwMjQtMDMtMTNUMjM6MDAgYWNtZSB0aGUgcmV2aWV3CjIwMjQtMDMtMTRUMDA6MzAgMjAyNC0wMy0xNFQwMTowMCB4MQoyMDI0LTAzLTE0VDAxOjQ1IDIwMjQtMDMtMTRUMDQ6NDUgeDEgYnVnCg==",
+              "text": "2024-03-13T18:45 2024-03-13T22:15 ops call standup team\n2024-03-13T22:30 2024-03-13T23:00 acme the review\n2024-03-14T00:30 2024-03-14T01:00 x1\n2024-03-14T01:45 2024-03-14T04:45 x1 bug\n"
+            }
+          }
+        },
+        {
+          "case": {
+            "id": 419,
+            "feature": "bad-now",
+            "args": [
+              "add",
+              "x1",
+              "2026-09-09T08:30",
+              "2026-09-09T11:15",
+              "plan",
+              "call",
+              "team"
+            ],
+            "log": {
+              "base64": "",
+              "text": ""
+            }
+          },
+          "env": {
+            "TALLY_NOW": "2026-02-30T10:00",
+            "TALLY_LOG": "tally.log",
+            "logExisted": true
+          },
+          "reference": {
+            "stdout": {
+              "base64": "YWRkZWQgeDEgMjAyNi0wOS0wOVQwODozMCB0byAyMDI2LTA5LTA5VDExOjE1ICgyOjQ1KQo=",
+              "text": "added x1 2026-09-09T08:30 to 2026-09-09T11:15 (2:45)\n"
+            },
+            "stderr": {
+              "base64": "",
+              "text": ""
+            },
+            "status": 0,
+            "signal": null,
+            "timedOut": false,
+            "log": {
+              "base64": "MjAyNi0wOS0wOVQwODozMCAyMDI2LTA5LTA5VDExOjE1IHgxIHBsYW4gY2FsbCB0ZWFtCg==",
+              "text": "2026-09-09T08:30 2026-09-09T11:15 x1 plan call team\n"
+            }
+          },
+          "arm": {
+            "stdout": {
+              "base64": "",
+              "text": ""
+            },
+            "stderr": {
+              "base64": "dGFsbHk6IGJhZCBUQUxMWV9OT1cgIjIwMjYtMDItMzBUMTA6MDAiIChleHBlY3RlZCBZWVlZLU1NLUREVEhIOk1NKQo=",
+              "text": "tally: bad TALLY_NOW \"2026-02-30T10:00\" (expected YYYY-MM-DDTHH:MM)\n"
+            },
+            "status": 1,
+            "signal": null,
+            "timedOut": false,
+            "log": {
+              "base64": "",
+              "text": ""
+            }
+          }
+        },
+        {
+          "case": {
+            "id": 439,
+            "feature": "bad-now",
+            "args": [
+              "add",
+              "beta",
+              "2025-03-31T08:45",
+              "2025-03-31T09:00",
+              "fix",
+              "plan"
+            ],
+            "log": {
+              "base64": "MjAyNS0wMy0yOVQxODowMCAyMDI1LTAzLTI5VDE4OjMwIG9wcyBkZXBsb3kK",
+              "text": "2025-03-29T18:00 2025-03-29T18:30 ops deploy\n"
+            }
+          },
+          "env": {
+            "TALLY_NOW": "yesterday",
+            "TALLY_LOG": "tally.log",
+            "logExisted": true
+          },
+          "reference": {
+            "stdout": {
+              "base64": "YWRkZWQgYmV0YSAyMDI1LTAzLTMxVDA4OjQ1IHRvIDIwMjUtMDMtMzFUMDk6MDAgKDA6MTUpCg==",
+              "text": "added beta 2025-03-31T08:45 to 2025-03-31T09:00 (0:15)\n"
+            },
+            "stderr": {
+              "base64": "",
+              "text": ""
+            },
+            "status": 0,
+            "signal": null,
+            "timedOut": false,
+            "log": {
+              "base64": "MjAyNS0wMy0yOVQxODowMCAyMDI1LTAzLTI5VDE4OjMwIG9wcyBkZXBsb3kKMjAyNS0wMy0zMVQwODo0NSAyMDI1LTAzLTMxVDA5OjAwIGJldGEgZml4IHBsYW4K",
+              "text": "2025-03-29T18:00 2025-03-29T18:30 ops deploy\n2025-03-31T08:45 2025-03-31T09:00 beta fix plan\n"
+            }
+          },
+          "arm": {
+            "stdout": {
+              "base64": "",
+              "text": ""
+            },
+            "stderr": {
+              "base64": "dGFsbHk6IGJhZCBUQUxMWV9OT1cgInllc3RlcmRheSIgKGV4cGVjdGVkIFlZWVktTU0tRERUSEg6TU0pCg==",
+              "text": "tally: bad TALLY_NOW \"yesterday\" (expected YYYY-MM-DDTHH:MM)\n"
+            },
+            "status": 1,
+            "signal": null,
+            "timedOut": false,
+            "log": {
+              "base64": "MjAyNS0wMy0yOVQxODowMCAyMDI1LTAzLTI5VDE4OjMwIG9wcyBkZXBsb3kK",
+              "text": "2025-03-29T18:00 2025-03-29T18:30 ops deploy\n"
+            }
+          }
+        },
+        {
+          "case": {
+            "id": 526,
+            "feature": "bad-now",
+            "args": [
+              "csv"
+            ],
+            "log": {
+              "base64": "MjAyNS0wMy0yMlQwNDo0NSAyMDI1LTAzLTIyVDA2OjAwIGJldGEgdGVzdHMgdGVhbSBzdGFuZHVwIGZpeAoyMDI1LTAzLTIyVDA2OjMwIDIwMjUtMDMtMjJUMTA6MzAgZGVsdGEKMjAyNS0wMy0yMlQxMzozMCAyMDI1LTAzLTIyVDIyOjQ1IGFjbWUKMjAyNS0wMy0yNFQyMDowMCAyMDI1LTAzLTI1VDA1OjQ1IGFjbWUgZGVwbG95CjIwMjUtMDMtMjVUMDg6MTUgMjAyNS0wMy0yNVQxOTowMCBvcHMgdGVhbSBjYWxsIGNhbGwgdGVhbQoyMDI1LTAzLTI3VDA5OjE1IDIwMjUtMDMtMjdUMTM6MDAgeDEgcmV2aWV3IGRlcGxveSBidWcgcmV2aWV3Cg==",
+              "text": "2025-03-22T04:45 2025-03-22T06:00 beta tests team standup fix\n2025-03-22T06:30 2025-03-22T10:30 delta\n2025-03-22T13:30 2025-03-22T22:45 acme\n2025-03-24T20:00 2025-03-25T05:45 acme deploy\n2025-03-25T08:15 2025-03-25T19:00 ops team call call team\n2025-03-27T09:15 2025-03-27T13:00 x1 review deploy bug review\n"
+            }
+          },
+          "env": {
+            "TALLY_NOW": "2023-02-29T09:00",
+            "TALLY_LOG": "tally.log",
+            "logExisted": true
+          },
+          "reference": {
+            "stdout": {
+              "base64": "cHJvamVjdCxzdGFydCxlbmQsbWludXRlcyxub3RlCmJldGEsMjAyNS0wMy0yMlQwNDo0NSwyMDI1LTAzLTIyVDA2OjAwLDc1LHRlc3RzIHRlYW0gc3RhbmR1cCBmaXgKZGVsdGEsMjAyNS0wMy0yMlQwNjozMCwyMDI1LTAzLTIyVDEwOjMwLDI0MCwKYWNtZSwyMDI1LTAzLTIyVDEzOjMwLDIwMjUtMDMtMjJUMjI6NDUsNTU1LAphY21lLDIwMjUtMDMtMjRUMjA6MDAsMjAyNS0wMy0yNVQwNTo0NSw1ODUsZGVwbG95Cm9wcywyMDI1LTAzLTI1VDA4OjE1LDIwMjUtMDMtMjVUMTk6MDAsNjQ1LHRlYW0gY2FsbCBjYWxsIHRlYW0KeDEsMjAyNS0wMy0yN1QwOToxNSwyMDI1LTAzLTI3VDEzOjAwLDIyNSxyZXZpZXcgZGVwbG95IGJ1ZyByZXZpZXcK",
+              "text": "project,start,end,minutes,note\nbeta,2025-03-22T04:45,2025-03-22T06:00,75,tests team standup fix\ndelta,2025-03-22T06:30,2025-03-22T10:30,240,\nacme,2025-03-22T13:30,2025-03-22T22:45,555,\nacme,2025-03-24T20:00,2025-03-25T05:45,585,deploy\nops,2025-03-25T08:15,2025-03-25T19:00,645,team call call team\nx1,2025-03-27T09:15,2025-03-27T13:00,225,review deploy bug review\n"
+            },
+            "stderr": {
+              "base64": "",
+              "text": ""
+            },
+            "status": 0,
+            "signal": null,
+            "timedOut": false,
+            "log": {
+              "base64": "MjAyNS0wMy0yMlQwNDo0NSAyMDI1LTAzLTIyVDA2OjAwIGJldGEgdGVzdHMgdGVhbSBzdGFuZHVwIGZpeAoyMDI1LTAzLTIyVDA2OjMwIDIwMjUtMDMtMjJUMTA6MzAgZGVsdGEKMjAyNS0wMy0yMlQxMzozMCAyMDI1LTAzLTIyVDIyOjQ1IGFjbWUKMjAyNS0wMy0yNFQyMDowMCAyMDI1LTAzLTI1VDA1OjQ1IGFjbWUgZGVwbG95CjIwMjUtMDMtMjVUMDg6MTUgMjAyNS0wMy0yNVQxOTowMCBvcHMgdGVhbSBjYWxsIGNhbGwgdGVhbQoyMDI1LTAzLTI3VDA5OjE1IDIwMjUtMDMtMjdUMTM6MDAgeDEgcmV2aWV3IGRlcGxveSBidWcgcmV2aWV3Cg==",
+              "text": "2025-03-22T04:45 2025-03-22T06:00 beta tests team standup fix\n2025-03-22T06:30 2025-03-22T10:30 delta\n2025-03-22T13:30 2025-03-22T22:45 acme\n2025-03-24T20:00 2025-03-25T05:45 acme deploy\n2025-03-25T08:15 2025-03-25T19:00 ops team call call team\n2025-03-27T09:15 2025-03-27T13:00 x1 review deploy bug review\n"
+            }
+          },
+          "arm": {
+            "stdout": {
+              "base64": "",
+              "text": ""
+            },
+            "stderr": {
+              "base64": "dGFsbHk6IGJhZCBUQUxMWV9OT1cgIjIwMjMtMDItMjlUMDk6MDAiIChleHBlY3RlZCBZWVlZLU1NLUREVEhIOk1NKQo=",
+              "text": "tally: bad TALLY_NOW \"2023-02-29T09:00\" (expected YYYY-MM-DDTHH:MM)\n"
+            },
+            "status": 1,
+            "signal": null,
+            "timedOut": false,
+            "log": {
+              "base64": "MjAyNS0wMy0yMlQwNDo0NSAyMDI1LTAzLTIyVDA2OjAwIGJldGEgdGVzdHMgdGVhbSBzdGFuZHVwIGZpeAoyMDI1LTAzLTIyVDA2OjMwIDIwMjUtMDMtMjJUMTA6MzAgZGVsdGEKMjAyNS0wMy0yMlQxMzozMCAyMDI1LTAzLTIyVDIyOjQ1IGFjbWUKMjAyNS0wMy0yNFQyMDowMCAyMDI1LTAzLTI1VDA1OjQ1IGFjbWUgZGVwbG95CjIwMjUtMDMtMjVUMDg6MTUgMjAyNS0wMy0yNVQxOTowMCBvcHMgdGVhbSBjYWxsIGNhbGwgdGVhbQoyMDI1LTAzLTI3VDA5OjE1IDIwMjUtMDMtMjdUMTM6MDAgeDEgcmV2aWV3IGRlcGxveSBidWcgcmV2aWV3Cg==",
+              "text": "2025-03-22T04:45 2025-03-22T06:00 beta tests team standup fix\n2025-03-22T06:30 2025-03-22T10:30 delta\n2025-03-22T13:30 2025-03-22T22:45 acme\n2025-03-24T20:00 2025-03-25T05:45 acme deploy\n2025-03-25T08:15 2025-03-25T19:00 ops team call call team\n2025-03-27T09:15 2025-03-27T13:00 x1 review deploy bug review\n"
+            }
+          }
+        },
+        {
+          "case": {
+            "id": 644,
+            "feature": "bad-now",
+            "args": [
+              "csv"
+            ],
+            "log": {
+              "base64": "MjAyMy0xMi0wN1QxOTo0NSAyMDIzLTEyLTA3VDIyOjQ1IGJldGEKMjAyMy0xMi0wN1QyMzoxNSAyMDIzLTEyLTA4VDAzOjAwIGdhbW1hIGRlcGxveSBkb2NzIHRlYW0gc3RhbmR1cAo=",
+              "text": "2023-12-07T19:45 2023-12-07T22:45 beta\n2023-12-07T23:15 2023-12-08T03:00 gamma deploy docs team standup\n"
+            }
+          },
+          "env": {
+            "TALLY_NOW": "T",
+            "TALLY_LOG": "tally.log",
+            "logExisted": true
+          },
+          "reference": {
+            "stdout": {
+              "base64": "cHJvamVjdCxzdGFydCxlbmQsbWludXRlcyxub3RlCmJldGEsMjAyMy0xMi0wN1QxOTo0NSwyMDIzLTEyLTA3VDIyOjQ1LDE4MCwKZ2FtbWEsMjAyMy0xMi0wN1QyMzoxNSwyMDIzLTEyLTA4VDAzOjAwLDIyNSxkZXBsb3kgZG9jcyB0ZWFtIHN0YW5kdXAK",
+              "text": "project,start,end,minutes,note\nbeta,2023-12-07T19:45,2023-12-07T22:45,180,\ngamma,2023-12-07T23:15,2023-12-08T03:00,225,deploy docs team standup\n"
+            },
+            "stderr": {
+              "base64": "",
+              "text": ""
+            },
+            "status": 0,
+            "signal": null,
+            "timedOut": false,
+            "log": {
+              "base64": "MjAyMy0xMi0wN1QxOTo0NSAyMDIzLTEyLTA3VDIyOjQ1IGJldGEKMjAyMy0xMi0wN1QyMzoxNSAyMDIzLTEyLTA4VDAzOjAwIGdhbW1hIGRlcGxveSBkb2NzIHRlYW0gc3RhbmR1cAo=",
+              "text": "2023-12-07T19:45 2023-12-07T22:45 beta\n2023-12-07T23:15 2023-12-08T03:00 gamma deploy docs team standup\n"
+            }
+          },
+          "arm": {
+            "stdout": {
+              "base64": "",
+              "text": ""
+            },
+            "stderr": {
+              "base64": "dGFsbHk6IGJhZCBUQUxMWV9OT1cgIlQiIChleHBlY3RlZCBZWVlZLU1NLUREVEhIOk1NKQo=",
+              "text": "tally: bad TALLY_NOW \"T\" (expected YYYY-MM-DDTHH:MM)\n"
+            },
+            "status": 1,
+            "signal": null,
+            "timedOut": false,
+            "log": {
+              "base64": "MjAyMy0xMi0wN1QxOTo0NSAyMDIzLTEyLTA3VDIyOjQ1IGJldGEKMjAyMy0xMi0wN1QyMzoxNSAyMDIzLTEyLTA4VDAzOjAwIGdhbW1hIGRlcGxveSBkb2NzIHRlYW0gc3RhbmR1cAo=",
+              "text": "2023-12-07T19:45 2023-12-07T22:45 beta\n2023-12-07T23:15 2023-12-08T03:00 gamma deploy docs team standup\n"
+            }
+          }
+        },
+        {
+          "case": {
+            "id": 663,
+            "feature": "bad-now",
+            "args": [
+              "add",
+              "acme",
+              "2026-03-27T04:15",
+              "2026-03-27T06:15",
+              "tests"
+            ],
+            "log": {
+              "base64": "MjAyNi0wMy0yNFQwNDoxNSAyMDI2LTAzLTI0VDA2OjQ1IGJldGEgZGVwbG95IGJ1ZyBkZXBsb3kKMjAyNi0wMy0yNlQxNjoxNSAyMDI2LTAzLTI2VDE5OjQ1IHgxIGNhbGwKMjAyNi0wMy0yNlQyMjozMCAyMDI2LTAzLTI3VDAwOjMwIGdhbW1hCjIwMjYtMDMtMjdUMDA6NDUgMjAyNi0wMy0yN1QwMzo0NSBiZXRhCjIwMjYtMDMtMjdUMDY6NDUgMjAyNi0wMy0yN1QwOToxNSB6ZXRhOSB0ZWFtIHBsYW4gdGhlCjIwMjYtMDMtMjdUMDk6MzAgMjAyNi0wMy0yN1QxMDowMCBhY21lIHBsYW4K",
+              "text": "2026-03-24T04:15 2026-03-24T06:45 beta deploy bug deploy\n2026-03-26T16:15 2026-03-26T19:45 x1 call\n2026-03-26T22:30 2026-03-27T00:30 gamma\n2026-03-27T00:45 2026-03-27T03:45 beta\n2026-03-27T06:45 2026-03-27T09:15 zeta9 team plan the\n2026-03-27T09:30 2026-03-27T10:00 acme plan\n"
+            }
+          },
+          "env": {
+            "TALLY_NOW": "2026-03-29T00:4",
+            "TALLY_LOG": "tally.log",
+            "logExisted": true
+          },
+          "reference": {
+            "stdout": {
+              "base64": "YWRkZWQgYWNtZSAyMDI2LTAzLTI3VDA0OjE1IHRvIDIwMjYtMDMtMjdUMDY6MTUgKDI6MDApCg==",
+              "text": "added acme 2026-03-27T04:15 to 2026-03-27T06:15 (2:00)\n"
+            },
+            "stderr": {
+              "base64": "",
+              "text": ""
+            },
+            "status": 0,
+            "signal": null,
+            "timedOut": false,
+            "log": {
+              "base64": "MjAyNi0wMy0yNFQwNDoxNSAyMDI2LTAzLTI0VDA2OjQ1IGJldGEgZGVwbG95IGJ1ZyBkZXBsb3kKMjAyNi0wMy0yNlQxNjoxNSAyMDI2LTAzLTI2VDE5OjQ1IHgxIGNhbGwKMjAyNi0wMy0yNlQyMjozMCAyMDI2LTAzLTI3VDAwOjMwIGdhbW1hCjIwMjYtMDMtMjdUMDA6NDUgMjAyNi0wMy0yN1QwMzo0NSBiZXRhCjIwMjYtMDMtMjdUMDY6NDUgMjAyNi0wMy0yN1QwOToxNSB6ZXRhOSB0ZWFtIHBsYW4gdGhlCjIwMjYtMDMtMjdUMDk6MzAgMjAyNi0wMy0yN1QxMDowMCBhY21lIHBsYW4KMjAyNi0wMy0yN1QwNDoxNSAyMDI2LTAzLTI3VDA2OjE1IGFjbWUgdGVzdHMK",
+              "text": "2026-03-24T04:15 2026-03-24T06:45 beta deploy bug deploy\n2026-03-26T16:15 2026-03-26T19:45 x1 call\n2026-03-26T22:30 2026-03-27T00:30 gamma\n2026-03-27T00:45 2026-03-27T03:45 beta\n2026-03-27T06:45 2026-03-27T09:15 zeta9 team plan the\n2026-03-27T09:30 2026-03-27T10:00 acme plan\n2026-03-27T04:15 2026-03-27T06:15 acme tests\n"
+            }
+          },
+          "arm": {
+            "stdout": {
+              "base64": "",
+              "text": ""
+            },
+            "stderr": {
+              "base64": "dGFsbHk6IGJhZCBUQUxMWV9OT1cgIjIwMjYtMDMtMjlUMDA6NCIgKGV4cGVjdGVkIFlZWVktTU0tRERUSEg6TU0pCg==",
+              "text": "tally: bad TALLY_NOW \"2026-03-29T00:4\" (expected YYYY-MM-DDTHH:MM)\n"
+            },
+            "status": 1,
+            "signal": null,
+            "timedOut": false,
+            "log": {
+              "base64": "MjAyNi0wMy0yNFQwNDoxNSAyMDI2LTAzLTI0VDA2OjQ1IGJldGEgZGVwbG95IGJ1ZyBkZXBsb3kKMjAyNi0wMy0yNlQxNjoxNSAyMDI2LTAzLTI2VDE5OjQ1IHgxIGNhbGwKMjAyNi0wMy0yNlQyMjozMCAyMDI2LTAzLTI3VDAwOjMwIGdhbW1hCjIwMjYtMDMtMjdUMDA6NDUgMjAyNi0wMy0yN1QwMzo0NSBiZXRhCjIwMjYtMDMtMjdUMDY6NDUgMjAyNi0wMy0yN1QwOToxNSB6ZXRhOSB0ZWFtIHBsYW4gdGhlCjIwMjYtMDMtMjdUMDk6MzAgMjAyNi0wMy0yN1QxMDowMCBhY21lIHBsYW4K",
+              "text": "2026-03-24T04:15 2026-03-24T06:45 beta deploy bug deploy\n2026-03-26T16:15 2026-03-26T19:45 x1 call\n2026-03-26T22:30 2026-03-27T00:30 gamma\n2026-03-27T00:45 2026-03-27T03:45 beta\n2026-03-27T06:45 2026-03-27T09:15 zeta9 team plan the\n2026-03-27T09:30 2026-03-27T10:00 acme plan\n"
+            }
+          }
+        }
+      ],
+      "csv-quoting / exit status": [
+        {
+          "case": {
+            "id": 33,
+            "feature": "csv-quoting",
+            "args": [
+              "add",
+              "ops",
+              "2026-08-04T04:00",
+              "2026-08-04T06:45",
+              "line\nbreak"
+            ],
+            "log": {
+              "base64": "MjAyNi0wOC0wMlQxMTowMCAyMDI2LTA4LTAyVDEzOjMwIG9wcyB0ZWFtIGJ1ZyB0ZWFtIGZpeAoyMDI2LTA4LTAyVDE1OjQ1IDIwMjYtMDgtMDNUMDE6MDAgd2ViMiBkb2NzIHJldmlldyByZXZpZXcKMjAyNi0wOC0wNFQxMTo0NSAyMDI2LTA4LTA0VDE1OjAwIGRlbHRhIHJldmlldyBwbGFuIHRlYW0gdGVzdHMKMjAyNi0wOC0wNFQxODowMCAyMDI2LTA4LTA0VDIxOjMwIHdlYjIgcGxhbiBmaXgKMjAyNi0wOC0wNFQyMzowMCAyMDI2LTA4LTA0VDIzOjE1IGFjbWUgZGVwbG95IHN0YW5kdXAgbG9naW4gcGxhbgoyMDI2LTA4LTA1VDAxOjAwIDIwMjYtMDgtMDVUMDM6MzAgb3BzIHN0YW5kdXAgdGhlIGNhbGwK",
+              "text": "2026-08-02T11:00 2026-08-02T13:30 ops team bug team fix\n2026-08-02T15:45 2026-08-03T01:00 web2 docs review review\n2026-08-04T11:45 2026-08-04T15:00 delta review plan team tests\n2026-08-04T18:00 2026-08-04T21:30 web2 plan fix\n2026-08-04T23:00 2026-08-04T23:15 acme deploy standup login plan\n2026-08-05T01:00 2026-08-05T03:30 ops standup the call\n"
+            }
+          },
+          "env": {
+            "TALLY_NOW": "2026-08-05T20:00",
+            "TALLY_LOG": "tally.log",
+            "logExisted": true
+          },
+          "reference": {
+            "stdout": {
+              "base64": "YWRkZWQgb3BzIDIwMjYtMDgtMDRUMDQ6MDAgdG8gMjAyNi0wOC0wNFQwNjo0NSAoMjo0NSkK",
+              "text": "added ops 2026-08-04T04:00 to 2026-08-04T06:45 (2:45)\n"
+            },
+            "stderr": {
+              "base64": "",
+              "text": ""
+            },
+            "status": 0,
+            "signal": null,
+            "timedOut": false,
+            "log": {
+              "base64": "MjAyNi0wOC0wMlQxMTowMCAyMDI2LTA4LTAyVDEzOjMwIG9wcyB0ZWFtIGJ1ZyB0ZWFtIGZpeAoyMDI2LTA4LTAyVDE1OjQ1IDIwMjYtMDgtMDNUMDE6MDAgd2ViMiBkb2NzIHJldmlldyByZXZpZXcKMjAyNi0wOC0wNFQxMTo0NSAyMDI2LTA4LTA0VDE1OjAwIGRlbHRhIHJldmlldyBwbGFuIHRlYW0gdGVzdHMKMjAyNi0wOC0wNFQxODowMCAyMDI2LTA4LTA0VDIxOjMwIHdlYjIgcGxhbiBmaXgKMjAyNi0wOC0wNFQyMzowMCAyMDI2LTA4LTA0VDIzOjE1IGFjbWUgZGVwbG95IHN0YW5kdXAgbG9naW4gcGxhbgoyMDI2LTA4LTA1VDAxOjAwIDIwMjYtMDgtMDVUMDM6MzAgb3BzIHN0YW5kdXAgdGhlIGNhbGwKMjAyNi0wOC0wNFQwNDowMCAyMDI2LTA4LTA0VDA2OjQ1IG9wcyBsaW5lCmJyZWFrCg==",
+              "text": "2026-08-02T11:00 2026-08-02T13:30 ops team bug team fix\n2026-08-02T15:45 2026-08-03T01:00 web2 docs review review\n2026-08-04T11:45 2026-08-04T15:00 delta review plan team tests\n2026-08-04T18:00 2026-08-04T21:30 web2 plan fix\n2026-08-04T23:00 2026-08-04T23:15 acme deploy standup login plan\n2026-08-05T01:00 2026-08-05T03:30 ops standup the call\n2026-08-04T04:00 2026-08-04T06:45 ops line\nbreak\n"
+            }
+          },
+          "arm": {
+            "stdout": {
+              "base64": "",
+              "text": ""
+            },
+            "stderr": {
+              "base64": "dGFsbHk6IGEgbm90ZSBjYW5ub3QgY29udGFpbiBhIGxpbmUgYnJlYWsK",
+              "text": "tally: a note cannot contain a line break\n"
+            },
+            "status": 1,
+            "signal": null,
+            "timedOut": false,
+            "log": {
+              "base64": "MjAyNi0wOC0wMlQxMTowMCAyMDI2LTA4LTAyVDEzOjMwIG9wcyB0ZWFtIGJ1ZyB0ZWFtIGZpeAoyMDI2LTA4LTAyVDE1OjQ1IDIwMjYtMDgtMDNUMDE6MDAgd2ViMiBkb2NzIHJldmlldyByZXZpZXcKMjAyNi0wOC0wNFQxMTo0NSAyMDI2LTA4LTA0VDE1OjAwIGRlbHRhIHJldmlldyBwbGFuIHRlYW0gdGVzdHMKMjAyNi0wOC0wNFQxODowMCAyMDI2LTA4LTA0VDIxOjMwIHdlYjIgcGxhbiBmaXgKMjAyNi0wOC0wNFQyMzowMCAyMDI2LTA4LTA0VDIzOjE1IGFjbWUgZGVwbG95IHN0YW5kdXAgbG9naW4gcGxhbgoyMDI2LTA4LTA1VDAxOjAwIDIwMjYtMDgtMDVUMDM6MzAgb3BzIHN0YW5kdXAgdGhlIGNhbGwK",
+              "text": "2026-08-02T11:00 2026-08-02T13:30 ops team bug team fix\n2026-08-02T15:45 2026-08-03T01:00 web2 docs review review\n2026-08-04T11:45 2026-08-04T15:00 delta review plan team tests\n2026-08-04T18:00 2026-08-04T21:30 web2 plan fix\n2026-08-04T23:00 2026-08-04T23:15 acme deploy standup login plan\n2026-08-05T01:00 2026-08-05T03:30 ops standup the call\n"
+            }
+          }
+        },
+        {
+          "case": {
+            "id": 36,
+            "feature": "csv-quoting",
+            "args": [
+              "start",
+              "delta",
+              "cr\rbreak"
+            ],
+            "log": {
+              "base64": "MjAyMy0xMi0zMVQxNzozMCAyMDIzLTEyLTMxVDE4OjQ1IHgxIHBsYW4gZG9jcwoyMDIzLTEyLTMxVDIxOjQ1IDIwMjQtMDEtMDFUMDE6NDUgZ2FtbWEgbG9naW4gdGVzdHMKMjAyNC0wMS0wMVQwNDo0NSAyMDI0LTAxLTAxVDA2OjMwIG9wcyB0ZXN0cyByZXZpZXcgdGVzdHMgZml4CjIwMjQtMDEtMDFUMDg6MTUgMjAyNC0wMS0wMVQwOTowMCBkZWx0YSBkZXBsb3kK",
+              "text": "2023-12-31T17:30 2023-12-31T18:45 x1 plan docs\n2023-12-31T21:45 2024-01-01T01:45 gamma login tests\n2024-01-01T04:45 2024-01-01T06:30 ops tests review tests fix\n2024-01-01T08:15 2024-01-01T09:00 delta deploy\n"
+            }
+          },
+          "env": {
+            "TALLY_NOW": "2024-01-01T15:30",
+            "TALLY_LOG": "tally.log",
+            "logExisted": true
+          },
+          "reference": {
+            "stdout": {
+              "base64": "c3RhcnRlZCBkZWx0YSBhdCAyMDI0LTAxLTAxVDE1OjMwCg==",
+              "text": "started delta at 2024-01-01T15:30\n"
+            },
+            "stderr": {
+              "base64": "",
+              "text": ""
+            },
+            "status": 0,
+            "signal": null,
+            "timedOut": false,
+            "log": {
+              "base64": "MjAyMy0xMi0zMVQxNzozMCAyMDIzLTEyLTMxVDE4OjQ1IHgxIHBsYW4gZG9jcwoyMDIzLTEyLTMxVDIxOjQ1IDIwMjQtMDEtMDFUMDE6NDUgZ2FtbWEgbG9naW4gdGVzdHMKMjAyNC0wMS0wMVQwNDo0NSAyMDI0LTAxLTAxVDA2OjMwIG9wcyB0ZXN0cyByZXZpZXcgdGVzdHMgZml4CjIwMjQtMDEtMDFUMDg6MTUgMjAyNC0wMS0wMVQwOTowMCBkZWx0YSBkZXBsb3kKMjAyNC0wMS0wMVQxNTozMCAtIGRlbHRhIGNyDWJyZWFrCg==",
+              "text": "2023-12-31T17:30 2023-12-31T18:45 x1 plan docs\n2023-12-31T21:45 2024-01-01T01:45 gamma login tests\n2024-01-01T04:45 2024-01-01T06:30 ops tests review tests fix\n2024-01-01T08:15 2024-01-01T09:00 delta deploy\n2024-01-01T15:30 - delta cr\rbreak\n"
+            }
+          },
+          "arm": {
+            "stdout": {
+              "base64": "",
+              "text": ""
+            },
+            "stderr": {
+              "base64": "dGFsbHk6IGEgbm90ZSBjYW5ub3QgY29udGFpbiBhIGxpbmUgYnJlYWsK",
+              "text": "tally: a note cannot contain a line break\n"
+            },
+            "status": 1,
+            "signal": null,
+            "timedOut": false,
+            "log": {
+              "base64": "MjAyMy0xMi0zMVQxNzozMCAyMDIzLTEyLTMxVDE4OjQ1IHgxIHBsYW4gZG9jcwoyMDIzLTEyLTMxVDIxOjQ1IDIwMjQtMDEtMDFUMDE6NDUgZ2FtbWEgbG9naW4gdGVzdHMKMjAyNC0wMS0wMVQwNDo0NSAyMDI0LTAxLTAxVDA2OjMwIG9wcyB0ZXN0cyByZXZpZXcgdGVzdHMgZml4CjIwMjQtMDEtMDFUMDg6MTUgMjAyNC0wMS0wMVQwOTowMCBkZWx0YSBkZXBsb3kK",
+              "text": "2023-12-31T17:30 2023-12-31T18:45 x1 plan docs\n2023-12-31T21:45 2024-01-01T01:45 gamma login tests\n2024-01-01T04:45 2024-01-01T06:30 ops tests review tests fix\n2024-01-01T08:15 2024-01-01T09:00 delta deploy\n"
+            }
+          }
+        },
+        {
+          "case": {
+            "id": 133,
+            "feature": "csv-quoting",
+            "args": [
+              "add",
+              "beta",
+              "2024-03-01T12:30",
+              "2024-03-01T15:30",
+              "line\nbreak"
+            ],
+            "log": {
+              "base64": "MjAyNC0wMi0yOVQwMjozMCAyMDI0LTAyLTI5VDA0OjQ1IHpldGE5IGRvY3MgcmV2aWV3CjIwMjQtMDItMjlUMDY6MzAgMjAyNC0wMi0yOVQwODowMCBiZXRhIGRlcGxveSBsb2dpbiByZXZpZXcgdGVhbQo=",
+              "text": "2024-02-29T02:30 2024-02-29T04:45 zeta9 docs review\n2024-02-29T06:30 2024-02-29T08:00 beta deploy login review team\n"
+            }
+          },
+          "env": {
+            "TALLY_NOW": "2024-03-01T07:45",
+            "TALLY_LOG": "tally.log",
+            "logExisted": true
+          },
+          "reference": {
+            "stdout": {
+              "base64": "YWRkZWQgYmV0YSAyMDI0LTAzLTAxVDEyOjMwIHRvIDIwMjQtMDMtMDFUMTU6MzAgKDM6MDApCg==",
+              "text": "added beta 2024-03-01T12:30 to 2024-03-01T15:30 (3:00)\n"
+            },
+            "stderr": {
+              "base64": "",
+              "text": ""
+            },
+            "status": 0,
+            "signal": null,
+            "timedOut": false,
+            "log": {
+              "base64": "MjAyNC0wMi0yOVQwMjozMCAyMDI0LTAyLTI5VDA0OjQ1IHpldGE5IGRvY3MgcmV2aWV3CjIwMjQtMDItMjlUMDY6MzAgMjAyNC0wMi0yOVQwODowMCBiZXRhIGRlcGxveSBsb2dpbiByZXZpZXcgdGVhbQoyMDI0LTAzLTAxVDEyOjMwIDIwMjQtMDMtMDFUMTU6MzAgYmV0YSBsaW5lCmJyZWFrCg==",
+              "text": "2024-02-29T02:30 2024-02-29T04:45 zeta9 docs review\n2024-02-29T06:30 2024-02-29T08:00 beta deploy login review team\n2024-03-01T12:30 2024-03-01T15:30 beta line\nbreak\n"
+            }
+          },
+          "arm": {
+            "stdout": {
+              "base64": "",
+              "text": ""
+            },
+            "stderr": {
+              "base64": "dGFsbHk6IGEgbm90ZSBjYW5ub3QgY29udGFpbiBhIGxpbmUgYnJlYWsK",
+              "text": "tally: a note cannot contain a line break\n"
+            },
+            "status": 1,
+            "signal": null,
+            "timedOut": false,
+            "log": {
+              "base64": "MjAyNC0wMi0yOVQwMjozMCAyMDI0LTAyLTI5VDA0OjQ1IHpldGE5IGRvY3MgcmV2aWV3CjIwMjQtMDItMjlUMDY6MzAgMjAyNC0wMi0yOVQwODowMCBiZXRhIGRlcGxveSBsb2dpbiByZXZpZXcgdGVhbQo=",
+              "text": "2024-02-29T02:30 2024-02-29T04:45 zeta9 docs review\n2024-02-29T06:30 2024-02-29T08:00 beta deploy login review team\n"
+            }
+          }
+        },
+        {
+          "case": {
+            "id": 148,
+            "feature": "csv-quoting",
+            "args": [
+              "add",
+              "zeta9",
+              "2023-08-20T11:15",
+              "2023-08-20T13:00",
+              "trailing\n"
+            ],
+            "log": {
+              "base64": "MjAyMy0wOC0xOVQyMTo0NSAyMDIzLTA4LTE5VDIyOjAwIGRlbHRhIHRoZSBkb2NzCjIwMjMtMDgtMjBUMDA6NDUgMjAyMy0wOC0yMFQwMjo0NSB3ZWIyCjIwMjMtMDgtMjBUMDQ6MTUgMjAyMy0wOC0yMFQwNzozMCBhY21lIGRlcGxveQoyMDIzLTA4LTIwVDE3OjMwIDIwMjMtMDgtMjBUMTk6MDAgd2ViMiBkZXBsb3kgdGVzdHMgdGVhbQo=",
+              "text": "2023-08-19T21:45 2023-08-19T22:00 delta the docs\n2023-08-20T00:45 2023-08-20T02:45 web2\n2023-08-20T04:15 2023-08-20T07:30 acme deploy\n2023-08-20T17:30 2023-08-20T19:00 web2 deploy tests team\n"
+            }
+          },
+          "env": {
+            "TALLY_NOW": "2023-08-20T22:30",
+            "TALLY_LOG": "tally.log",
+            "logExisted": true
+          },
+          "reference": {
+            "stdout": {
+              "base64": "YWRkZWQgemV0YTkgMjAyMy0wOC0yMFQxMToxNSB0byAyMDIzLTA4LTIwVDEzOjAwICgxOjQ1KQo=",
+              "text": "added zeta9 2023-08-20T11:15 to 2023-08-20T13:00 (1:45)\n"
+            },
+            "stderr": {
+              "base64": "",
+              "text": ""
+            },
+            "status": 0,
+            "signal": null,
+            "timedOut": false,
+            "log": {
+              "base64": "MjAyMy0wOC0xOVQyMTo0NSAyMDIzLTA4LTE5VDIyOjAwIGRlbHRhIHRoZSBkb2NzCjIwMjMtMDgtMjBUMDA6NDUgMjAyMy0wOC0yMFQwMjo0NSB3ZWIyCjIwMjMtMDgtMjBUMDQ6MTUgMjAyMy0wOC0yMFQwNzozMCBhY21lIGRlcGxveQoyMDIzLTA4LTIwVDE3OjMwIDIwMjMtMDgtMjBUMTk6MDAgd2ViMiBkZXBsb3kgdGVzdHMgdGVhbQoyMDIzLTA4LTIwVDExOjE1IDIwMjMtMDgtMjBUMTM6MDAgemV0YTkgdHJhaWxpbmcKCg==",
+              "text": "2023-08-19T21:45 2023-08-19T22:00 delta the docs\n2023-08-20T00:45 2023-08-20T02:45 web2\n2023-08-20T04:15 2023-08-20T07:30 acme deploy\n2023-08-20T17:30 2023-08-20T19:00 web2 deploy tests team\n2023-08-20T11:15 2023-08-20T13:00 zeta9 trailing\n\n"
+            }
+          },
+          "arm": {
+            "stdout": {
+              "base64": "",
+              "text": ""
+            },
+            "stderr": {
+              "base64": "dGFsbHk6IGEgbm90ZSBjYW5ub3QgY29udGFpbiBhIGxpbmUgYnJlYWsK",
+              "text": "tally: a note cannot contain a line break\n"
+            },
+            "status": 1,
+            "signal": null,
+            "timedOut": false,
+            "log": {
+              "base64": "MjAyMy0wOC0xOVQyMTo0NSAyMDIzLTA4LTE5VDIyOjAwIGRlbHRhIHRoZSBkb2NzCjIwMjMtMDgtMjBUMDA6NDUgMjAyMy0wOC0yMFQwMjo0NSB3ZWIyCjIwMjMtMDgtMjBUMDQ6MTUgMjAyMy0wOC0yMFQwNzozMCBhY21lIGRlcGxveQoyMDIzLTA4LTIwVDE3OjMwIDIwMjMtMDgtMjBUMTk6MDAgd2ViMiBkZXBsb3kgdGVzdHMgdGVhbQo=",
+              "text": "2023-08-19T21:45 2023-08-19T22:00 delta the docs\n2023-08-20T00:45 2023-08-20T02:45 web2\n2023-08-20T04:15 2023-08-20T07:30 acme deploy\n2023-08-20T17:30 2023-08-20T19:00 web2 deploy tests team\n"
+            }
+          }
+        },
+        {
+          "case": {
+            "id": 152,
+            "feature": "csv-quoting",
+            "args": [
+              "start",
+              "x1",
+              "trailing\n"
+            ],
+            "log": {
+              "base64": "MjAyNC0wMi0yN1QwMTozMCAyMDI0LTAyLTI3VDAzOjAwIGRlbHRhIGJ1ZyByZXZpZXcgZG9jcwoyMDI0LTAyLTI3VDA0OjE1IDIwMjQtMDItMjdUMDU6NDUgYmV0YSBmaXggdGVzdHMgY2FsbAo=",
+              "text": "2024-02-27T01:30 2024-02-27T03:00 delta bug review docs\n2024-02-27T04:15 2024-02-27T05:45 beta fix tests call\n"
+            }
+          },
+          "env": {
+            "TALLY_NOW": "2024-02-28T14:45",
+            "TALLY_LOG": "tally.log",
+            "logExisted": true
+          },
+          "reference": {
+            "stdout": {
+              "base64": "c3RhcnRlZCB4MSBhdCAyMDI0LTAyLTI4VDE0OjQ1Cg==",
+              "text": "started x1 at 2024-02-28T14:45\n"
+            },
+            "stderr": {
+              "base64": "",
+              "text": ""
+            },
+            "status": 0,
+            "signal": null,
+            "timedOut": false,
+            "log": {
+              "base64": "MjAyNC0wMi0yN1QwMTozMCAyMDI0LTAyLTI3VDAzOjAwIGRlbHRhIGJ1ZyByZXZpZXcgZG9jcwoyMDI0LTAyLTI3VDA0OjE1IDIwMjQtMDItMjdUMDU6NDUgYmV0YSBmaXggdGVzdHMgY2FsbAoyMDI0LTAyLTI4VDE0OjQ1IC0geDEgdHJhaWxpbmcKCg==",
+              "text": "2024-02-27T01:30 2024-02-27T03:00 delta bug review docs\n2024-02-27T04:15 2024-02-27T05:45 beta fix tests call\n2024-02-28T14:45 - x1 trailing\n\n"
+            }
+          },
+          "arm": {
+            "stdout": {
+              "base64": "",
+              "text": ""
+            },
+            "stderr": {
+              "base64": "dGFsbHk6IGEgbm90ZSBjYW5ub3QgY29udGFpbiBhIGxpbmUgYnJlYWsK",
+              "text": "tally: a note cannot contain a line break\n"
+            },
+            "status": 1,
+            "signal": null,
+            "timedOut": false,
+            "log": {
+              "base64": "MjAyNC0wMi0yN1QwMTozMCAyMDI0LTAyLTI3VDAzOjAwIGRlbHRhIGJ1ZyByZXZpZXcgZG9jcwoyMDI0LTAyLTI3VDA0OjE1IDIwMjQtMDItMjdUMDU6NDUgYmV0YSBmaXggdGVzdHMgY2FsbAo=",
+              "text": "2024-02-27T01:30 2024-02-27T03:00 delta bug review docs\n2024-02-27T04:15 2024-02-27T05:45 beta fix tests call\n"
+            }
+          }
+        },
+        {
+          "case": {
+            "id": 201,
+            "feature": "csv-quoting",
+            "args": [
+              "start",
+              "gamma",
+              "line\nbreak"
+            ],
+            "log": {
+              "base64": "MjAyNi0wNS0yMFQxOTowMCAyMDI2LTA1LTIwVDIwOjQ1IHdlYjIgc3RhbmR1cCB0ZWFtIGRvY3MgZG9jcwoyMDI2LTA1LTIxVDE3OjAwIDIwMjYtMDUtMjFUMTk6MzAgeDEgc3RhbmR1cCByZXZpZXcKMjAyNi0wNS0yMVQyMTozMCAyMDI2LTA1LTIxVDIzOjMwIGJldGEKMjAyNi0wNS0yMlQwMTozMCAyMDI2LTA1LTIyVDAzOjQ1IG9wcyBjYWxsIGZpeAo=",
+              "text": "2026-05-20T19:00 2026-05-20T20:45 web2 standup team docs docs\n2026-05-21T17:00 2026-05-21T19:30 x1 standup review\n2026-05-21T21:30 2026-05-21T23:30 beta\n2026-05-22T01:30 2026-05-22T03:45 ops call fix\n"
+            }
+          },
+          "env": {
+            "TALLY_NOW": "2026-05-24T07:15",
+            "TALLY_LOG": "tally.log",
+            "logExisted": true
+          },
+          "reference": {
+            "stdout": {
+              "base64": "c3RhcnRlZCBnYW1tYSBhdCAyMDI2LTA1LTI0VDA3OjE1Cg==",
+              "text": "started gamma at 2026-05-24T07:15\n"
+            },
+            "stderr": {
+              "base64": "",
+              "text": ""
+            },
+            "status": 0,
+            "signal": null,
+            "timedOut": false,
+            "log": {
+              "base64": "MjAyNi0wNS0yMFQxOTowMCAyMDI2LTA1LTIwVDIwOjQ1IHdlYjIgc3RhbmR1cCB0ZWFtIGRvY3MgZG9jcwoyMDI2LTA1LTIxVDE3OjAwIDIwMjYtMDUtMjFUMTk6MzAgeDEgc3RhbmR1cCByZXZpZXcKMjAyNi0wNS0yMVQyMTozMCAyMDI2LTA1LTIxVDIzOjMwIGJldGEKMjAyNi0wNS0yMlQwMTozMCAyMDI2LTA1LTIyVDAzOjQ1IG9wcyBjYWxsIGZpeAoyMDI2LTA1LTI0VDA3OjE1IC0gZ2FtbWEgbGluZQpicmVhawo=",
+              "text": "2026-05-20T19:00 2026-05-20T20:45 web2 standup team docs docs\n2026-05-21T17:00 2026-05-21T19:30 x1 standup review\n2026-05-21T21:30 2026-05-21T23:30 beta\n2026-05-22T01:30 2026-05-22T03:45 ops call fix\n2026-05-24T07:15 - gamma line\nbreak\n"
+            }
+          },
+          "arm": {
+            "stdout": {
+              "base64": "",
+              "text": ""
+            },
+            "stderr": {
+              "base64": "dGFsbHk6IGEgbm90ZSBjYW5ub3QgY29udGFpbiBhIGxpbmUgYnJlYWsK",
+              "text": "tally: a note cannot contain a line break\n"
+            },
+            "status": 1,
+            "signal": null,
+            "timedOut": false,
+            "log": {
+              "base64": "MjAyNi0wNS0yMFQxOTowMCAyMDI2LTA1LTIwVDIwOjQ1IHdlYjIgc3RhbmR1cCB0ZWFtIGRvY3MgZG9jcwoyMDI2LTA1LTIxVDE3OjAwIDIwMjYtMDUtMjFUMTk6MzAgeDEgc3RhbmR1cCByZXZpZXcKMjAyNi0wNS0yMVQyMTozMCAyMDI2LTA1LTIxVDIzOjMwIGJldGEKMjAyNi0wNS0yMlQwMTozMCAyMDI2LTA1LTIyVDAzOjQ1IG9wcyBjYWxsIGZpeAo=",
+              "text": "2026-05-20T19:00 2026-05-20T20:45 web2 standup team docs docs\n2026-05-21T17:00 2026-05-21T19:30 x1 standup review\n2026-05-21T21:30 2026-05-21T23:30 beta\n2026-05-22T01:30 2026-05-22T03:45 ops call fix\n"
+            }
+          }
+        },
+        {
+          "case": {
+            "id": 255,
+            "feature": "csv-quoting",
+            "args": [
+              "add",
+              "gamma",
+              "2025-08-09T00:00",
+              "2025-08-09T01:30",
+              "crlf\r\nbreak"
+            ],
+            "log": {
+              "base64": "MjAyNS0wOC0wOFQxNzoxNSAyMDI1LTA4LTA4VDIwOjAwIHgxCjIwMjUtMDgtMDlUMTk6MTUgMjAyNS0wOC0wOVQyMTowMCBiZXRhCg==",
+              "text": "2025-08-08T17:15 2025-08-08T20:00 x1\n2025-08-09T19:15 2025-08-09T21:00 beta\n"
+            }
+          },
+          "env": {
+            "TALLY_NOW": "2025-08-10T06:30",
+            "TALLY_LOG": "tally.log",
+            "logExisted": true
+          },
+          "reference": {
+            "stdout": {
+              "base64": "YWRkZWQgZ2FtbWEgMjAyNS0wOC0wOVQwMDowMCB0byAyMDI1LTA4LTA5VDAxOjMwICgxOjMwKQo=",
+              "text": "added gamma 2025-08-09T00:00 to 2025-08-09T01:30 (1:30)\n"
+            },
+            "stderr": {
+              "base64": "",
+              "text": ""
+            },
+            "status": 0,
+            "signal": null,
+            "timedOut": false,
+            "log": {
+              "base64": "MjAyNS0wOC0wOFQxNzoxNSAyMDI1LTA4LTA4VDIwOjAwIHgxCjIwMjUtMDgtMDlUMTk6MTUgMjAyNS0wOC0wOVQyMTowMCBiZXRhCjIwMjUtMDgtMDlUMDA6MDAgMjAyNS0wOC0wOVQwMTozMCBnYW1tYSBjcmxmDQpicmVhawo=",
+              "text": "2025-08-08T17:15 2025-08-08T20:00 x1\n2025-08-09T19:15 2025-08-09T21:00 beta\n2025-08-09T00:00 2025-08-09T01:30 gamma crlf\r\nbreak\n"
+            }
+          },
+          "arm": {
+            "stdout": {
+              "base64": "",
+              "text": ""
+            },
+            "stderr": {
+              "base64": "dGFsbHk6IGEgbm90ZSBjYW5ub3QgY29udGFpbiBhIGxpbmUgYnJlYWsK",
+              "text": "tally: a note cannot contain a line break\n"
+            },
+            "status": 1,
+            "signal": null,
+            "timedOut": false,
+            "log": {
+              "base64": "MjAyNS0wOC0wOFQxNzoxNSAyMDI1LTA4LTA4VDIwOjAwIHgxCjIwMjUtMDgtMDlUMTk6MTUgMjAyNS0wOC0wOVQyMTowMCBiZXRhCg==",
+              "text": "2025-08-08T17:15 2025-08-08T20:00 x1\n2025-08-09T19:15 2025-08-09T21:00 beta\n"
+            }
+          }
+        },
+        {
+          "case": {
+            "id": 634,
+            "feature": "csv-quoting",
+            "args": [
+              "start",
+              "beta",
+              "cr\rbreak"
+            ],
+            "log": {
+              "base64": "MjAyNC0wNy0wNFQxNzozMCAyMDI0LTA3LTA0VDE4OjQ1IGdhbW1hIHJldmlldyB0ZWFtIHN0YW5kdXAgbG9naW4KMjAyNC0wNy0wNFQxOToxNSAyMDI0LTA3LTA0VDIxOjQ1IHgxIHN0YW5kdXAgcGxhbiB0ZXN0cwoyMDI0LTA3LTA0VDIyOjQ1IDIwMjQtMDctMDRUMjM6MDAgemV0YTkgZG9jcwoyMDI0LTA3LTA1VDAwOjAwIDIwMjQtMDctMDVUMDM6MTUgb3BzIGZpeCBjYWxsCjIwMjQtMDctMDVUMDU6NDUgMjAyNC0wNy0wNVQwOTozMCBvcHMgZml4IGxvZ2luIGNhbGwgcmV2aWV3Cg==",
+              "text": "2024-07-04T17:30 2024-07-04T18:45 gamma review team standup login\n2024-07-04T19:15 2024-07-04T21:45 x1 standup plan tests\n2024-07-04T22:45 2024-07-04T23:00 zeta9 docs\n2024-07-05T00:00 2024-07-05T03:15 ops fix call\n2024-07-05T05:45 2024-07-05T09:30 ops fix login call review\n"
+            }
+          },
+          "env": {
+            "TALLY_NOW": "2024-07-08T06:45",
+            "TALLY_LOG": "tally.log",
+            "logExisted": true
+          },
+          "reference": {
+            "stdout": {
+              "base64": "c3RhcnRlZCBiZXRhIGF0IDIwMjQtMDctMDhUMDY6NDUK",
+              "text": "started beta at 2024-07-08T06:45\n"
+            },
+            "stderr": {
+              "base64": "",
+              "text": ""
+            },
+            "status": 0,
+            "signal": null,
+            "timedOut": false,
+            "log": {
+              "base64": "MjAyNC0wNy0wNFQxNzozMCAyMDI0LTA3LTA0VDE4OjQ1IGdhbW1hIHJldmlldyB0ZWFtIHN0YW5kdXAgbG9naW4KMjAyNC0wNy0wNFQxOToxNSAyMDI0LTA3LTA0VDIxOjQ1IHgxIHN0YW5kdXAgcGxhbiB0ZXN0cwoyMDI0LTA3LTA0VDIyOjQ1IDIwMjQtMDctMDRUMjM6MDAgemV0YTkgZG9jcwoyMDI0LTA3LTA1VDAwOjAwIDIwMjQtMDctMDVUMDM6MTUgb3BzIGZpeCBjYWxsCjIwMjQtMDctMDVUMDU6NDUgMjAyNC0wNy0wNVQwOTozMCBvcHMgZml4IGxvZ2luIGNhbGwgcmV2aWV3CjIwMjQtMDctMDhUMDY6NDUgLSBiZXRhIGNyDWJyZWFrCg==",
+              "text": "2024-07-04T17:30 2024-07-04T18:45 gamma review team standup login\n2024-07-04T19:15 2024-07-04T21:45 x1 standup plan tests\n2024-07-04T22:45 2024-07-04T23:00 zeta9 docs\n2024-07-05T00:00 2024-07-05T03:15 ops fix call\n2024-07-05T05:45 2024-07-05T09:30 ops fix login call review\n2024-07-08T06:45 - beta cr\rbreak\n"
+            }
+          },
+          "arm": {
+            "stdout": {
+              "base64": "",
+              "text": ""
+            },
+            "stderr": {
+              "base64": "dGFsbHk6IGEgbm90ZSBjYW5ub3QgY29udGFpbiBhIGxpbmUgYnJlYWsK",
+              "text": "tally: a note cannot contain a line break\n"
+            },
+            "status": 1,
+            "signal": null,
+            "timedOut": false,
+            "log": {
+              "base64": "MjAyNC0wNy0wNFQxNzozMCAyMDI0LTA3LTA0VDE4OjQ1IGdhbW1hIHJldmlldyB0ZWFtIHN0YW5kdXAgbG9naW4KMjAyNC0wNy0wNFQxOToxNSAyMDI0LTA3LTA0VDIxOjQ1IHgxIHN0YW5kdXAgcGxhbiB0ZXN0cwoyMDI0LTA3LTA0VDIyOjQ1IDIwMjQtMDctMDRUMjM6MDAgemV0YTkgZG9jcwoyMDI0LTA3LTA1VDAwOjAwIDIwMjQtMDctMDVUMDM6MTUgb3BzIGZpeCBjYWxsCjIwMjQtMDctMDVUMDU6NDUgMjAyNC0wNy0wNVQwOTozMCBvcHMgZml4IGxvZ2luIGNhbGwgcmV2aWV3Cg==",
+              "text": "2024-07-04T17:30 2024-07-04T18:45 gamma review team standup login\n2024-07-04T19:15 2024-07-04T21:45 x1 standup plan tests\n2024-07-04T22:45 2024-07-04T23:00 zeta9 docs\n2024-07-05T00:00 2024-07-05T03:15 ops fix call\n2024-07-05T05:45 2024-07-05T09:30 ops fix login call review\n"
+            }
+          }
+        },
+        {
+          "case": {
+            "id": 770,
+            "feature": "csv-quoting",
+            "args": [
+              "add",
+              "delta",
+              "2024-03-30T19:00",
+              "2024-03-30T21:30",
+              "line\nbreak"
+            ],
+            "log": {
+              "base64": "MjAyNC0wMy0zMVQwMzowMCAyMDI0LTAzLTMxVDA2OjQ1IGRlbHRhIHRlc3RzIHRlc3RzCjIwMjQtMDMtMzFUMDc6MDAgMjAyNC0wMy0zMVQxMDozMCBhY21lIHRlYW0gc3RhbmR1cAoyMDI0LTAzLTMxVDEyOjAwIDIwMjQtMDMtMzFUMTM6NDUgZGVsdGEKMjAyNC0wMy0zMVQxNjozMCAyMDI0LTAzLTMxVDE5OjMwIGdhbW1hIHN0YW5kdXAKMjAyNC0wMy0zMVQyMTo0NSAyMDI0LTAzLTMxVDIyOjE1IHgxIGJ1ZyB0ZXN0cyB0aGUKMjAyNC0wNC0wMVQwMDoxNSAyMDI0LTA0LTAxVDA0OjQ1IG9wcyB0ZXN0cyBwbGFuCg==",
+              "text": "2024-03-31T03:00 2024-03-31T06:45 delta tests tests\n2024-03-31T07:00 2024-03-31T10:30 acme team standup\n2024-03-31T12:00 2024-03-31T13:45 delta\n2024-03-31T16:30 2024-03-31T19:30 gamma standup\n2024-03-31T21:45 2024-03-31T22:15 x1 bug tests the\n2024-04-01T00:15 2024-04-01T04:45 ops tests plan\n"
+            }
+          },
+          "env": {
+            "TALLY_NOW": "2024-04-01T14:00",
+            "TALLY_LOG": "tally.log",
+            "logExisted": true
+          },
+          "reference": {
+            "stdout": {
+              "base64": "YWRkZWQgZGVsdGEgMjAyNC0wMy0zMFQxOTowMCB0byAyMDI0LTAzLTMwVDIxOjMwICgyOjMwKQo=",
+              "text": "added delta 2024-03-30T19:00 to 2024-03-30T21:30 (2:30)\n"
+            },
+            "stderr": {
+              "base64": "",
+              "text": ""
+            },
+            "status": 0,
+            "signal": null,
+            "timedOut": false,
+            "log": {
+              "base64": "MjAyNC0wMy0zMVQwMzowMCAyMDI0LTAzLTMxVDA2OjQ1IGRlbHRhIHRlc3RzIHRlc3RzCjIwMjQtMDMtMzFUMDc6MDAgMjAyNC0wMy0zMVQxMDozMCBhY21lIHRlYW0gc3RhbmR1cAoyMDI0LTAzLTMxVDEyOjAwIDIwMjQtMDMtMzFUMTM6NDUgZGVsdGEKMjAyNC0wMy0zMVQxNjozMCAyMDI0LTAzLTMxVDE5OjMwIGdhbW1hIHN0YW5kdXAKMjAyNC0wMy0zMVQyMTo0NSAyMDI0LTAzLTMxVDIyOjE1IHgxIGJ1ZyB0ZXN0cyB0aGUKMjAyNC0wNC0wMVQwMDoxNSAyMDI0LTA0LTAxVDA0OjQ1IG9wcyB0ZXN0cyBwbGFuCjIwMjQtMDMtMzBUMTk6MDAgMjAyNC0wMy0zMFQyMTozMCBkZWx0YSBsaW5lCmJyZWFrCg==",
+              "text": "2024-03-31T03:00 2024-03-31T06:45 delta tests tests\n2024-03-31T07:00 2024-03-31T10:30 acme team standup\n2024-03-31T12:00 2024-03-31T13:45 delta\n2024-03-31T16:30 2024-03-31T19:30 gamma standup\n2024-03-31T21:45 2024-03-31T22:15 x1 bug tests the\n2024-04-01T00:15 2024-04-01T04:45 ops tests plan\n2024-03-30T19:00 2024-03-30T21:30 delta line\nbreak\n"
+            }
+          },
+          "arm": {
+            "stdout": {
+              "base64": "",
+              "text": ""
+            },
+            "stderr": {
+              "base64": "dGFsbHk6IGEgbm90ZSBjYW5ub3QgY29udGFpbiBhIGxpbmUgYnJlYWsK",
+              "text": "tally: a note cannot contain a line break\n"
+            },
+            "status": 1,
+            "signal": null,
+            "timedOut": false,
+            "log": {
+              "base64": "MjAyNC0wMy0zMVQwMzowMCAyMDI0LTAzLTMxVDA2OjQ1IGRlbHRhIHRlc3RzIHRlc3RzCjIwMjQtMDMtMzFUMDc6MDAgMjAyNC0wMy0zMVQxMDozMCBhY21lIHRlYW0gc3RhbmR1cAoyMDI0LTAzLTMxVDEyOjAwIDIwMjQtMDMtMzFUMTM6NDUgZGVsdGEKMjAyNC0wMy0zMVQxNjozMCAyMDI0LTAzLTMxVDE5OjMwIGdhbW1hIHN0YW5kdXAKMjAyNC0wMy0zMVQyMTo0NSAyMDI0LTAzLTMxVDIyOjE1IHgxIGJ1ZyB0ZXN0cyB0aGUKMjAyNC0wNC0wMVQwMDoxNSAyMDI0LTA0LTAxVDA0OjQ1IG9wcyB0ZXN0cyBwbGFuCg==",
+              "text": "2024-03-31T03:00 2024-03-31T06:45 delta tests tests\n2024-03-31T07:00 2024-03-31T10:30 acme team standup\n2024-03-31T12:00 2024-03-31T13:45 delta\n2024-03-31T16:30 2024-03-31T19:30 gamma standup\n2024-03-31T21:45 2024-03-31T22:15 x1 bug tests the\n2024-04-01T00:15 2024-04-01T04:45 ops tests plan\n"
+            }
+          }
+        },
+        {
+          "case": {
+            "id": 968,
+            "feature": "csv-quoting",
+            "args": [
+              "start",
+              "web2",
+              "crlf\r\nbreak"
+            ],
+            "log": {
+              "base64": "MjAyMy0xMS0yOFQxNToxNSAyMDIzLTExLTI4VDE3OjQ1IGFjbWUgZGVwbG95IGRlcGxveSBsb2dpbiBidWcKMjAyMy0xMS0zMFQxMjo0NSAyMDIzLTExLTMwVDE1OjAwIGRlbHRhIHRlYW0gc3RhbmR1cCBzdGFuZHVwIHRlYW0K",
+              "text": "2023-11-28T15:15 2023-11-28T17:45 acme deploy deploy login bug\n2023-11-30T12:45 2023-11-30T15:00 delta team standup standup team\n"
+            }
+          },
+          "env": {
+            "TALLY_NOW": "2023-12-03T01:15",
+            "TALLY_LOG": "tally.log",
+            "logExisted": true
+          },
+          "reference": {
+            "stdout": {
+              "base64": "c3RhcnRlZCB3ZWIyIGF0IDIwMjMtMTItMDNUMDE6MTUK",
+              "text": "started web2 at 2023-12-03T01:15\n"
+            },
+            "stderr": {
+              "base64": "",
+              "text": ""
+            },
+            "status": 0,
+            "signal": null,
+            "timedOut": false,
+            "log": {
+              "base64": "MjAyMy0xMS0yOFQxNToxNSAyMDIzLTExLTI4VDE3OjQ1IGFjbWUgZGVwbG95IGRlcGxveSBsb2dpbiBidWcKMjAyMy0xMS0zMFQxMjo0NSAyMDIzLTExLTMwVDE1OjAwIGRlbHRhIHRlYW0gc3RhbmR1cCBzdGFuZHVwIHRlYW0KMjAyMy0xMi0wM1QwMToxNSAtIHdlYjIgY3JsZg0KYnJlYWsK",
+              "text": "2023-11-28T15:15 2023-11-28T17:45 acme deploy deploy login bug\n2023-11-30T12:45 2023-11-30T15:00 delta team standup standup team\n2023-12-03T01:15 - web2 crlf\r\nbreak\n"
+            }
+          },
+          "arm": {
+            "stdout": {
+              "base64": "",
+              "text": ""
+            },
+            "stderr": {
+              "base64": "dGFsbHk6IGEgbm90ZSBjYW5ub3QgY29udGFpbiBhIGxpbmUgYnJlYWsK",
+              "text": "tally: a note cannot contain a line break\n"
+            },
+            "status": 1,
+            "signal": null,
+            "timedOut": false,
+            "log": {
+              "base64": "MjAyMy0xMS0yOFQxNToxNSAyMDIzLTExLTI4VDE3OjQ1IGFjbWUgZGVwbG95IGRlcGxveSBsb2dpbiBidWcKMjAyMy0xMS0zMFQxMjo0NSAyMDIzLTExLTMwVDE1OjAwIGRlbHRhIHRlYW0gc3RhbmR1cCBzdGFuZHVwIHRlYW0K",
+              "text": "2023-11-28T15:15 2023-11-28T17:45 acme deploy deploy login bug\n2023-11-30T12:45 2023-11-30T15:00 delta team standup standup team\n"
+            }
+          }
+        }
+      ],
+      "bom-utf8 / exit status": [
+        {
+          "case": {
+            "id": 42,
+            "feature": "bom-utf8",
+            "args": [
+              "overlaps"
+            ],
+            "log": {
+              "base64": "77u/MjAyNC0xMC0yNVQxODo0NSAyMDI0LTEwLTI1VDE5OjMwIHgxCjIwMjQtMTAtMjVUMjE6MDAgMjAyNC0xMC0yNlQwMDo0NSBiZXRhCjIwMjQtMTAtMjZUMDE6MDAgMjAyNC0xMC0yNlQwMzozMCBkZWx0YSBjYWxsIGRvY3MgZG9jcyBmaXgKMjAyNC0xMC0yNlQwMzo0NSAyMDI0LTEwLTI2VDA1OjQ1IHgxIGxvZ2luIHRlYW0gY2FsbAoyMDI0LTEwLTI2VDA2OjAwIDIwMjQtMTAtMjZUMjI6MDAgeDEgZml4IHN0YW5kdXAgYnVnIGRlcGxveQo=",
+              "text": "﻿2024-10-25T18:45 2024-10-25T19:30 x1\n2024-10-25T21:00 2024-10-26T00:45 beta\n2024-10-26T01:00 2024-10-26T03:30 delta call docs docs fix\n2024-10-26T03:45 2024-10-26T05:45 x1 login team call\n2024-10-26T06:00 2024-10-26T22:00 x1 fix standup bug deploy\n"
+            }
+          },
+          "env": {
+            "TALLY_NOW": "2024-10-27T04:30",
+            "TALLY_LOG": "tally.log",
+            "logExisted": true
+          },
+          "reference": {
+            "stdout": {
+              "base64": "bm8gb3ZlcmxhcHMK",
+              "text": "no overlaps\n"
+            },
+            "stderr": {
+              "base64": "",
+              "text": ""
+            },
+            "status": 0,
+            "signal": null,
+            "timedOut": false,
+            "log": {
+              "base64": "77u/MjAyNC0xMC0yNVQxODo0NSAyMDI0LTEwLTI1VDE5OjMwIHgxCjIwMjQtMTAtMjVUMjE6MDAgMjAyNC0xMC0yNlQwMDo0NSBiZXRhCjIwMjQtMTAtMjZUMDE6MDAgMjAyNC0xMC0yNlQwMzozMCBkZWx0YSBjYWxsIGRvY3MgZG9jcyBmaXgKMjAyNC0xMC0yNlQwMzo0NSAyMDI0LTEwLTI2VDA1OjQ1IHgxIGxvZ2luIHRlYW0gY2FsbAoyMDI0LTEwLTI2VDA2OjAwIDIwMjQtMTAtMjZUMjI6MDAgeDEgZml4IHN0YW5kdXAgYnVnIGRlcGxveQo=",
+              "text": "﻿2024-10-25T18:45 2024-10-25T19:30 x1\n2024-10-25T21:00 2024-10-26T00:45 beta\n2024-10-26T01:00 2024-10-26T03:30 delta call docs docs fix\n2024-10-26T03:45 2024-10-26T05:45 x1 login team call\n2024-10-26T06:00 2024-10-26T22:00 x1 fix standup bug deploy\n"
+            }
+          },
+          "arm": {
+            "stdout": {
+              "base64": "",
+              "text": ""
+            },
+            "stderr": {
+              "base64": "dGFsbHk6IHRhbGx5LmxvZzogbGluZSAxOiBiYWQgc3RhcnQgdGltZSAi77u/MjAyNC0xMC0yNVQxODo0NSIK",
+              "text": "tally: tally.log: line 1: bad start time \"﻿2024-10-25T18:45\"\n"
+            },
+            "status": 2,
+            "signal": null,
+            "timedOut": false,
+            "log": {
+              "base64": "77u/MjAyNC0xMC0yNVQxODo0NSAyMDI0LTEwLTI1VDE5OjMwIHgxCjIwMjQtMTAtMjVUMjE6MDAgMjAyNC0xMC0yNlQwMDo0NSBiZXRhCjIwMjQtMTAtMjZUMDE6MDAgMjAyNC0xMC0yNlQwMzozMCBkZWx0YSBjYWxsIGRvY3MgZG9jcyBmaXgKMjAyNC0xMC0yNlQwMzo0NSAyMDI0LTEwLTI2VDA1OjQ1IHgxIGxvZ2luIHRlYW0gY2FsbAoyMDI0LTEwLTI2VDA2OjAwIDIwMjQtMTAtMjZUMjI6MDAgeDEgZml4IHN0YW5kdXAgYnVnIGRlcGxveQo=",
+              "text": "﻿2024-10-25T18:45 2024-10-25T19:30 x1\n2024-10-25T21:00 2024-10-26T00:45 beta\n2024-10-26T01:00 2024-10-26T03:30 delta call docs docs fix\n2024-10-26T03:45 2024-10-26T05:45 x1 login team call\n2024-10-26T06:00 2024-10-26T22:00 x1 fix standup bug deploy\n"
+            }
+          }
+        },
+        {
+          "case": {
+            "id": 61,
+            "feature": "bom-utf8",
+            "args": [
+              "start",
+              "web2",
+              "the",
+              "bug"
+            ],
+            "log": {
+              "base64": "77u/MjAyNS0wOS0xNlQwNjoxNSAyMDI1LTA5LTE2VDEwOjMwIHgxIHRoZSBsb2dpbgoyMDI1LTA5LTE3VDAxOjQ1IDIwMjUtMDktMTdUMDM6MzAgYmV0YSB0aGUK",
+              "text": "﻿2025-09-16T06:15 2025-09-16T10:30 x1 the login\n2025-09-17T01:45 2025-09-17T03:30 beta the\n"
+            }
+          },
+          "env": {
+            "TALLY_NOW": "2025-09-17T07:00",
+            "TALLY_LOG": "tally.log",
+            "logExisted": true
+          },
+          "reference": {
+            "stdout": {
+              "base64": "c3RhcnRlZCB3ZWIyIGF0IDIwMjUtMDktMTdUMDc6MDAK",
+              "text": "started web2 at 2025-09-17T07:00\n"
+            },
+            "stderr": {
+              "base64": "",
+              "text": ""
+            },
+            "status": 0,
+            "signal": null,
+            "timedOut": false,
+            "log": {
+              "base64": "77u/MjAyNS0wOS0xNlQwNjoxNSAyMDI1LTA5LTE2VDEwOjMwIHgxIHRoZSBsb2dpbgoyMDI1LTA5LTE3VDAxOjQ1IDIwMjUtMDktMTdUMDM6MzAgYmV0YSB0aGUKMjAyNS0wOS0xN1QwNzowMCAtIHdlYjIgdGhlIGJ1Zwo=",
+              "text": "﻿2025-09-16T06:15 2025-09-16T10:30 x1 the login\n2025-09-17T01:45 2025-09-17T03:30 beta the\n2025-09-17T07:00 - web2 the bug\n"
+            }
+          },
+          "arm": {
+            "stdout": {
+              "base64": "",
+              "text": ""
+            },
+            "stderr": {
+              "base64": "dGFsbHk6IHRhbGx5LmxvZzogbGluZSAxOiBiYWQgc3RhcnQgdGltZSAi77u/MjAyNS0wOS0xNlQwNjoxNSIK",
+              "text": "tally: tally.log: line 1: bad start time \"﻿2025-09-16T06:15\"\n"
+            },
+            "status": 2,
+            "signal": null,
+            "timedOut": false,
+            "log": {
+              "base64": "77u/MjAyNS0wOS0xNlQwNjoxNSAyMDI1LTA5LTE2VDEwOjMwIHgxIHRoZSBsb2dpbgoyMDI1LTA5LTE3VDAxOjQ1IDIwMjUtMDktMTdUMDM6MzAgYmV0YSB0aGUK",
+              "text": "﻿2025-09-16T06:15 2025-09-16T10:30 x1 the login\n2025-09-17T01:45 2025-09-17T03:30 beta the\n"
+            }
+          }
+        },
+        {
+          "case": {
+            "id": 124,
+            "feature": "bom-utf8",
+            "args": [
+              "stop"
+            ],
+            "log": {
+              "base64": "77u/MjAyMy0wMy0yMVQwMzowMCAyMDIzLTAzLTIxVDA3OjAwIHgxIGRlcGxveSB0ZWFtCg==",
+              "text": "﻿2023-03-21T03:00 2023-03-21T07:00 x1 deploy team\n"
+            }
+          },
+          "env": {
+            "TALLY_NOW": "2023-03-21T16:15",
+            "TALLY_LOG": "tally.log",
+            "logExisted": true
+          },
+          "reference": {
+            "stdout": {
+              "base64": "",
+              "text": ""
+            },
+            "stderr": {
+              "base64": "dGFsbHk6IG5vdCBydW5uaW5nCg==",
+              "text": "tally: not running\n"
+            },
+            "status": 1,
+            "signal": null,
+            "timedOut": false,
+            "log": {
+              "base64": "77u/MjAyMy0wMy0yMVQwMzowMCAyMDIzLTAzLTIxVDA3OjAwIHgxIGRlcGxveSB0ZWFtCg==",
+              "text": "﻿2023-03-21T03:00 2023-03-21T07:00 x1 deploy team\n"
+            }
+          },
+          "arm": {
+            "stdout": {
+              "base64": "",
+              "text": ""
+            },
+            "stderr": {
+              "base64": "dGFsbHk6IHRhbGx5LmxvZzogbGluZSAxOiBiYWQgc3RhcnQgdGltZSAi77u/MjAyMy0wMy0yMVQwMzowMCIK",
+              "text": "tally: tally.log: line 1: bad start time \"﻿2023-03-21T03:00\"\n"
+            },
+            "status": 2,
+            "signal": null,
+            "timedOut": false,
+            "log": {
+              "base64": "77u/MjAyMy0wMy0yMVQwMzowMCAyMDIzLTAzLTIxVDA3OjAwIHgxIGRlcGxveSB0ZWFtCg==",
+              "text": "﻿2023-03-21T03:00 2023-03-21T07:00 x1 deploy team\n"
+            }
+          }
+        },
+        {
+          "case": {
+            "id": 155,
+            "feature": "bom-utf8",
+            "args": [
+              "report",
+              "project"
+            ],
+            "log": {
+              "base64": "MjAyMy0wMi0yNlQxNzozMCAyMDIzLTAyLTI2VDIwOjMwIG9wcyB0ZXN0cyBidWcgZGVwbG95IGxvZ2luCu+7vzIwMjMtMDItMjdUMDM6NDUgMjAyMy0wMi0yN1QwNTowMCB6ZXRhOSBzdGFuZHVwIHRoZSByZXZpZXcgZG9jcwo=",
+              "text": "2023-02-26T17:30 2023-02-26T20:30 ops tests bug deploy login\n﻿2023-02-27T03:45 2023-02-27T05:00 zeta9 standup the review docs\n"
+            }
+          },
+          "env": {
+            "TALLY_NOW": "2023-02-27T11:45",
+            "TALLY_LOG": "tally.log",
+            "logExisted": true
+          },
+          "reference": {
+            "stdout": {
+              "base64": "b3BzIDM6MDAKemV0YTkgMToxNQp0b3RhbCA0OjE1Cg==",
+              "text": "ops 3:00\nzeta9 1:15\ntotal 4:15\n"
+            },
+            "stderr": {
+              "base64": "",
+              "text": ""
+            },
+            "status": 0,
+            "signal": null,
+            "timedOut": false,
+            "log": {
+              "base64": "MjAyMy0wMi0yNlQxNzozMCAyMDIzLTAyLTI2VDIwOjMwIG9wcyB0ZXN0cyBidWcgZGVwbG95IGxvZ2luCu+7vzIwMjMtMDItMjdUMDM6NDUgMjAyMy0wMi0yN1QwNTowMCB6ZXRhOSBzdGFuZHVwIHRoZSByZXZpZXcgZG9jcwo=",
+              "text": "2023-02-26T17:30 2023-02-26T20:30 ops tests bug deploy login\n﻿2023-02-27T03:45 2023-02-27T05:00 zeta9 standup the review docs\n"
+            }
+          },
+          "arm": {
+            "stdout": {
+              "base64": "",
+              "text": ""
+            },
+            "stderr": {
+              "base64": "dGFsbHk6IHRhbGx5LmxvZzogbGluZSAyOiBiYWQgc3RhcnQgdGltZSAi77u/MjAyMy0wMi0yN1QwMzo0NSIK",
+              "text": "tally: tally.log: line 2: bad start time \"﻿2023-02-27T03:45\"\n"
+            },
+            "status": 2,
+            "signal": null,
+            "timedOut": false,
+            "log": {
+              "base64": "MjAyMy0wMi0yNlQxNzozMCAyMDIzLTAyLTI2VDIwOjMwIG9wcyB0ZXN0cyBidWcgZGVwbG95IGxvZ2luCu+7vzIwMjMtMDItMjdUMDM6NDUgMjAyMy0wMi0yN1QwNTowMCB6ZXRhOSBzdGFuZHVwIHRoZSByZXZpZXcgZG9jcwo=",
+              "text": "2023-02-26T17:30 2023-02-26T20:30 ops tests bug deploy login\n﻿2023-02-27T03:45 2023-02-27T05:00 zeta9 standup the review docs\n"
+            }
+          }
+        },
+        {
+          "case": {
+            "id": 235,
+            "feature": "bom-utf8",
+            "args": [
+              "overlaps"
+            ],
+            "log": {
+              "base64": "77u/MjAyMy0xMi0zMVQwMzo0NSAyMDIzLTEyLTMxVDA0OjMwIGJldGEgZG9jcyBkb2NzIHRlc3RzCjIwMjQtMDEtMDJUMTU6MTUgMjAyNC0wMS0wMlQxNTo0NSBkZWx0YSByZXZpZXcgYnVnIGRlcGxveQoyMDI0LTAxLTAyVDE2OjMwIDIwMjQtMDEtMDJUMTk6MTUgeDEKMjAyNC0wMS0wNFQwNjo0NSAyMDI0LTAxLTA0VDExOjMwIGFjbWUgdGVhbQoyMDI0LTAxLTA2VDIxOjE1IDIwMjQtMDEtMDZUMjE6NDUgemV0YTkgcGxhbiBkb2NzIGxvZ2luCg==",
+              "text": "﻿2023-12-31T03:45 2023-12-31T04:30 beta docs docs tests\n2024-01-02T15:15 2024-01-02T15:45 delta review bug deploy\n2024-01-02T16:30 2024-01-02T19:15 x1\n2024-01-04T06:45 2024-01-04T11:30 acme team\n2024-01-06T21:15 2024-01-06T21:45 zeta9 plan docs login\n"
+            }
+          },
+          "env": {
+            "TALLY_NOW": "2024-01-07T08:00",
+            "TALLY_LOG": "tally.log",
+            "logExisted": true
+          },
+          "reference": {
+            "stdout": {
+              "base64": "bm8gb3ZlcmxhcHMK",
+              "text": "no overlaps\n"
+            },
+            "stderr": {
+              "base64": "",
+              "text": ""
+            },
+            "status": 0,
+            "signal": null,
+            "timedOut": false,
+            "log": {
+              "base64": "77u/MjAyMy0xMi0zMVQwMzo0NSAyMDIzLTEyLTMxVDA0OjMwIGJldGEgZG9jcyBkb2NzIHRlc3RzCjIwMjQtMDEtMDJUMTU6MTUgMjAyNC0wMS0wMlQxNTo0NSBkZWx0YSByZXZpZXcgYnVnIGRlcGxveQoyMDI0LTAxLTAyVDE2OjMwIDIwMjQtMDEtMDJUMTk6MTUgeDEKMjAyNC0wMS0wNFQwNjo0NSAyMDI0LTAxLTA0VDExOjMwIGFjbWUgdGVhbQoyMDI0LTAxLTA2VDIxOjE1IDIwMjQtMDEtMDZUMjE6NDUgemV0YTkgcGxhbiBkb2NzIGxvZ2luCg==",
+              "text": "﻿2023-12-31T03:45 2023-12-31T04:30 beta docs docs tests\n2024-01-02T15:15 2024-01-02T15:45 delta review bug deploy\n2024-01-02T16:30 2024-01-02T19:15 x1\n2024-01-04T06:45 2024-01-04T11:30 acme team\n2024-01-06T21:15 2024-01-06T21:45 zeta9 plan docs login\n"
+            }
+          },
+          "arm": {
+            "stdout": {
+              "base64": "",
+              "text": ""
+            },
+            "stderr": {
+              "base64": "dGFsbHk6IHRhbGx5LmxvZzogbGluZSAxOiBiYWQgc3RhcnQgdGltZSAi77u/MjAyMy0xMi0zMVQwMzo0NSIK",
+              "text": "tally: tally.log: line 1: bad start time \"﻿2023-12-31T03:45\"\n"
+            },
+            "status": 2,
+            "signal": null,
+            "timedOut": false,
+            "log": {
+              "base64": "77u/MjAyMy0xMi0zMVQwMzo0NSAyMDIzLTEyLTMxVDA0OjMwIGJldGEgZG9jcyBkb2NzIHRlc3RzCjIwMjQtMDEtMDJUMTU6MTUgMjAyNC0wMS0wMlQxNTo0NSBkZWx0YSByZXZpZXcgYnVnIGRlcGxveQoyMDI0LTAxLTAyVDE2OjMwIDIwMjQtMDEtMDJUMTk6MTUgeDEKMjAyNC0wMS0wNFQwNjo0NSAyMDI0LTAxLTA0VDExOjMwIGFjbWUgdGVhbQoyMDI0LTAxLTA2VDIxOjE1IDIwMjQtMDEtMDZUMjE6NDUgemV0YTkgcGxhbiBkb2NzIGxvZ2luCg==",
+              "text": "﻿2023-12-31T03:45 2023-12-31T04:30 beta docs docs tests\n2024-01-02T15:15 2024-01-02T15:45 delta review bug deploy\n2024-01-02T16:30 2024-01-02T19:15 x1\n2024-01-04T06:45 2024-01-04T11:30 acme team\n2024-01-06T21:15 2024-01-06T21:45 zeta9 plan docs login\n"
+            }
+          }
+        },
+        {
+          "case": {
+            "id": 268,
+            "feature": "bom-utf8",
+            "args": [
+              "add",
+              "beta",
+              "2024-10-25T03:15",
+              "2024-10-25T06:00",
+              "team"
+            ],
+            "log": {
+              "base64": "77u/MjAyNC0xMC0yMVQwMToxNSAyMDI0LTEwLTIxVDAyOjE1IG9wcyB0ZXN0cyBsb2dpbiB0aGUKMjAyNC0xMC0yMVQxOTozMCAyMDI0LTEwLTIxVDIzOjMwIGdhbW1hIGNhbGwgdGVhbSBkZXBsb3kgcmV2aWV3CjIwMjQtMTAtMjJUMDA6MDAgMjAyNC0xMC0yMlQxMjowMCBhY21lCjIwMjQtMTAtMjRUMTA6NDUgMjAyNC0xMC0yNFQxNDozMCBiZXRhIHN0YW5kdXAgZG9jcwo=",
+              "text": "﻿2024-10-21T01:15 2024-10-21T02:15 ops tests login the\n2024-10-21T19:30 2024-10-21T23:30 gamma call team deploy review\n2024-10-22T00:00 2024-10-22T12:00 acme\n2024-10-24T10:45 2024-10-24T14:30 beta standup docs\n"
+            }
+          },
+          "env": {
+            "TALLY_NOW": "2024-10-24T20:45",
+            "TALLY_LOG": "tally.log",
+            "logExisted": true
+          },
+          "reference": {
+            "stdout": {
+              "base64": "YWRkZWQgYmV0YSAyMDI0LTEwLTI1VDAzOjE1IHRvIDIwMjQtMTAtMjVUMDY6MDAgKDI6NDUpCg==",
+              "text": "added beta 2024-10-25T03:15 to 2024-10-25T06:00 (2:45)\n"
+            },
+            "stderr": {
+              "base64": "",
+              "text": ""
+            },
+            "status": 0,
+            "signal": null,
+            "timedOut": false,
+            "log": {
+              "base64": "77u/MjAyNC0xMC0yMVQwMToxNSAyMDI0LTEwLTIxVDAyOjE1IG9wcyB0ZXN0cyBsb2dpbiB0aGUKMjAyNC0xMC0yMVQxOTozMCAyMDI0LTEwLTIxVDIzOjMwIGdhbW1hIGNhbGwgdGVhbSBkZXBsb3kgcmV2aWV3CjIwMjQtMTAtMjJUMDA6MDAgMjAyNC0xMC0yMlQxMjowMCBhY21lCjIwMjQtMTAtMjRUMTA6NDUgMjAyNC0xMC0yNFQxNDozMCBiZXRhIHN0YW5kdXAgZG9jcwoyMDI0LTEwLTI1VDAzOjE1IDIwMjQtMTAtMjVUMDY6MDAgYmV0YSB0ZWFtCg==",
+              "text": "﻿2024-10-21T01:15 2024-10-21T02:15 ops tests login the\n2024-10-21T19:30 2024-10-21T23:30 gamma call team deploy review\n2024-10-22T00:00 2024-10-22T12:00 acme\n2024-10-24T10:45 2024-10-24T14:30 beta standup docs\n2024-10-25T03:15 2024-10-25T06:00 beta team\n"
+            }
+          },
+          "arm": {
+            "stdout": {
+              "base64": "",
+              "text": ""
+            },
+            "stderr": {
+              "base64": "dGFsbHk6IHRhbGx5LmxvZzogbGluZSAxOiBiYWQgc3RhcnQgdGltZSAi77u/MjAyNC0xMC0yMVQwMToxNSIK",
+              "text": "tally: tally.log: line 1: bad start time \"﻿2024-10-21T01:15\"\n"
+            },
+            "status": 2,
+            "signal": null,
+            "timedOut": false,
+            "log": {
+              "base64": "77u/MjAyNC0xMC0yMVQwMToxNSAyMDI0LTEwLTIxVDAyOjE1IG9wcyB0ZXN0cyBsb2dpbiB0aGUKMjAyNC0xMC0yMVQxOTozMCAyMDI0LTEwLTIxVDIzOjMwIGdhbW1hIGNhbGwgdGVhbSBkZXBsb3kgcmV2aWV3CjIwMjQtMTAtMjJUMDA6MDAgMjAyNC0xMC0yMlQxMjowMCBhY21lCjIwMjQtMTAtMjRUMTA6NDUgMjAyNC0xMC0yNFQxNDozMCBiZXRhIHN0YW5kdXAgZG9jcwo=",
+              "text": "﻿2024-10-21T01:15 2024-10-21T02:15 ops tests login the\n2024-10-21T19:30 2024-10-21T23:30 gamma call team deploy review\n2024-10-22T00:00 2024-10-22T12:00 acme\n2024-10-24T10:45 2024-10-24T14:30 beta standup docs\n"
+            }
+          }
+        },
+        {
+          "case": {
+            "id": 320,
+            "feature": "bom-utf8",
+            "args": [
+              "report",
+              "project"
+            ],
+            "log": {
+              "base64": "77u/MjAyNS0wOC0wNFQxOTozMCAyMDI1LTA4LTA0VDIzOjAwIGdhbW1hIGJ1ZyByZXZpZXcgYnVnIHRoZQoyMDI1LTA4LTA1VDAwOjQ1IDIwMjUtMDgtMDVUMDE6MDAgemV0YTkgZG9jcwoyMDI1LTA4LTA1VDA0OjAwIDIwMjUtMDgtMDVUMDc6MzAgd2ViMiBkZXBsb3kgY2FsbCBsb2dpbiBjYWxsCjIwMjUtMDgtMDVUMTA6MzAgMjAyNS0wOC0wNVQxMDo0NSBkZWx0YSB0aGUK",
+              "text": "﻿2025-08-04T19:30 2025-08-04T23:00 gamma bug review bug the\n2025-08-05T00:45 2025-08-05T01:00 zeta9 docs\n2025-08-05T04:00 2025-08-05T07:30 web2 deploy call login call\n2025-08-05T10:30 2025-08-05T10:45 delta the\n"
+            }
+          },
+          "env": {
+            "TALLY_NOW": "2025-08-05T14:30",
+            "TALLY_LOG": "tally.log",
+            "logExisted": true
+          },
+          "reference": {
+            "stdout": {
+              "base64": "ZGVsdGEgMDoxNQpnYW1tYSAzOjMwCndlYjIgMzozMAp6ZXRhOSAwOjE1CnRvdGFsIDc6MzAK",
+              "text": "delta 0:15\ngamma 3:30\nweb2 3:30\nzeta9 0:15\ntotal 7:30\n"
+            },
+            "stderr": {
+              "base64": "",
+              "text": ""
+            },
+            "status": 0,
+            "signal": null,
+            "timedOut": false,
+            "log": {
+              "base64": "77u/MjAyNS0wOC0wNFQxOTozMCAyMDI1LTA4LTA0VDIzOjAwIGdhbW1hIGJ1ZyByZXZpZXcgYnVnIHRoZQoyMDI1LTA4LTA1VDAwOjQ1IDIwMjUtMDgtMDVUMDE6MDAgemV0YTkgZG9jcwoyMDI1LTA4LTA1VDA0OjAwIDIwMjUtMDgtMDVUMDc6MzAgd2ViMiBkZXBsb3kgY2FsbCBsb2dpbiBjYWxsCjIwMjUtMDgtMDVUMTA6MzAgMjAyNS0wOC0wNVQxMDo0NSBkZWx0YSB0aGUK",
+              "text": "﻿2025-08-04T19:30 2025-08-04T23:00 gamma bug review bug the\n2025-08-05T00:45 2025-08-05T01:00 zeta9 docs\n2025-08-05T04:00 2025-08-05T07:30 web2 deploy call login call\n2025-08-05T10:30 2025-08-05T10:45 delta the\n"
+            }
+          },
+          "arm": {
+            "stdout": {
+              "base64": "",
+              "text": ""
+            },
+            "stderr": {
+              "base64": "dGFsbHk6IHRhbGx5LmxvZzogbGluZSAxOiBiYWQgc3RhcnQgdGltZSAi77u/MjAyNS0wOC0wNFQxOTozMCIK",
+              "text": "tally: tally.log: line 1: bad start time \"﻿2025-08-04T19:30\"\n"
+            },
+            "status": 2,
+            "signal": null,
+            "timedOut": false,
+            "log": {
+              "base64": "77u/MjAyNS0wOC0wNFQxOTozMCAyMDI1LTA4LTA0VDIzOjAwIGdhbW1hIGJ1ZyByZXZpZXcgYnVnIHRoZQoyMDI1LTA4LTA1VDAwOjQ1IDIwMjUtMDgtMDVUMDE6MDAgemV0YTkgZG9jcwoyMDI1LTA4LTA1VDA0OjAwIDIwMjUtMDgtMDVUMDc6MzAgd2ViMiBkZXBsb3kgY2FsbCBsb2dpbiBjYWxsCjIwMjUtMDgtMDVUMTA6MzAgMjAyNS0wOC0wNVQxMDo0NSBkZWx0YSB0aGUK",
+              "text": "﻿2025-08-04T19:30 2025-08-04T23:00 gamma bug review bug the\n2025-08-05T00:45 2025-08-05T01:00 zeta9 docs\n2025-08-05T04:00 2025-08-05T07:30 web2 deploy call login call\n2025-08-05T10:30 2025-08-05T10:45 delta the\n"
+            }
+          }
+        },
+        {
+          "case": {
+            "id": 370,
+            "feature": "bom-utf8",
+            "args": [
+              "start",
+              "acme",
+              "call",
+              "review"
+            ],
+            "log": {
+              "base64": "77u/MjAyNS0wNi0yN1QxNToxNSAyMDI1LTA2LTI4VDAxOjE1IHgxCjIwMjUtMDYtMjhUMDI6NDUgMjAyNS0wNi0yOFQwMzo0NSBvcHMgY2FsbCBjYWxsIHJldmlldwoyMDI1LTA2LTI4VDA0OjAwIDIwMjUtMDYtMjhUMDg6MDAgemV0YTkgdGVhbQoyMDI1LTA2LTI4VDEwOjQ1IDIwMjUtMDYtMjhUMTI6MDAgb3BzIGRlcGxveSBzdGFuZHVwCjIwMjUtMDYtMzBUMTU6MDAgMjAyNS0wNi0zMFQxNToxNSBhY21lIGRvY3MK",
+              "text": "﻿2025-06-27T15:15 2025-06-28T01:15 x1\n2025-06-28T02:45 2025-06-28T03:45 ops call call review\n2025-06-28T04:00 2025-06-28T08:00 zeta9 team\n2025-06-28T10:45 2025-06-28T12:00 ops deploy standup\n2025-06-30T15:00 2025-06-30T15:15 acme docs\n"
+            }
+          },
+          "env": {
+            "TALLY_NOW": "2025-07-01T00:30",
+            "TALLY_LOG": "tally.log",
+            "logExisted": true
+          },
+          "reference": {
+            "stdout": {
+              "base64": "c3RhcnRlZCBhY21lIGF0IDIwMjUtMDctMDFUMDA6MzAK",
+              "text": "started acme at 2025-07-01T00:30\n"
+            },
+            "stderr": {
+              "base64": "",
+              "text": ""
+            },
+            "status": 0,
+            "signal": null,
+            "timedOut": false,
+            "log": {
+              "base64": "77u/MjAyNS0wNi0yN1QxNToxNSAyMDI1LTA2LTI4VDAxOjE1IHgxCjIwMjUtMDYtMjhUMDI6NDUgMjAyNS0wNi0yOFQwMzo0NSBvcHMgY2FsbCBjYWxsIHJldmlldwoyMDI1LTA2LTI4VDA0OjAwIDIwMjUtMDYtMjhUMDg6MDAgemV0YTkgdGVhbQoyMDI1LTA2LTI4VDEwOjQ1IDIwMjUtMDYtMjhUMTI6MDAgb3BzIGRlcGxveSBzdGFuZHVwCjIwMjUtMDYtMzBUMTU6MDAgMjAyNS0wNi0zMFQxNToxNSBhY21lIGRvY3MKMjAyNS0wNy0wMVQwMDozMCAtIGFjbWUgY2FsbCByZXZpZXcK",
+              "text": "﻿2025-06-27T15:15 2025-06-28T01:15 x1\n2025-06-28T02:45 2025-06-28T03:45 ops call call review\n2025-06-28T04:00 2025-06-28T08:00 zeta9 team\n2025-06-28T10:45 2025-06-28T12:00 ops deploy standup\n2025-06-30T15:00 2025-06-30T15:15 acme docs\n2025-07-01T00:30 - acme call review\n"
+            }
+          },
+          "arm": {
+            "stdout": {
+              "base64": "",
+              "text": ""
+            },
+            "stderr": {
+              "base64": "dGFsbHk6IHRhbGx5LmxvZzogbGluZSAxOiBiYWQgc3RhcnQgdGltZSAi77u/MjAyNS0wNi0yN1QxNToxNSIK",
+              "text": "tally: tally.log: line 1: bad start time \"﻿2025-06-27T15:15\"\n"
+            },
+            "status": 2,
+            "signal": null,
+            "timedOut": false,
+            "log": {
+              "base64": "77u/MjAyNS0wNi0yN1QxNToxNSAyMDI1LTA2LTI4VDAxOjE1IHgxCjIwMjUtMDYtMjhUMDI6NDUgMjAyNS0wNi0yOFQwMzo0NSBvcHMgY2FsbCBjYWxsIHJldmlldwoyMDI1LTA2LTI4VDA0OjAwIDIwMjUtMDYtMjhUMDg6MDAgemV0YTkgdGVhbQoyMDI1LTA2LTI4VDEwOjQ1IDIwMjUtMDYtMjhUMTI6MDAgb3BzIGRlcGxveSBzdGFuZHVwCjIwMjUtMDYtMzBUMTU6MDAgMjAyNS0wNi0zMFQxNToxNSBhY21lIGRvY3MK",
+              "text": "﻿2025-06-27T15:15 2025-06-28T01:15 x1\n2025-06-28T02:45 2025-06-28T03:45 ops call call review\n2025-06-28T04:00 2025-06-28T08:00 zeta9 team\n2025-06-28T10:45 2025-06-28T12:00 ops deploy standup\n2025-06-30T15:00 2025-06-30T15:15 acme docs\n"
+            }
+          }
+        },
+        {
+          "case": {
+            "id": 390,
+            "feature": "bom-utf8",
+            "args": [
+              "overlaps"
+            ],
+            "log": {
+              "base64": "77u/MjAyNC0wOS0zMFQwODoxNSAyMDI0LTA5LTMwVDEwOjAwIGRlbHRhCjIwMjQtMDktMzBUMTA6MTUgMjAyNC0wOS0zMFQyMTo0NSBnYW1tYQoyMDI0LTEwLTAxVDE3OjE1IDIwMjQtMTAtMDFUMjE6MTUgd2ViMgo=",
+              "text": "﻿2024-09-30T08:15 2024-09-30T10:00 delta\n2024-09-30T10:15 2024-09-30T21:45 gamma\n2024-10-01T17:15 2024-10-01T21:15 web2\n"
+            }
+          },
+          "env": {
+            "TALLY_NOW": "2024-10-02T08:15",
+            "TALLY_LOG": "tally.log",
+            "logExisted": true
+          },
+          "reference": {
+            "stdout": {
+              "base64": "bm8gb3ZlcmxhcHMK",
+              "text": "no overlaps\n"
+            },
+            "stderr": {
+              "base64": "",
+              "text": ""
+            },
+            "status": 0,
+            "signal": null,
+            "timedOut": false,
+            "log": {
+              "base64": "77u/MjAyNC0wOS0zMFQwODoxNSAyMDI0LTA5LTMwVDEwOjAwIGRlbHRhCjIwMjQtMDktMzBUMTA6MTUgMjAyNC0wOS0zMFQyMTo0NSBnYW1tYQoyMDI0LTEwLTAxVDE3OjE1IDIwMjQtMTAtMDFUMjE6MTUgd2ViMgo=",
+              "text": "﻿2024-09-30T08:15 2024-09-30T10:00 delta\n2024-09-30T10:15 2024-09-30T21:45 gamma\n2024-10-01T17:15 2024-10-01T21:15 web2\n"
+            }
+          },
+          "arm": {
+            "stdout": {
+              "base64": "",
+              "text": ""
+            },
+            "stderr": {
+              "base64": "dGFsbHk6IHRhbGx5LmxvZzogbGluZSAxOiBiYWQgc3RhcnQgdGltZSAi77u/MjAyNC0wOS0zMFQwODoxNSIK",
+              "text": "tally: tally.log: line 1: bad start time \"﻿2024-09-30T08:15\"\n"
+            },
+            "status": 2,
+            "signal": null,
+            "timedOut": false,
+            "log": {
+              "base64": "77u/MjAyNC0wOS0zMFQwODoxNSAyMDI0LTA5LTMwVDEwOjAwIGRlbHRhCjIwMjQtMDktMzBUMTA6MTUgMjAyNC0wOS0zMFQyMTo0NSBnYW1tYQoyMDI0LTEwLTAxVDE3OjE1IDIwMjQtMTAtMDFUMjE6MTUgd2ViMgo=",
+              "text": "﻿2024-09-30T08:15 2024-09-30T10:00 delta\n2024-09-30T10:15 2024-09-30T21:45 gamma\n2024-10-01T17:15 2024-10-01T21:15 web2\n"
+            }
+          }
+        },
+        {
+          "case": {
+            "id": 393,
+            "feature": "bom-utf8",
+            "args": [
+              "stop"
+            ],
+            "log": {
+              "base64": "77u/MjAyNC0xMC0yNlQyMzozMCAyMDI0LTEwLTI3VDAwOjMwIG9wcyB0ZXN0cwoyMDI0LTEwLTI3VDIyOjMwIDIwMjQtMTAtMjhUMDI6MzAgeDEgdGVhbSBidWcgdGhlIHN0YW5kdXAK",
+              "text": "﻿2024-10-26T23:30 2024-10-27T00:30 ops tests\n2024-10-27T22:30 2024-10-28T02:30 x1 team bug the standup\n"
+            }
+          },
+          "env": {
+            "TALLY_NOW": "2024-10-28T13:15",
+            "TALLY_LOG": "tally.log",
+            "logExisted": true
+          },
+          "reference": {
+            "stdout": {
+              "base64": "",
+              "text": ""
+            },
+            "stderr": {
+              "base64": "dGFsbHk6IG5vdCBydW5uaW5nCg==",
+              "text": "tally: not running\n"
+            },
+            "status": 1,
+            "signal": null,
+            "timedOut": false,
+            "log": {
+              "base64": "77u/MjAyNC0xMC0yNlQyMzozMCAyMDI0LTEwLTI3VDAwOjMwIG9wcyB0ZXN0cwoyMDI0LTEwLTI3VDIyOjMwIDIwMjQtMTAtMjhUMDI6MzAgeDEgdGVhbSBidWcgdGhlIHN0YW5kdXAK",
+              "text": "﻿2024-10-26T23:30 2024-10-27T00:30 ops tests\n2024-10-27T22:30 2024-10-28T02:30 x1 team bug the standup\n"
+            }
+          },
+          "arm": {
+            "stdout": {
+              "base64": "",
+              "text": ""
+            },
+            "stderr": {
+              "base64": "dGFsbHk6IHRhbGx5LmxvZzogbGluZSAxOiBiYWQgc3RhcnQgdGltZSAi77u/MjAyNC0xMC0yNlQyMzozMCIK",
+              "text": "tally: tally.log: line 1: bad start time \"﻿2024-10-26T23:30\"\n"
+            },
+            "status": 2,
+            "signal": null,
+            "timedOut": false,
+            "log": {
+              "base64": "77u/MjAyNC0xMC0yNlQyMzozMCAyMDI0LTEwLTI3VDAwOjMwIG9wcyB0ZXN0cwoyMDI0LTEwLTI3VDIyOjMwIDIwMjQtMTAtMjhUMDI6MzAgeDEgdGVhbSBidWcgdGhlIHN0YW5kdXAK",
+              "text": "﻿2024-10-26T23:30 2024-10-27T00:30 ops tests\n2024-10-27T22:30 2024-10-28T02:30 x1 team bug the standup\n"
+            }
+          }
+        }
+      ],
+      "dash-args / exit status": [
+        {
+          "case": {
+            "id": 132,
+            "feature": "dash-args",
+            "args": [
+              "csv",
+              "-x"
+            ],
+            "log": {
+              "base64": "MjAyNi0wNi0yMFQxMjoxNSAyMDI2LTA2LTIwVDE0OjQ1IGJldGEgcmV2aWV3IGNhbGwgdGVhbSBmaXgKMjAyNi0wNi0yMVQyMToxNSAyMDI2LTA2LTIxVDIyOjE1IG9wcwo=",
+              "text": "2026-06-20T12:15 2026-06-20T14:45 beta review call team fix\n2026-06-21T21:15 2026-06-21T22:15 ops\n"
+            }
+          },
+          "env": {
+            "TALLY_NOW": "2026-06-22T09:30",
+            "TALLY_LOG": "tally.log",
+            "logExisted": true
+          },
+          "reference": {
+            "stdout": {
+              "base64": "cHJvamVjdCxzdGFydCxlbmQsbWludXRlcyxub3RlCmJldGEsMjAyNi0wNi0yMFQxMjoxNSwyMDI2LTA2LTIwVDE0OjQ1LDE1MCxyZXZpZXcgY2FsbCB0ZWFtIGZpeApvcHMsMjAyNi0wNi0yMVQyMToxNSwyMDI2LTA2LTIxVDIyOjE1LDYwLAo=",
+              "text": "project,start,end,minutes,note\nbeta,2026-06-20T12:15,2026-06-20T14:45,150,review call team fix\nops,2026-06-21T21:15,2026-06-21T22:15,60,\n"
+            },
+            "stderr": {
+              "base64": "",
+              "text": ""
+            },
+            "status": 0,
+            "signal": null,
+            "timedOut": false,
+            "log": {
+              "base64": "MjAyNi0wNi0yMFQxMjoxNSAyMDI2LTA2LTIwVDE0OjQ1IGJldGEgcmV2aWV3IGNhbGwgdGVhbSBmaXgKMjAyNi0wNi0yMVQyMToxNSAyMDI2LTA2LTIxVDIyOjE1IG9wcwo=",
+              "text": "2026-06-20T12:15 2026-06-20T14:45 beta review call team fix\n2026-06-21T21:15 2026-06-21T22:15 ops\n"
+            }
+          },
+          "arm": {
+            "stdout": {
+              "base64": "",
+              "text": ""
+            },
+            "stderr": {
+              "base64": "dGFsbHk6IGNzdiB0YWtlcyBubyBhcmd1bWVudHMK",
+              "text": "tally: csv takes no arguments\n"
+            },
+            "status": 1,
+            "signal": null,
+            "timedOut": false,
+            "log": {
+              "base64": "MjAyNi0wNi0yMFQxMjoxNSAyMDI2LTA2LTIwVDE0OjQ1IGJldGEgcmV2aWV3IGNhbGwgdGVhbSBmaXgKMjAyNi0wNi0yMVQyMToxNSAyMDI2LTA2LTIxVDIyOjE1IG9wcwo=",
+              "text": "2026-06-20T12:15 2026-06-20T14:45 beta review call team fix\n2026-06-21T21:15 2026-06-21T22:15 ops\n"
+            }
+          }
+        },
+        {
+          "case": {
+            "id": 281,
+            "feature": "dash-args",
+            "args": [
+              "overlaps",
+              "--force",
+              "-n"
+            ],
+            "log": {
+              "base64": "MjAyNC0wMy0wM1QxOTowMCAyMDI0LTAzLTAzVDIyOjE1IGJldGEgYnVnIHRoZQoyMDI0LTAzLTA1VDE2OjE1IDIwMjQtMDMtMDVUMTk6NDUgYmV0YSBjYWxsIGRvY3MgdGVzdHMgZGVwbG95CjIwMjQtMDMtMDVUMjA6MTUgMjAyNC0wMy0wNVQyMjo0NSB6ZXRhOSBzdGFuZHVwIGxvZ2luIGZpeAoyMDI0LTAzLTA2VDAwOjE1IDIwMjQtMDMtMDZUMDU6MDAgd2ViMiBwbGFuIHRlYW0gcmV2aWV3IGJ1ZwoyMDI0LTAzLTA2VDA4OjAwIDIwMjQtMDMtMDZUMTE6MTUgZGVsdGEgdGVzdHMgZml4IHRoZQoyMDI0LTAzLTA5VDEyOjQ1IDIwMjQtMDMtMDlUMTQ6MDAgeDEK",
+              "text": "2024-03-03T19:00 2024-03-03T22:15 beta bug the\n2024-03-05T16:15 2024-03-05T19:45 beta call docs tests deploy\n2024-03-05T20:15 2024-03-05T22:45 zeta9 standup login fix\n2024-03-06T00:15 2024-03-06T05:00 web2 plan team review bug\n2024-03-06T08:00 2024-03-06T11:15 delta tests fix the\n2024-03-09T12:45 2024-03-09T14:00 x1\n"
+            }
+          },
+          "env": {
+            "TALLY_NOW": "2024-03-09T21:30",
+            "TALLY_LOG": "tally.log",
+            "logExisted": true
+          },
+          "reference": {
+            "stdout": {
+              "base64": "bm8gb3ZlcmxhcHMK",
+              "text": "no overlaps\n"
+            },
+            "stderr": {
+              "base64": "",
+              "text": ""
+            },
+            "status": 0,
+            "signal": null,
+            "timedOut": false,
+            "log": {
+              "base64": "MjAyNC0wMy0wM1QxOTowMCAyMDI0LTAzLTAzVDIyOjE1IGJldGEgYnVnIHRoZQoyMDI0LTAzLTA1VDE2OjE1IDIwMjQtMDMtMDVUMTk6NDUgYmV0YSBjYWxsIGRvY3MgdGVzdHMgZGVwbG95CjIwMjQtMDMtMDVUMjA6MTUgMjAyNC0wMy0wNVQyMjo0NSB6ZXRhOSBzdGFuZHVwIGxvZ2luIGZpeAoyMDI0LTAzLTA2VDAwOjE1IDIwMjQtMDMtMDZUMDU6MDAgd2ViMiBwbGFuIHRlYW0gcmV2aWV3IGJ1ZwoyMDI0LTAzLTA2VDA4OjAwIDIwMjQtMDMtMDZUMTE6MTUgZGVsdGEgdGVzdHMgZml4IHRoZQoyMDI0LTAzLTA5VDEyOjQ1IDIwMjQtMDMtMDlUMTQ6MDAgeDEK",
+              "text": "2024-03-03T19:00 2024-03-03T22:15 beta bug the\n2024-03-05T16:15 2024-03-05T19:45 beta call docs tests deploy\n2024-03-05T20:15 2024-03-05T22:45 zeta9 standup login fix\n2024-03-06T00:15 2024-03-06T05:00 web2 plan team review bug\n2024-03-06T08:00 2024-03-06T11:15 delta tests fix the\n2024-03-09T12:45 2024-03-09T14:00 x1\n"
+            }
+          },
+          "arm": {
+            "stdout": {
+              "base64": "",
+              "text": ""
+            },
+            "stderr": {
+              "base64": "dGFsbHk6IG92ZXJsYXBzIHRha2VzIG5vIGFyZ3VtZW50cwo=",
+              "text": "tally: overlaps takes no arguments\n"
+            },
+            "status": 1,
+            "signal": null,
+            "timedOut": false,
+            "log": {
+              "base64": "MjAyNC0wMy0wM1QxOTowMCAyMDI0LTAzLTAzVDIyOjE1IGJldGEgYnVnIHRoZQoyMDI0LTAzLTA1VDE2OjE1IDIwMjQtMDMtMDVUMTk6NDUgYmV0YSBjYWxsIGRvY3MgdGVzdHMgZGVwbG95CjIwMjQtMDMtMDVUMjA6MTUgMjAyNC0wMy0wNVQyMjo0NSB6ZXRhOSBzdGFuZHVwIGxvZ2luIGZpeAoyMDI0LTAzLTA2VDAwOjE1IDIwMjQtMDMtMDZUMDU6MDAgd2ViMiBwbGFuIHRlYW0gcmV2aWV3IGJ1ZwoyMDI0LTAzLTA2VDA4OjAwIDIwMjQtMDMtMDZUMTE6MTUgZGVsdGEgdGVzdHMgZml4IHRoZQoyMDI0LTAzLTA5VDEyOjQ1IDIwMjQtMDMtMDlUMTQ6MDAgeDEK",
+              "text": "2024-03-03T19:00 2024-03-03T22:15 beta bug the\n2024-03-05T16:15 2024-03-05T19:45 beta call docs tests deploy\n2024-03-05T20:15 2024-03-05T22:45 zeta9 standup login fix\n2024-03-06T00:15 2024-03-06T05:00 web2 plan team review bug\n2024-03-06T08:00 2024-03-06T11:15 delta tests fix the\n2024-03-09T12:45 2024-03-09T14:00 x1\n"
+            }
+          }
+        },
+        {
+          "case": {
+            "id": 416,
+            "feature": "dash-args",
+            "args": [
+              "overlaps",
+              "-n"
+            ],
+            "log": {
+              "base64": "MjAyNC0wMy0wM1QxNjozMCAyMDI0LTAzLTAzVDE4OjMwIHdlYjIgY2FsbCBwbGFuIGNhbGwgdGhlCjIwMjQtMDMtMDNUMjA6MzAgMjAyNC0wMy0wM1QyMzozMCBiZXRhCjIwMjQtMDMtMDRUMDI6MDAgMjAyNC0wMy0wNFQwMjoxNSBhY21lIGJ1Zwo=",
+              "text": "2024-03-03T16:30 2024-03-03T18:30 web2 call plan call the\n2024-03-03T20:30 2024-03-03T23:30 beta\n2024-03-04T02:00 2024-03-04T02:15 acme bug\n"
+            }
+          },
+          "env": {
+            "TALLY_NOW": "2024-03-04T04:00",
+            "TALLY_LOG": "tally.log",
+            "logExisted": true
+          },
+          "reference": {
+            "stdout": {
+              "base64": "bm8gb3ZlcmxhcHMK",
+              "text": "no overlaps\n"
+            },
+            "stderr": {
+              "base64": "",
+              "text": ""
+            },
+            "status": 0,
+            "signal": null,
+            "timedOut": false,
+            "log": {
+              "base64": "MjAyNC0wMy0wM1QxNjozMCAyMDI0LTAzLTAzVDE4OjMwIHdlYjIgY2FsbCBwbGFuIGNhbGwgdGhlCjIwMjQtMDMtMDNUMjA6MzAgMjAyNC0wMy0wM1QyMzozMCBiZXRhCjIwMjQtMDMtMDRUMDI6MDAgMjAyNC0wMy0wNFQwMjoxNSBhY21lIGJ1Zwo=",
+              "text": "2024-03-03T16:30 2024-03-03T18:30 web2 call plan call the\n2024-03-03T20:30 2024-03-03T23:30 beta\n2024-03-04T02:00 2024-03-04T02:15 acme bug\n"
+            }
+          },
+          "arm": {
+            "stdout": {
+              "base64": "",
+              "text": ""
+            },
+            "stderr": {
+              "base64": "dGFsbHk6IG92ZXJsYXBzIHRha2VzIG5vIGFyZ3VtZW50cwo=",
+              "text": "tally: overlaps takes no arguments\n"
+            },
+            "status": 1,
+            "signal": null,
+            "timedOut": false,
+            "log": {
+              "base64": "MjAyNC0wMy0wM1QxNjozMCAyMDI0LTAzLTAzVDE4OjMwIHdlYjIgY2FsbCBwbGFuIGNhbGwgdGhlCjIwMjQtMDMtMDNUMjA6MzAgMjAyNC0wMy0wM1QyMzozMCBiZXRhCjIwMjQtMDMtMDRUMDI6MDAgMjAyNC0wMy0wNFQwMjoxNSBhY21lIGJ1Zwo=",
+              "text": "2024-03-03T16:30 2024-03-03T18:30 web2 call plan call the\n2024-03-03T20:30 2024-03-03T23:30 beta\n2024-03-04T02:00 2024-03-04T02:15 acme bug\n"
+            }
+          }
+        },
+        {
+          "case": {
+            "id": 605,
+            "feature": "dash-args",
+            "args": [
+              "csv",
+              "-x"
+            ],
+            "log": {
+              "base64": "MjAyMy0wMi0yN1QxNjowMCAyMDIzLTAyLTI3VDIwOjAwIHdlYjIgdGVhbSBzdGFuZHVwIGxvZ2luIGRlcGxveQoyMDIzLTAyLTI3VDIxOjMwIDIwMjMtMDItMjhUMDE6MDAgYWNtZSB0aGUgbG9naW4KMjAyMy0wMy0wMVQwNTo0NSAyMDIzLTAzLTAxVDA2OjQ1IGRlbHRhCjIwMjMtMDMtMDFUMDc6NDUgMjAyMy0wMy0wMVQwODoxNSBvcHMgc3RhbmR1cAo=",
+              "text": "2023-02-27T16:00 2023-02-27T20:00 web2 team standup login deploy\n2023-02-27T21:30 2023-02-28T01:00 acme the login\n2023-03-01T05:45 2023-03-01T06:45 delta\n2023-03-01T07:45 2023-03-01T08:15 ops standup\n"
+            }
+          },
+          "env": {
+            "TALLY_NOW": "2023-03-01T16:00",
+            "TALLY_LOG": "tally.log",
+            "logExisted": true
+          },
+          "reference": {
+            "stdout": {
+              "base64": "cHJvamVjdCxzdGFydCxlbmQsbWludXRlcyxub3RlCndlYjIsMjAyMy0wMi0yN1QxNjowMCwyMDIzLTAyLTI3VDIwOjAwLDI0MCx0ZWFtIHN0YW5kdXAgbG9naW4gZGVwbG95CmFjbWUsMjAyMy0wMi0yN1QyMTozMCwyMDIzLTAyLTI4VDAxOjAwLDIxMCx0aGUgbG9naW4KZGVsdGEsMjAyMy0wMy0wMVQwNTo0NSwyMDIzLTAzLTAxVDA2OjQ1LDYwLApvcHMsMjAyMy0wMy0wMVQwNzo0NSwyMDIzLTAzLTAxVDA4OjE1LDMwLHN0YW5kdXAK",
+              "text": "project,start,end,minutes,note\nweb2,2023-02-27T16:00,2023-02-27T20:00,240,team standup login deploy\nacme,2023-02-27T21:30,2023-02-28T01:00,210,the login\ndelta,2023-03-01T05:45,2023-03-01T06:45,60,\nops,2023-03-01T07:45,2023-03-01T08:15,30,standup\n"
+            },
+            "stderr": {
+              "base64": "",
+              "text": ""
+            },
+            "status": 0,
+            "signal": null,
+            "timedOut": false,
+            "log": {
+              "base64": "MjAyMy0wMi0yN1QxNjowMCAyMDIzLTAyLTI3VDIwOjAwIHdlYjIgdGVhbSBzdGFuZHVwIGxvZ2luIGRlcGxveQoyMDIzLTAyLTI3VDIxOjMwIDIwMjMtMDItMjhUMDE6MDAgYWNtZSB0aGUgbG9naW4KMjAyMy0wMy0wMVQwNTo0NSAyMDIzLTAzLTAxVDA2OjQ1IGRlbHRhCjIwMjMtMDMtMDFUMDc6NDUgMjAyMy0wMy0wMVQwODoxNSBvcHMgc3RhbmR1cAo=",
+              "text": "2023-02-27T16:00 2023-02-27T20:00 web2 team standup login deploy\n2023-02-27T21:30 2023-02-28T01:00 acme the login\n2023-03-01T05:45 2023-03-01T06:45 delta\n2023-03-01T07:45 2023-03-01T08:15 ops standup\n"
+            }
+          },
+          "arm": {
+            "stdout": {
+              "base64": "",
+              "text": ""
+            },
+            "stderr": {
+              "base64": "dGFsbHk6IGNzdiB0YWtlcyBubyBhcmd1bWVudHMK",
+              "text": "tally: csv takes no arguments\n"
+            },
+            "status": 1,
+            "signal": null,
+            "timedOut": false,
+            "log": {
+              "base64": "MjAyMy0wMi0yN1QxNjowMCAyMDIzLTAyLTI3VDIwOjAwIHdlYjIgdGVhbSBzdGFuZHVwIGxvZ2luIGRlcGxveQoyMDIzLTAyLTI3VDIxOjMwIDIwMjMtMDItMjhUMDE6MDAgYWNtZSB0aGUgbG9naW4KMjAyMy0wMy0wMVQwNTo0NSAyMDIzLTAzLTAxVDA2OjQ1IGRlbHRhCjIwMjMtMDMtMDFUMDc6NDUgMjAyMy0wMy0wMVQwODoxNSBvcHMgc3RhbmR1cAo=",
+              "text": "2023-02-27T16:00 2023-02-27T20:00 web2 team standup login deploy\n2023-02-27T21:30 2023-02-28T01:00 acme the login\n2023-03-01T05:45 2023-03-01T06:45 delta\n2023-03-01T07:45 2023-03-01T08:15 ops standup\n"
+            }
+          }
+        },
+        {
+          "case": {
+            "id": 929,
+            "feature": "dash-args",
+            "args": [
+              "csv",
+              "--help",
+              "-"
+            ],
+            "log": {
+              "base64": "MjAyNC0wMy0wM1QwNzowMCAyMDI0LTAzLTAzVDEwOjQ1IGRlbHRhIGJ1ZyBkZXBsb3kKMjAyNC0wMy0wM1QxMTowMCAyMDI0LTAzLTA0VDAxOjAwIHgxIGRlcGxveSBwbGFuCjIwMjQtMDMtMDRUMDE6MTUgMjAyNC0wMy0wNFQwMjoxNSB4MSBkZXBsb3kgbG9naW4gZG9jcyB0ZXN0cwoyMDI0LTAzLTA0VDA0OjAwIDIwMjQtMDMtMDRUMDg6MDAgZ2FtbWEgYnVnIHJldmlldwoyMDI0LTAzLTA3VDA2OjE1IDIwMjQtMDMtMDdUMDk6MDAgeDEgZml4IHRlYW0K",
+              "text": "2024-03-03T07:00 2024-03-03T10:45 delta bug deploy\n2024-03-03T11:00 2024-03-04T01:00 x1 deploy plan\n2024-03-04T01:15 2024-03-04T02:15 x1 deploy login docs tests\n2024-03-04T04:00 2024-03-04T08:00 gamma bug review\n2024-03-07T06:15 2024-03-07T09:00 x1 fix team\n"
+            }
+          },
+          "env": {
+            "TALLY_NOW": "2024-03-07T21:00",
+            "TALLY_LOG": "tally.log",
+            "logExisted": true
+          },
+          "reference": {
+            "stdout": {
+              "base64": "cHJvamVjdCxzdGFydCxlbmQsbWludXRlcyxub3RlCmRlbHRhLDIwMjQtMDMtMDNUMDc6MDAsMjAyNC0wMy0wM1QxMDo0NSwyMjUsYnVnIGRlcGxveQp4MSwyMDI0LTAzLTAzVDExOjAwLDIwMjQtMDMtMDRUMDE6MDAsODQwLGRlcGxveSBwbGFuCngxLDIwMjQtMDMtMDRUMDE6MTUsMjAyNC0wMy0wNFQwMjoxNSw2MCxkZXBsb3kgbG9naW4gZG9jcyB0ZXN0cwpnYW1tYSwyMDI0LTAzLTA0VDA0OjAwLDIwMjQtMDMtMDRUMDg6MDAsMjQwLGJ1ZyByZXZpZXcKeDEsMjAyNC0wMy0wN1QwNjoxNSwyMDI0LTAzLTA3VDA5OjAwLDE2NSxmaXggdGVhbQo=",
+              "text": "project,start,end,minutes,note\ndelta,2024-03-03T07:00,2024-03-03T10:45,225,bug deploy\nx1,2024-03-03T11:00,2024-03-04T01:00,840,deploy plan\nx1,2024-03-04T01:15,2024-03-04T02:15,60,deploy login docs tests\ngamma,2024-03-04T04:00,2024-03-04T08:00,240,bug review\nx1,2024-03-07T06:15,2024-03-07T09:00,165,fix team\n"
+            },
+            "stderr": {
+              "base64": "",
+              "text": ""
+            },
+            "status": 0,
+            "signal": null,
+            "timedOut": false,
+            "log": {
+              "base64": "MjAyNC0wMy0wM1QwNzowMCAyMDI0LTAzLTAzVDEwOjQ1IGRlbHRhIGJ1ZyBkZXBsb3kKMjAyNC0wMy0wM1QxMTowMCAyMDI0LTAzLTA0VDAxOjAwIHgxIGRlcGxveSBwbGFuCjIwMjQtMDMtMDRUMDE6MTUgMjAyNC0wMy0wNFQwMjoxNSB4MSBkZXBsb3kgbG9naW4gZG9jcyB0ZXN0cwoyMDI0LTAzLTA0VDA0OjAwIDIwMjQtMDMtMDRUMDg6MDAgZ2FtbWEgYnVnIHJldmlldwoyMDI0LTAzLTA3VDA2OjE1IDIwMjQtMDMtMDdUMDk6MDAgeDEgZml4IHRlYW0K",
+              "text": "2024-03-03T07:00 2024-03-03T10:45 delta bug deploy\n2024-03-03T11:00 2024-03-04T01:00 x1 deploy plan\n2024-03-04T01:15 2024-03-04T02:15 x1 deploy login docs tests\n2024-03-04T04:00 2024-03-04T08:00 gamma bug review\n2024-03-07T06:15 2024-03-07T09:00 x1 fix team\n"
+            }
+          },
+          "arm": {
+            "stdout": {
+              "base64": "",
+              "text": ""
+            },
+            "stderr": {
+              "base64": "dGFsbHk6IGNzdiB0YWtlcyBubyBhcmd1bWVudHMK",
+              "text": "tally: csv takes no arguments\n"
+            },
+            "status": 1,
+            "signal": null,
+            "timedOut": false,
+            "log": {
+              "base64": "MjAyNC0wMy0wM1QwNzowMCAyMDI0LTAzLTAzVDEwOjQ1IGRlbHRhIGJ1ZyBkZXBsb3kKMjAyNC0wMy0wM1QxMTowMCAyMDI0LTAzLTA0VDAxOjAwIHgxIGRlcGxveSBwbGFuCjIwMjQtMDMtMDRUMDE6MTUgMjAyNC0wMy0wNFQwMjoxNSB4MSBkZXBsb3kgbG9naW4gZG9jcyB0ZXN0cwoyMDI0LTAzLTA0VDA0OjAwIDIwMjQtMDMtMDRUMDg6MDAgZ2FtbWEgYnVnIHJldmlldwoyMDI0LTAzLTA3VDA2OjE1IDIwMjQtMDMtMDdUMDk6MDAgeDEgZml4IHRlYW0K",
+              "text": "2024-03-03T07:00 2024-03-03T10:45 delta bug deploy\n2024-03-03T11:00 2024-03-04T01:00 x1 deploy plan\n2024-03-04T01:15 2024-03-04T02:15 x1 deploy login docs tests\n2024-03-04T04:00 2024-03-04T08:00 gamma bug review\n2024-03-07T06:15 2024-03-07T09:00 x1 fix team\n"
+            }
+          }
+        }
+      ],
+      "line-endings / exit status": [
+        {
+          "case": {
+            "id": 243,
+            "feature": "line-endings",
+            "args": [
+              "overlaps"
+            ],
+            "log": {
+              "base64": "MjAyMy0xMi0yOVQyMTowMCAyMDIzLTEyLTMwVDEyOjQ1IHgxIHRlc3RzCjIwMjMtMTItMzBUMTM6MDAgMjAyMy0xMi0zMFQxNDowMCBvcHMKMjAyMy0xMi0zMFQxNDoxNSAyMDIzLTEyLTMwVDE1OjAwIHpldGE5IHN0YW5kdXAgdGhlCjIwMjQtMDEtMDJUMTA6MTUgMjAyNC0wMS0wMlQxMTozMCBhY21lIHRlc3RzIHBsYW4NMjAyNC0wMS0wMlQxMjoxNSAyMDI0LTAxLTAyVDEyOjQ1IHgxIHRlc3RzIGRlcGxveSBmaXgK",
+              "text": "2023-12-29T21:00 2023-12-30T12:45 x1 tests\n2023-12-30T13:00 2023-12-30T14:00 ops\n2023-12-30T14:15 2023-12-30T15:00 zeta9 standup the\n2024-01-02T10:15 2024-01-02T11:30 acme tests plan\r2024-01-02T12:15 2024-01-02T12:45 x1 tests deploy fix\n"
+            }
+          },
+          "env": {
+            "TALLY_NOW": "2024-01-02T20:00",
+            "TALLY_LOG": "tally.log",
+            "logExisted": true
+          },
+          "reference": {
+            "stdout": {
+              "base64": "",
+              "text": ""
+            },
+            "stderr": {
+              "base64": "dGFsbHk6IHRhbGx5LmxvZzogbGluZSA0OiBleHBlY3RlZCBhIHN0YXJ0LCBhbiBlbmQgYW5kIGEgcHJvamVjdAo=",
+              "text": "tally: tally.log: line 4: expected a start, an end and a project\n"
+            },
+            "status": 2,
+            "signal": null,
+            "timedOut": false,
+            "log": {
+              "base64": "MjAyMy0xMi0yOVQyMTowMCAyMDIzLTEyLTMwVDEyOjQ1IHgxIHRlc3RzCjIwMjMtMTItMzBUMTM6MDAgMjAyMy0xMi0zMFQxNDowMCBvcHMKMjAyMy0xMi0zMFQxNDoxNSAyMDIzLTEyLTMwVDE1OjAwIHpldGE5IHN0YW5kdXAgdGhlCjIwMjQtMDEtMDJUMTA6MTUgMjAyNC0wMS0wMlQxMTozMCBhY21lIHRlc3RzIHBsYW4NMjAyNC0wMS0wMlQxMjoxNSAyMDI0LTAxLTAyVDEyOjQ1IHgxIHRlc3RzIGRlcGxveSBmaXgK",
+              "text": "2023-12-29T21:00 2023-12-30T12:45 x1 tests\n2023-12-30T13:00 2023-12-30T14:00 ops\n2023-12-30T14:15 2023-12-30T15:00 zeta9 standup the\n2024-01-02T10:15 2024-01-02T11:30 acme tests plan\r2024-01-02T12:15 2024-01-02T12:45 x1 tests deploy fix\n"
+            }
+          },
+          "arm": {
+            "stdout": {
+              "base64": "bm8gb3ZlcmxhcHMK",
+              "text": "no overlaps\n"
+            },
+            "stderr": {
+              "base64": "",
+              "text": ""
+            },
+            "status": 0,
+            "signal": null,
+            "timedOut": false,
+            "log": {
+              "base64": "MjAyMy0xMi0yOVQyMTowMCAyMDIzLTEyLTMwVDEyOjQ1IHgxIHRlc3RzCjIwMjMtMTItMzBUMTM6MDAgMjAyMy0xMi0zMFQxNDowMCBvcHMKMjAyMy0xMi0zMFQxNDoxNSAyMDIzLTEyLTMwVDE1OjAwIHpldGE5IHN0YW5kdXAgdGhlCjIwMjQtMDEtMDJUMTA6MTUgMjAyNC0wMS0wMlQxMTozMCBhY21lIHRlc3RzIHBsYW4NMjAyNC0wMS0wMlQxMjoxNSAyMDI0LTAxLTAyVDEyOjQ1IHgxIHRlc3RzIGRlcGxveSBmaXgK",
+              "text": "2023-12-29T21:00 2023-12-30T12:45 x1 tests\n2023-12-30T13:00 2023-12-30T14:00 ops\n2023-12-30T14:15 2023-12-30T15:00 zeta9 standup the\n2024-01-02T10:15 2024-01-02T11:30 acme tests plan\r2024-01-02T12:15 2024-01-02T12:45 x1 tests deploy fix\n"
+            }
+          }
+        },
+        {
+          "case": {
+            "id": 497,
+            "feature": "line-endings",
+            "args": [
+              "status"
+            ],
+            "log": {
+              "base64": "MjAyNS0wNi0yN1QxNTo0NSAyMDI1LTA2LTI3VDE5OjMwIHpldGE5IHJldmlldyByZXZpZXcKMjAyNS0wNi0yN1QxOTo0NSAyMDI1LTA2LTI3VDIxOjQ1IGdhbW1hIHRoZSBjYWxsIHRlc3RzDTIwMjUtMDYtMjhUMDA6NDUgMjAyNS0wNi0yOFQwMTo0NSBhY21lIGNhbGwgbG9naW4KMjAyNS0wNi0yOFQwMzozMCAyMDI1LTA2LTI4VDA3OjE1IGJldGEgZG9jcyB0ZXN0cyBkb2NzIHRlc3RzCg==",
+              "text": "2025-06-27T15:45 2025-06-27T19:30 zeta9 review review\n2025-06-27T19:45 2025-06-27T21:45 gamma the call tests\r2025-06-28T00:45 2025-06-28T01:45 acme call login\n2025-06-28T03:30 2025-06-28T07:15 beta docs tests docs tests\n"
+            }
+          },
+          "env": {
+            "TALLY_NOW": "2025-06-28T10:45",
+            "TALLY_LOG": "tally.log",
+            "logExisted": true
+          },
+          "reference": {
+            "stdout": {
+              "base64": "",
+              "text": ""
+            },
+            "stderr": {
+              "base64": "dGFsbHk6IHRhbGx5LmxvZzogbGluZSAyOiBleHBlY3RlZCBhIHN0YXJ0LCBhbiBlbmQgYW5kIGEgcHJvamVjdAo=",
+              "text": "tally: tally.log: line 2: expected a start, an end and a project\n"
+            },
+            "status": 2,
+            "signal": null,
+            "timedOut": false,
+            "log": {
+              "base64": "MjAyNS0wNi0yN1QxNTo0NSAyMDI1LTA2LTI3VDE5OjMwIHpldGE5IHJldmlldyByZXZpZXcKMjAyNS0wNi0yN1QxOTo0NSAyMDI1LTA2LTI3VDIxOjQ1IGdhbW1hIHRoZSBjYWxsIHRlc3RzDTIwMjUtMDYtMjhUMDA6NDUgMjAyNS0wNi0yOFQwMTo0NSBhY21lIGNhbGwgbG9naW4KMjAyNS0wNi0yOFQwMzozMCAyMDI1LTA2LTI4VDA3OjE1IGJldGEgZG9jcyB0ZXN0cyBkb2NzIHRlc3RzCg==",
+              "text": "2025-06-27T15:45 2025-06-27T19:30 zeta9 review review\n2025-06-27T19:45 2025-06-27T21:45 gamma the call tests\r2025-06-28T00:45 2025-06-28T01:45 acme call login\n2025-06-28T03:30 2025-06-28T07:15 beta docs tests docs tests\n"
+            }
+          },
+          "arm": {
+            "stdout": {
+              "base64": "bm90IHJ1bm5pbmcK",
+              "text": "not running\n"
+            },
+            "stderr": {
+              "base64": "",
+              "text": ""
+            },
+            "status": 0,
+            "signal": null,
+            "timedOut": false,
+            "log": {
+              "base64": "MjAyNS0wNi0yN1QxNTo0NSAyMDI1LTA2LTI3VDE5OjMwIHpldGE5IHJldmlldyByZXZpZXcKMjAyNS0wNi0yN1QxOTo0NSAyMDI1LTA2LTI3VDIxOjQ1IGdhbW1hIHRoZSBjYWxsIHRlc3RzDTIwMjUtMDYtMjhUMDA6NDUgMjAyNS0wNi0yOFQwMTo0NSBhY21lIGNhbGwgbG9naW4KMjAyNS0wNi0yOFQwMzozMCAyMDI1LTA2LTI4VDA3OjE1IGJldGEgZG9jcyB0ZXN0cyBkb2NzIHRlc3RzCg==",
+              "text": "2025-06-27T15:45 2025-06-27T19:30 zeta9 review review\n2025-06-27T19:45 2025-06-27T21:45 gamma the call tests\r2025-06-28T00:45 2025-06-28T01:45 acme call login\n2025-06-28T03:30 2025-06-28T07:15 beta docs tests docs tests\n"
+            }
+          }
+        },
+        {
+          "case": {
+            "id": 619,
+            "feature": "line-endings",
+            "args": [
+              "csv"
+            ],
+            "log": {
+              "base64": "MjAyNC0xMi0zMFQwODowMCAyMDI0LTEyLTMwVDA5OjE1IHpldGE5IGxvZ2luIGxvZ2luCjIwMjUtMDEtMDFUMDI6MTUgMjAyNS0wMS0wMVQwNjo0NSBvcHMgZG9jcw0yMDI1LTAxLTAxVDA3OjE1IDIwMjUtMDEtMDFUMDk6NDUgemV0YTkgZml4CjIwMjUtMDEtMDFUMTE6MDAgMjAyNS0wMS0wMVQxMToxNSBkZWx0YQoyMDI1LTAxLTAxVDExOjMwIDIwMjUtMDEtMDJUMDI6MDAgYmV0YSByZXZpZXcgZGVwbG95IHBsYW4KMjAyNS0wMS0wMlQwMjozMCAyMDI1LTAxLTAyVDA0OjAwIGFjbWUgdGVzdHMgZGVwbG95IHRlYW0gcmV2aWV3Cg==",
+              "text": "2024-12-30T08:00 2024-12-30T09:15 zeta9 login login\n2025-01-01T02:15 2025-01-01T06:45 ops docs\r2025-01-01T07:15 2025-01-01T09:45 zeta9 fix\n2025-01-01T11:00 2025-01-01T11:15 delta\n2025-01-01T11:30 2025-01-02T02:00 beta review deploy plan\n2025-01-02T02:30 2025-01-02T04:00 acme tests deploy team review\n"
+            }
+          },
+          "env": {
+            "TALLY_NOW": "2025-01-03T07:45",
+            "TALLY_LOG": "tally.log",
+            "logExisted": true
+          },
+          "reference": {
+            "stdout": {
+              "base64": "",
+              "text": ""
+            },
+            "stderr": {
+              "base64": "dGFsbHk6IHRhbGx5LmxvZzogbGluZSAyOiBleHBlY3RlZCBhIHN0YXJ0LCBhbiBlbmQgYW5kIGEgcHJvamVjdAo=",
+              "text": "tally: tally.log: line 2: expected a start, an end and a project\n"
+            },
+            "status": 2,
+            "signal": null,
+            "timedOut": false,
+            "log": {
+              "base64": "MjAyNC0xMi0zMFQwODowMCAyMDI0LTEyLTMwVDA5OjE1IHpldGE5IGxvZ2luIGxvZ2luCjIwMjUtMDEtMDFUMDI6MTUgMjAyNS0wMS0wMVQwNjo0NSBvcHMgZG9jcw0yMDI1LTAxLTAxVDA3OjE1IDIwMjUtMDEtMDFUMDk6NDUgemV0YTkgZml4CjIwMjUtMDEtMDFUMTE6MDAgMjAyNS0wMS0wMVQxMToxNSBkZWx0YQoyMDI1LTAxLTAxVDExOjMwIDIwMjUtMDEtMDJUMDI6MDAgYmV0YSByZXZpZXcgZGVwbG95IHBsYW4KMjAyNS0wMS0wMlQwMjozMCAyMDI1LTAxLTAyVDA0OjAwIGFjbWUgdGVzdHMgZGVwbG95IHRlYW0gcmV2aWV3Cg==",
+              "text": "2024-12-30T08:00 2024-12-30T09:15 zeta9 login login\n2025-01-01T02:15 2025-01-01T06:45 ops docs\r2025-01-01T07:15 2025-01-01T09:45 zeta9 fix\n2025-01-01T11:00 2025-01-01T11:15 delta\n2025-01-01T11:30 2025-01-02T02:00 beta review deploy plan\n2025-01-02T02:30 2025-01-02T04:00 acme tests deploy team review\n"
+            }
+          },
+          "arm": {
+            "stdout": {
+              "base64": "cHJvamVjdCxzdGFydCxlbmQsbWludXRlcyxub3RlCnpldGE5LDIwMjQtMTItMzBUMDg6MDAsMjAyNC0xMi0zMFQwOToxNSw3NSxsb2dpbiBsb2dpbgpvcHMsMjAyNS0wMS0wMVQwMjoxNSwyMDI1LTAxLTAxVDA2OjQ1LDI3MCwiZG9jcw0yMDI1LTAxLTAxVDA3OjE1IDIwMjUtMDEtMDFUMDk6NDUgemV0YTkgZml4IgpkZWx0YSwyMDI1LTAxLTAxVDExOjAwLDIwMjUtMDEtMDFUMTE6MTUsMTUsCmJldGEsMjAyNS0wMS0wMVQxMTozMCwyMDI1LTAxLTAyVDAyOjAwLDg3MCxyZXZpZXcgZGVwbG95IHBsYW4KYWNtZSwyMDI1LTAxLTAyVDAyOjMwLDIwMjUtMDEtMDJUMDQ6MDAsOTAsdGVzdHMgZGVwbG95IHRlYW0gcmV2aWV3Cg==",
+              "text": "project,start,end,minutes,note\nzeta9,2024-12-30T08:00,2024-12-30T09:15,75,login login\nops,2025-01-01T02:15,2025-01-01T06:45,270,\"docs\r2025-01-01T07:15 2025-01-01T09:45 zeta9 fix\"\ndelta,2025-01-01T11:00,2025-01-01T11:15,15,\nbeta,2025-01-01T11:30,2025-01-02T02:00,870,review deploy plan\nacme,2025-01-02T02:30,2025-01-02T04:00,90,tests deploy team review\n"
+            },
+            "stderr": {
+              "base64": "",
+              "text": ""
+            },
+            "status": 0,
+            "signal": null,
+            "timedOut": false,
+            "log": {
+              "base64": "MjAyNC0xMi0zMFQwODowMCAyMDI0LTEyLTMwVDA5OjE1IHpldGE5IGxvZ2luIGxvZ2luCjIwMjUtMDEtMDFUMDI6MTUgMjAyNS0wMS0wMVQwNjo0NSBvcHMgZG9jcw0yMDI1LTAxLTAxVDA3OjE1IDIwMjUtMDEtMDFUMDk6NDUgemV0YTkgZml4CjIwMjUtMDEtMDFUMTE6MDAgMjAyNS0wMS0wMVQxMToxNSBkZWx0YQoyMDI1LTAxLTAxVDExOjMwIDIwMjUtMDEtMDJUMDI6MDAgYmV0YSByZXZpZXcgZGVwbG95IHBsYW4KMjAyNS0wMS0wMlQwMjozMCAyMDI1LTAxLTAyVDA0OjAwIGFjbWUgdGVzdHMgZGVwbG95IHRlYW0gcmV2aWV3Cg==",
+              "text": "2024-12-30T08:00 2024-12-30T09:15 zeta9 login login\n2025-01-01T02:15 2025-01-01T06:45 ops docs\r2025-01-01T07:15 2025-01-01T09:45 zeta9 fix\n2025-01-01T11:00 2025-01-01T11:15 delta\n2025-01-01T11:30 2025-01-02T02:00 beta review deploy plan\n2025-01-02T02:30 2025-01-02T04:00 acme tests deploy team review\n"
+            }
+          }
+        },
+        {
+          "case": {
+            "id": 823,
+            "feature": "line-endings",
+            "args": [
+              "report",
+              "day"
+            ],
+            "log": {
+              "base64": "MjAyNS0wNC0xN1QyMTozMCAyMDI1LTA0LTE4VDAwOjAwIHpldGE5IGRvY3MgY2FsbCBidWcgY2FsbA0yMDI1LTA0LTE4VDAxOjAwIDIwMjUtMDQtMThUMTU6MzAgZ2FtbWEgZG9jcyB0aGUgcmV2aWV3CjIwMjUtMDQtMThUMTc6MDAgMjAyNS0wNC0xOFQyMDoxNSB6ZXRhOSByZXZpZXcgYnVnIGRvY3MgcGxhbgoyMDI1LTA0LTE4VDIxOjMwIDIwMjUtMDQtMTlUMDA6NDUgYmV0YSB0ZXN0cyBkZXBsb3kK",
+              "text": "2025-04-17T21:30 2025-04-18T00:00 zeta9 docs call bug call\r2025-04-18T01:00 2025-04-18T15:30 gamma docs the review\n2025-04-18T17:00 2025-04-18T20:15 zeta9 review bug docs plan\n2025-04-18T21:30 2025-04-19T00:45 beta tests deploy\n"
+            }
+          },
+          "env": {
+            "TALLY_NOW": "2025-04-20T08:15",
+            "TALLY_LOG": "tally.log",
+            "logExisted": true
+          },
+          "reference": {
+            "stdout": {
+              "base64": "",
+              "text": ""
+            },
+            "stderr": {
+              "base64": "dGFsbHk6IHRhbGx5LmxvZzogbGluZSAxOiBleHBlY3RlZCBhIHN0YXJ0LCBhbiBlbmQgYW5kIGEgcHJvamVjdAo=",
+              "text": "tally: tally.log: line 1: expected a start, an end and a project\n"
+            },
+            "status": 2,
+            "signal": null,
+            "timedOut": false,
+            "log": {
+              "base64": "MjAyNS0wNC0xN1QyMTozMCAyMDI1LTA0LTE4VDAwOjAwIHpldGE5IGRvY3MgY2FsbCBidWcgY2FsbA0yMDI1LTA0LTE4VDAxOjAwIDIwMjUtMDQtMThUMTU6MzAgZ2FtbWEgZG9jcyB0aGUgcmV2aWV3CjIwMjUtMDQtMThUMTc6MDAgMjAyNS0wNC0xOFQyMDoxNSB6ZXRhOSByZXZpZXcgYnVnIGRvY3MgcGxhbgoyMDI1LTA0LTE4VDIxOjMwIDIwMjUtMDQtMTlUMDA6NDUgYmV0YSB0ZXN0cyBkZXBsb3kK",
+              "text": "2025-04-17T21:30 2025-04-18T00:00 zeta9 docs call bug call\r2025-04-18T01:00 2025-04-18T15:30 gamma docs the review\n2025-04-18T17:00 2025-04-18T20:15 zeta9 review bug docs plan\n2025-04-18T21:30 2025-04-19T00:45 beta tests deploy\n"
+            }
+          },
+          "arm": {
+            "stdout": {
+              "base64": "MjAyNS0wNC0yMAp0b3RhbCAwOjAwCg==",
+              "text": "2025-04-20\ntotal 0:00\n"
+            },
+            "stderr": {
+              "base64": "",
+              "text": ""
+            },
+            "status": 0,
+            "signal": null,
+            "timedOut": false,
+            "log": {
+              "base64": "MjAyNS0wNC0xN1QyMTozMCAyMDI1LTA0LTE4VDAwOjAwIHpldGE5IGRvY3MgY2FsbCBidWcgY2FsbA0yMDI1LTA0LTE4VDAxOjAwIDIwMjUtMDQtMThUMTU6MzAgZ2FtbWEgZG9jcyB0aGUgcmV2aWV3CjIwMjUtMDQtMThUMTc6MDAgMjAyNS0wNC0xOFQyMDoxNSB6ZXRhOSByZXZpZXcgYnVnIGRvY3MgcGxhbgoyMDI1LTA0LTE4VDIxOjMwIDIwMjUtMDQtMTlUMDA6NDUgYmV0YSB0ZXN0cyBkZXBsb3kK",
+              "text": "2025-04-17T21:30 2025-04-18T00:00 zeta9 docs call bug call\r2025-04-18T01:00 2025-04-18T15:30 gamma docs the review\n2025-04-18T17:00 2025-04-18T20:15 zeta9 review bug docs plan\n2025-04-18T21:30 2025-04-19T00:45 beta tests deploy\n"
+            }
+          }
+        }
+      ],
+      "bom-utf8 / log": [
+        {
+          "case": {
+            "id": 346,
+            "feature": "bom-utf8",
+            "args": [
+              "start",
+              "zeta9",
+              "team"
+            ],
+            "log": {
+              "base64": "MjAyNi0wMy0yMFQwNDoxNSAyMDI2LTAzLTIwVDA4OjE1IG9wcwoyMDI2LTAzLTIwVDE3OjAwIDIwMjYtMDMtMjBUMjA6NDUgemV0YTkgZGVwbG95IGRlcGxveQoyMDI2LTAzLTIwVDIyOjE1IDIwMjYtMDMtMjBUMjM6MDAgZ2FtbWEKMjAyNi0wMy0yMVQwMTowMCAyMDI2LTAzLTIxVDAxOjMwIG9wcyB0aGUgY2FsbCB0aGUgdO2ggGhlCg==",
+              "text": "2026-03-20T04:15 2026-03-20T08:15 ops\n2026-03-20T17:00 2026-03-20T20:45 zeta9 deploy deploy\n2026-03-20T22:15 2026-03-20T23:00 gamma\n2026-03-21T01:00 2026-03-21T01:30 ops the call the t���he\n"
+            }
+          },
+          "env": {
+            "TALLY_NOW": "2026-03-21T20:15",
+            "TALLY_LOG": "tally.log",
+            "logExisted": true
+          },
+          "reference": {
+            "stdout": {
+              "base64": "c3RhcnRlZCB6ZXRhOSBhdCAyMDI2LTAzLTIxVDIwOjE1Cg==",
+              "text": "started zeta9 at 2026-03-21T20:15\n"
+            },
+            "stderr": {
+              "base64": "",
+              "text": ""
+            },
+            "status": 0,
+            "signal": null,
+            "timedOut": false,
+            "log": {
+              "base64": "MjAyNi0wMy0yMFQwNDoxNSAyMDI2LTAzLTIwVDA4OjE1IG9wcwoyMDI2LTAzLTIwVDE3OjAwIDIwMjYtMDMtMjBUMjA6NDUgemV0YTkgZGVwbG95IGRlcGxveQoyMDI2LTAzLTIwVDIyOjE1IDIwMjYtMDMtMjBUMjM6MDAgZ2FtbWEKMjAyNi0wMy0yMVQwMTowMCAyMDI2LTAzLTIxVDAxOjMwIG9wcyB0aGUgY2FsbCB0aGUgdO+/ve+/ve+/vWhlCjIwMjYtMDMtMjFUMjA6MTUgLSB6ZXRhOSB0ZWFtCg==",
+              "text": "2026-03-20T04:15 2026-03-20T08:15 ops\n2026-03-20T17:00 2026-03-20T20:45 zeta9 deploy deploy\n2026-03-20T22:15 2026-03-20T23:00 gamma\n2026-03-21T01:00 2026-03-21T01:30 ops the call the t���he\n2026-03-21T20:15 - zeta9 team\n"
+            }
+          },
+          "arm": {
+            "stdout": {
+              "base64": "c3RhcnRlZCB6ZXRhOSBhdCAyMDI2LTAzLTIxVDIwOjE1Cg==",
+              "text": "started zeta9 at 2026-03-21T20:15\n"
+            },
+            "stderr": {
+              "base64": "",
+              "text": ""
+            },
+            "status": 0,
+            "signal": null,
+            "timedOut": false,
+            "log": {
+              "base64": "MjAyNi0wMy0yMFQwNDoxNSAyMDI2LTAzLTIwVDA4OjE1IG9wcwoyMDI2LTAzLTIwVDE3OjAwIDIwMjYtMDMtMjBUMjA6NDUgemV0YTkgZGVwbG95IGRlcGxveQoyMDI2LTAzLTIwVDIyOjE1IDIwMjYtMDMtMjBUMjM6MDAgZ2FtbWEKMjAyNi0wMy0yMVQwMTowMCAyMDI2LTAzLTIxVDAxOjMwIG9wcyB0aGUgY2FsbCB0aGUgdO2ggGhlCjIwMjYtMDMtMjFUMjA6MTUgLSB6ZXRhOSB0ZWFtCg==",
+              "text": "2026-03-20T04:15 2026-03-20T08:15 ops\n2026-03-20T17:00 2026-03-20T20:45 zeta9 deploy deploy\n2026-03-20T22:15 2026-03-20T23:00 gamma\n2026-03-21T01:00 2026-03-21T01:30 ops the call the t���he\n2026-03-21T20:15 - zeta9 team\n"
+            }
+          }
+        },
+        {
+          "case": {
+            "id": 557,
+            "feature": "bom-utf8",
+            "args": [
+              "start",
+              "acme",
+              "team",
+              "docs",
+              "plan"
+            ],
+            "log": {
+              "base64": "MjAyNS0wNi0yN1QxOTozMCAyMDI1LTA2LTI3VDIwOjQ1IGdhbW1hIGZpeAoyMDI1LTA2LTI3VDIxOjQ1IDIwMjUtMDYtMjhUMDE6MTUgZ2FtbWEgYnVnIHBsYW4gc3RhbmR1cAoyMDI1LTA2LTI5VDIzOjAwIDIwMjUtMDYtMjlUMjM6MTUgYWNtZQoyMDI1LTA3LTAyVDA3OjMwIDIwMjUtMDctMDJUMDk6NDUgYWNtZSB0ZXN0cyBsb2dpbgoyMDI1LTA3LTA0VDAwOjAwIDIwMjUtMDctMDRUMDI6NDUgb3BzIGxvZ2luIGZpeCB0ZXPDdHMK",
+              "text": "2025-06-27T19:30 2025-06-27T20:45 gamma fix\n2025-06-27T21:45 2025-06-28T01:15 gamma bug plan standup\n2025-06-29T23:00 2025-06-29T23:15 acme\n2025-07-02T07:30 2025-07-02T09:45 acme tests login\n2025-07-04T00:00 2025-07-04T02:45 ops login fix tes�ts\n"
+            }
+          },
+          "env": {
+            "TALLY_NOW": "2025-07-04T08:30",
+            "TALLY_LOG": "tally.log",
+            "logExisted": true
+          },
+          "reference": {
+            "stdout": {
+              "base64": "c3RhcnRlZCBhY21lIGF0IDIwMjUtMDctMDRUMDg6MzAK",
+              "text": "started acme at 2025-07-04T08:30\n"
+            },
+            "stderr": {
+              "base64": "",
+              "text": ""
+            },
+            "status": 0,
+            "signal": null,
+            "timedOut": false,
+            "log": {
+              "base64": "MjAyNS0wNi0yN1QxOTozMCAyMDI1LTA2LTI3VDIwOjQ1IGdhbW1hIGZpeAoyMDI1LTA2LTI3VDIxOjQ1IDIwMjUtMDYtMjhUMDE6MTUgZ2FtbWEgYnVnIHBsYW4gc3RhbmR1cAoyMDI1LTA2LTI5VDIzOjAwIDIwMjUtMDYtMjlUMjM6MTUgYWNtZQoyMDI1LTA3LTAyVDA3OjMwIDIwMjUtMDctMDJUMDk6NDUgYWNtZSB0ZXN0cyBsb2dpbgoyMDI1LTA3LTA0VDAwOjAwIDIwMjUtMDctMDRUMDI6NDUgb3BzIGxvZ2luIGZpeCB0ZXPvv710cwoyMDI1LTA3LTA0VDA4OjMwIC0gYWNtZSB0ZWFtIGRvY3MgcGxhbgo=",
+              "text": "2025-06-27T19:30 2025-06-27T20:45 gamma fix\n2025-06-27T21:45 2025-06-28T01:15 gamma bug plan standup\n2025-06-29T23:00 2025-06-29T23:15 acme\n2025-07-02T07:30 2025-07-02T09:45 acme tests login\n2025-07-04T00:00 2025-07-04T02:45 ops login fix tes�ts\n2025-07-04T08:30 - acme team docs plan\n"
+            }
+          },
+          "arm": {
+            "stdout": {
+              "base64": "c3RhcnRlZCBhY21lIGF0IDIwMjUtMDctMDRUMDg6MzAK",
+              "text": "started acme at 2025-07-04T08:30\n"
+            },
+            "stderr": {
+              "base64": "",
+              "text": ""
+            },
+            "status": 0,
+            "signal": null,
+            "timedOut": false,
+            "log": {
+              "base64": "MjAyNS0wNi0yN1QxOTozMCAyMDI1LTA2LTI3VDIwOjQ1IGdhbW1hIGZpeAoyMDI1LTA2LTI3VDIxOjQ1IDIwMjUtMDYtMjhUMDE6MTUgZ2FtbWEgYnVnIHBsYW4gc3RhbmR1cAoyMDI1LTA2LTI5VDIzOjAwIDIwMjUtMDYtMjlUMjM6MTUgYWNtZQoyMDI1LTA3LTAyVDA3OjMwIDIwMjUtMDctMDJUMDk6NDUgYWNtZSB0ZXN0cyBsb2dpbgoyMDI1LTA3LTA0VDAwOjAwIDIwMjUtMDctMDRUMDI6NDUgb3BzIGxvZ2luIGZpeCB0ZXPDdHMKMjAyNS0wNy0wNFQwODozMCAtIGFjbWUgdGVhbSBkb2NzIHBsYW4K",
+              "text": "2025-06-27T19:30 2025-06-27T20:45 gamma fix\n2025-06-27T21:45 2025-06-28T01:15 gamma bug plan standup\n2025-06-29T23:00 2025-06-29T23:15 acme\n2025-07-02T07:30 2025-07-02T09:45 acme tests login\n2025-07-04T00:00 2025-07-04T02:45 ops login fix tes�ts\n2025-07-04T08:30 - acme team docs plan\n"
+            }
+          }
+        },
+        {
+          "case": {
+            "id": 608,
+            "feature": "bom-utf8",
+            "args": [
+              "add",
+              "gamma",
+              "2026-11-28T09:30",
+              "2026-11-28T12:00"
+            ],
+            "log": {
+              "base64": "MjAyNi0xMS0yOFQxNDozMCAyMDI2LTExLTI4VDE2OjQ1IGdhbW1hIHBsYW4gbG9naW4gdGVzdHMgY2Fs4oJsCjIwMjYtMTEtMjhUMTc6MTUgMjAyNi0xMS0yOFQyMDoxNSB3ZWIyIGxvZ2luIHRlYW0gY2FsbAoyMDI2LTExLTI4VDIyOjE1IDIwMjYtMTEtMjhUMjM6MTUgemV0YTkgcGxhbiB0aGUKMjAyNi0xMS0yOVQwMjowMCAyMDI2LTExLTI5VDAyOjMwIGFjbWUK",
+              "text": "2026-11-28T14:30 2026-11-28T16:45 gamma plan login tests cal�l\n2026-11-28T17:15 2026-11-28T20:15 web2 login team call\n2026-11-28T22:15 2026-11-28T23:15 zeta9 plan the\n2026-11-29T02:00 2026-11-29T02:30 acme\n"
+            }
+          },
+          "env": {
+            "TALLY_NOW": "2026-11-29T07:45",
+            "TALLY_LOG": "tally.log",
+            "logExisted": true
+          },
+          "reference": {
+            "stdout": {
+              "base64": "YWRkZWQgZ2FtbWEgMjAyNi0xMS0yOFQwOTozMCB0byAyMDI2LTExLTI4VDEyOjAwICgyOjMwKQo=",
+              "text": "added gamma 2026-11-28T09:30 to 2026-11-28T12:00 (2:30)\n"
+            },
+            "stderr": {
+              "base64": "",
+              "text": ""
+            },
+            "status": 0,
+            "signal": null,
+            "timedOut": false,
+            "log": {
+              "base64": "MjAyNi0xMS0yOFQxNDozMCAyMDI2LTExLTI4VDE2OjQ1IGdhbW1hIHBsYW4gbG9naW4gdGVzdHMgY2Fs77+9bAoyMDI2LTExLTI4VDE3OjE1IDIwMjYtMTEtMjhUMjA6MTUgd2ViMiBsb2dpbiB0ZWFtIGNhbGwKMjAyNi0xMS0yOFQyMjoxNSAyMDI2LTExLTI4VDIzOjE1IHpldGE5IHBsYW4gdGhlCjIwMjYtMTEtMjlUMDI6MDAgMjAyNi0xMS0yOVQwMjozMCBhY21lCjIwMjYtMTEtMjhUMDk6MzAgMjAyNi0xMS0yOFQxMjowMCBnYW1tYQo=",
+              "text": "2026-11-28T14:30 2026-11-28T16:45 gamma plan login tests cal�l\n2026-11-28T17:15 2026-11-28T20:15 web2 login team call\n2026-11-28T22:15 2026-11-28T23:15 zeta9 plan the\n2026-11-29T02:00 2026-11-29T02:30 acme\n2026-11-28T09:30 2026-11-28T12:00 gamma\n"
+            }
+          },
+          "arm": {
+            "stdout": {
+              "base64": "YWRkZWQgZ2FtbWEgMjAyNi0xMS0yOFQwOTozMCB0byAyMDI2LTExLTI4VDEyOjAwICgyOjMwKQo=",
+              "text": "added gamma 2026-11-28T09:30 to 2026-11-28T12:00 (2:30)\n"
+            },
+            "stderr": {
+              "base64": "",
+              "text": ""
+            },
+            "status": 0,
+            "signal": null,
+            "timedOut": false,
+            "log": {
+              "base64": "MjAyNi0xMS0yOFQxNDozMCAyMDI2LTExLTI4VDE2OjQ1IGdhbW1hIHBsYW4gbG9naW4gdGVzdHMgY2Fs4oJsCjIwMjYtMTEtMjhUMTc6MTUgMjAyNi0xMS0yOFQyMDoxNSB3ZWIyIGxvZ2luIHRlYW0gY2FsbAoyMDI2LTExLTI4VDIyOjE1IDIwMjYtMTEtMjhUMjM6MTUgemV0YTkgcGxhbiB0aGUKMjAyNi0xMS0yOVQwMjowMCAyMDI2LTExLTI5VDAyOjMwIGFjbWUKMjAyNi0xMS0yOFQwOTozMCAyMDI2LTExLTI4VDEyOjAwIGdhbW1hCg==",
+              "text": "2026-11-28T14:30 2026-11-28T16:45 gamma plan login tests cal�l\n2026-11-28T17:15 2026-11-28T20:15 web2 login team call\n2026-11-28T22:15 2026-11-28T23:15 zeta9 plan the\n2026-11-29T02:00 2026-11-29T02:30 acme\n2026-11-28T09:30 2026-11-28T12:00 gamma\n"
+            }
+          }
+        },
+        {
+          "case": {
+            "id": 978,
+            "feature": "bom-utf8",
+            "args": [
+              "add",
+              "ops",
+              "2024-02-29T03:45",
+              "2024-02-29T04:00",
+              "docs",
+              "team"
+            ],
+            "log": {
+              "base64": "MjAyNC0wMi0yOFQwNjo0NSAyMDI0LTAyLTI4VDEwOjQ1IGRlbHRhIHN0YW5kdXAKMjAyNC0wMi0yOFQxMjozMCAyMDI0LTAyLTI4VDEzOjAwIHgxCjIwMjQtMDItMjhUMTM6MzAgMjAyNC0wMi0yOFQxNjo0NSBhY21lIGRvY3Mgc3RhbmR1cCBkb2NzCjIwMjQtMDItMjhUMTk6MTUgMjAyNC0wMi0yOFQyMzowMCB4MQoyMDI0LTAyLTI5VDIyOjQ1IDIwMjQtMDItMjlUMjM6MTUgeDEgY2FsbCBwbGFuIHRlYW0KMjAyNC0wMy0wMlQwNjoxNSAyMDI0LTAzLTAyVDA5OjMwIG9wcyBidWcgc3RhbmR1cCB0ZWFtIHOAdGFuZHVwCg==",
+              "text": "2024-02-28T06:45 2024-02-28T10:45 delta standup\n2024-02-28T12:30 2024-02-28T13:00 x1\n2024-02-28T13:30 2024-02-28T16:45 acme docs standup docs\n2024-02-28T19:15 2024-02-28T23:00 x1\n2024-02-29T22:45 2024-02-29T23:15 x1 call plan team\n2024-03-02T06:15 2024-03-02T09:30 ops bug standup team s�tandup\n"
+            }
+          },
+          "env": {
+            "TALLY_NOW": "2024-03-04T00:15",
+            "TALLY_LOG": "tally.log",
+            "logExisted": true
+          },
+          "reference": {
+            "stdout": {
+              "base64": "YWRkZWQgb3BzIDIwMjQtMDItMjlUMDM6NDUgdG8gMjAyNC0wMi0yOVQwNDowMCAoMDoxNSkK",
+              "text": "added ops 2024-02-29T03:45 to 2024-02-29T04:00 (0:15)\n"
+            },
+            "stderr": {
+              "base64": "",
+              "text": ""
+            },
+            "status": 0,
+            "signal": null,
+            "timedOut": false,
+            "log": {
+              "base64": "MjAyNC0wMi0yOFQwNjo0NSAyMDI0LTAyLTI4VDEwOjQ1IGRlbHRhIHN0YW5kdXAKMjAyNC0wMi0yOFQxMjozMCAyMDI0LTAyLTI4VDEzOjAwIHgxCjIwMjQtMDItMjhUMTM6MzAgMjAyNC0wMi0yOFQxNjo0NSBhY21lIGRvY3Mgc3RhbmR1cCBkb2NzCjIwMjQtMDItMjhUMTk6MTUgMjAyNC0wMi0yOFQyMzowMCB4MQoyMDI0LTAyLTI5VDIyOjQ1IDIwMjQtMDItMjlUMjM6MTUgeDEgY2FsbCBwbGFuIHRlYW0KMjAyNC0wMy0wMlQwNjoxNSAyMDI0LTAzLTAyVDA5OjMwIG9wcyBidWcgc3RhbmR1cCB0ZWFtIHPvv710YW5kdXAKMjAyNC0wMi0yOVQwMzo0NSAyMDI0LTAyLTI5VDA0OjAwIG9wcyBkb2NzIHRlYW0K",
+              "text": "2024-02-28T06:45 2024-02-28T10:45 delta standup\n2024-02-28T12:30 2024-02-28T13:00 x1\n2024-02-28T13:30 2024-02-28T16:45 acme docs standup docs\n2024-02-28T19:15 2024-02-28T23:00 x1\n2024-02-29T22:45 2024-02-29T23:15 x1 call plan team\n2024-03-02T06:15 2024-03-02T09:30 ops bug standup team s�tandup\n2024-02-29T03:45 2024-02-29T04:00 ops docs team\n"
+            }
+          },
+          "arm": {
+            "stdout": {
+              "base64": "YWRkZWQgb3BzIDIwMjQtMDItMjlUMDM6NDUgdG8gMjAyNC0wMi0yOVQwNDowMCAoMDoxNSkK",
+              "text": "added ops 2024-02-29T03:45 to 2024-02-29T04:00 (0:15)\n"
+            },
+            "stderr": {
+              "base64": "",
+              "text": ""
+            },
+            "status": 0,
+            "signal": null,
+            "timedOut": false,
+            "log": {
+              "base64": "MjAyNC0wMi0yOFQwNjo0NSAyMDI0LTAyLTI4VDEwOjQ1IGRlbHRhIHN0YW5kdXAKMjAyNC0wMi0yOFQxMjozMCAyMDI0LTAyLTI4VDEzOjAwIHgxCjIwMjQtMDItMjhUMTM6MzAgMjAyNC0wMi0yOFQxNjo0NSBhY21lIGRvY3Mgc3RhbmR1cCBkb2NzCjIwMjQtMDItMjhUMTk6MTUgMjAyNC0wMi0yOFQyMzowMCB4MQoyMDI0LTAyLTI5VDIyOjQ1IDIwMjQtMDItMjlUMjM6MTUgeDEgY2FsbCBwbGFuIHRlYW0KMjAyNC0wMy0wMlQwNjoxNSAyMDI0LTAzLTAyVDA5OjMwIG9wcyBidWcgc3RhbmR1cCB0ZWFtIHOAdGFuZHVwCjIwMjQtMDItMjlUMDM6NDUgMjAyNC0wMi0yOVQwNDowMCBvcHMgZG9jcyB0ZWFtCg==",
+              "text": "2024-02-28T06:45 2024-02-28T10:45 delta standup\n2024-02-28T12:30 2024-02-28T13:00 x1\n2024-02-28T13:30 2024-02-28T16:45 acme docs standup docs\n2024-02-28T19:15 2024-02-28T23:00 x1\n2024-02-29T22:45 2024-02-29T23:15 x1 call plan team\n2024-03-02T06:15 2024-03-02T09:30 ops bug standup team s�tandup\n2024-02-29T03:45 2024-02-29T04:00 ops docs team\n"
+            }
+          }
+        }
+      ],
+      "names-notes / log": [
+        {
+          "case": {
+            "id": 368,
+            "feature": "names-notes",
+            "args": [
+              "start",
+              "x1",
+              " leading"
+            ],
+            "log": {
+              "base64": "MjAyNC0wNC0xNlQwNjo0NSAyMDI0LTA0LTE2VDA5OjE1IGFjbWUKMjAyNC0wNC0xNlQxMTozMCAyMDI0LTA0LTE2VDE1OjMwIGRlbHRhIGJ1ZyBjYWxsIHJldmlldyB0ZWFtCg==",
+              "text": "2024-04-16T06:45 2024-04-16T09:15 acme\n2024-04-16T11:30 2024-04-16T15:30 delta bug call review team\n"
+            }
+          },
+          "env": {
+            "TALLY_NOW": "2024-04-17T23:15",
+            "TALLY_LOG": "tally.log",
+            "logExisted": true
+          },
+          "reference": {
+            "stdout": {
+              "base64": "c3RhcnRlZCB4MSBhdCAyMDI0LTA0LTE3VDIzOjE1Cg==",
+              "text": "started x1 at 2024-04-17T23:15\n"
+            },
+            "stderr": {
+              "base64": "",
+              "text": ""
+            },
+            "status": 0,
+            "signal": null,
+            "timedOut": false,
+            "log": {
+              "base64": "MjAyNC0wNC0xNlQwNjo0NSAyMDI0LTA0LTE2VDA5OjE1IGFjbWUKMjAyNC0wNC0xNlQxMTozMCAyMDI0LTA0LTE2VDE1OjMwIGRlbHRhIGJ1ZyBjYWxsIHJldmlldyB0ZWFtCjIwMjQtMDQtMTdUMjM6MTUgLSB4MSAgbGVhZGluZwo=",
+              "text": "2024-04-16T06:45 2024-04-16T09:15 acme\n2024-04-16T11:30 2024-04-16T15:30 delta bug call review team\n2024-04-17T23:15 - x1  leading\n"
+            }
+          },
+          "arm": {
+            "stdout": {
+              "base64": "c3RhcnRlZCB4MSBhdCAyMDI0LTA0LTE3VDIzOjE1Cg==",
+              "text": "started x1 at 2024-04-17T23:15\n"
+            },
+            "stderr": {
+              "base64": "",
+              "text": ""
+            },
+            "status": 0,
+            "signal": null,
+            "timedOut": false,
+            "log": {
+              "base64": "MjAyNC0wNC0xNlQwNjo0NSAyMDI0LTA0LTE2VDA5OjE1IGFjbWUKMjAyNC0wNC0xNlQxMTozMCAyMDI0LTA0LTE2VDE1OjMwIGRlbHRhIGJ1ZyBjYWxsIHJldmlldyB0ZWFtCjIwMjQtMDQtMTdUMjM6MTUgLSB4MSBsZWFkaW5nCg==",
+              "text": "2024-04-16T06:45 2024-04-16T09:15 acme\n2024-04-16T11:30 2024-04-16T15:30 delta bug call review team\n2024-04-17T23:15 - x1 leading\n"
+            }
+          }
+        },
+        {
+          "case": {
+            "id": 784,
+            "feature": "names-notes",
+            "args": [
+              "add",
+              "ops",
+              "2025-06-29T17:45",
+              "2025-06-29T20:00",
+              "trailing "
+            ],
+            "log": {
+              "base64": "MjAyNS0wNi0yOVQyMzoxNSAyMDI1LTA2LTMwVDAzOjQ1IGdhbW1hIGRvY3MKMjAyNS0wNi0zMFQwNTo0NSAyMDI1LTA2LTMwVDA3OjE1IGRlbHRhCjIwMjUtMDctMDNUMDA6NDUgMjAyNS0wNy0wM1QwMToxNSB4MSBzdGFuZHVwIGNhbGwgbG9naW4gdGVhbQoyMDI1LTA3LTAzVDAzOjE1IDIwMjUtMDctMDNUMDY6MzAgeDEgdGhlIGNhbGwgZml4IHJldmlldwo=",
+              "text": "2025-06-29T23:15 2025-06-30T03:45 gamma docs\n2025-06-30T05:45 2025-06-30T07:15 delta\n2025-07-03T00:45 2025-07-03T01:15 x1 standup call login team\n2025-07-03T03:15 2025-07-03T06:30 x1 the call fix review\n"
+            }
+          },
+          "env": {
+            "TALLY_NOW": "2025-07-03T11:30",
+            "TALLY_LOG": "tally.log",
+            "logExisted": true
+          },
+          "reference": {
+            "stdout": {
+              "base64": "YWRkZWQgb3BzIDIwMjUtMDYtMjlUMTc6NDUgdG8gMjAyNS0wNi0yOVQyMDowMCAoMjoxNSkK",
+              "text": "added ops 2025-06-29T17:45 to 2025-06-29T20:00 (2:15)\n"
+            },
+            "stderr": {
+              "base64": "",
+              "text": ""
+            },
+            "status": 0,
+            "signal": null,
+            "timedOut": false,
+            "log": {
+              "base64": "MjAyNS0wNi0yOVQyMzoxNSAyMDI1LTA2LTMwVDAzOjQ1IGdhbW1hIGRvY3MKMjAyNS0wNi0zMFQwNTo0NSAyMDI1LTA2LTMwVDA3OjE1IGRlbHRhCjIwMjUtMDctMDNUMDA6NDUgMjAyNS0wNy0wM1QwMToxNSB4MSBzdGFuZHVwIGNhbGwgbG9naW4gdGVhbQoyMDI1LTA3LTAzVDAzOjE1IDIwMjUtMDctMDNUMDY6MzAgeDEgdGhlIGNhbGwgZml4IHJldmlldwoyMDI1LTA2LTI5VDE3OjQ1IDIwMjUtMDYtMjlUMjA6MDAgb3BzIHRyYWlsaW5nIAo=",
+              "text": "2025-06-29T23:15 2025-06-30T03:45 gamma docs\n2025-06-30T05:45 2025-06-30T07:15 delta\n2025-07-03T00:45 2025-07-03T01:15 x1 standup call login team\n2025-07-03T03:15 2025-07-03T06:30 x1 the call fix review\n2025-06-29T17:45 2025-06-29T20:00 ops trailing \n"
+            }
+          },
+          "arm": {
+            "stdout": {
+              "base64": "YWRkZWQgb3BzIDIwMjUtMDYtMjlUMTc6NDUgdG8gMjAyNS0wNi0yOVQyMDowMCAoMjoxNSkK",
+              "text": "added ops 2025-06-29T17:45 to 2025-06-29T20:00 (2:15)\n"
+            },
+            "stderr": {
+              "base64": "",
+              "text": ""
+            },
+            "status": 0,
+            "signal": null,
+            "timedOut": false,
+            "log": {
+              "base64": "MjAyNS0wNi0yOVQyMzoxNSAyMDI1LTA2LTMwVDAzOjQ1IGdhbW1hIGRvY3MKMjAyNS0wNi0zMFQwNTo0NSAyMDI1LTA2LTMwVDA3OjE1IGRlbHRhCjIwMjUtMDctMDNUMDA6NDUgMjAyNS0wNy0wM1QwMToxNSB4MSBzdGFuZHVwIGNhbGwgbG9naW4gdGVhbQoyMDI1LTA3LTAzVDAzOjE1IDIwMjUtMDctMDNUMDY6MzAgeDEgdGhlIGNhbGwgZml4IHJldmlldwoyMDI1LTA2LTI5VDE3OjQ1IDIwMjUtMDYtMjlUMjA6MDAgb3BzIHRyYWlsaW5nCg==",
+              "text": "2025-06-29T23:15 2025-06-30T03:45 gamma docs\n2025-06-30T05:45 2025-06-30T07:15 delta\n2025-07-03T00:45 2025-07-03T01:15 x1 standup call login team\n2025-07-03T03:15 2025-07-03T06:30 x1 the call fix review\n2025-06-29T17:45 2025-06-29T20:00 ops trailing\n"
+            }
+          }
+        },
+        {
+          "case": {
+            "id": 833,
+            "feature": "names-notes",
+            "args": [
+              "add",
+              "x1",
+              "2024-11-13T11:00",
+              "2024-11-13T12:15",
+              "fix",
+              ""
+            ],
+            "log": {
+              "base64": "MjAyNC0xMS0xM1QxODozMCAyMDI0LTExLTEzVDE5OjQ1IHdlYjIgdGhlIHRlYW0KMjAyNC0xMS0xM1QyMjowMCAyMDI0LTExLTE0VDAxOjQ1IGdhbW1hIHRlc3RzIHRoZSBmaXggZml4CjIwMjQtMTEtMTRUMDM6MTUgMjAyNC0xMS0xNFQwNjowMCB6ZXRhOSBsb2dpbiBkZXBsb3kKMjAyNC0xMS0xNFQxMToxNSAyMDI0LTExLTE0VDEyOjMwIHpldGE5IGJ1Zwo=",
+              "text": "2024-11-13T18:30 2024-11-13T19:45 web2 the team\n2024-11-13T22:00 2024-11-14T01:45 gamma tests the fix fix\n2024-11-14T03:15 2024-11-14T06:00 zeta9 login deploy\n2024-11-14T11:15 2024-11-14T12:30 zeta9 bug\n"
+            }
+          },
+          "env": {
+            "TALLY_NOW": "2024-11-14T15:00",
+            "TALLY_LOG": "tally.log",
+            "logExisted": true
+          },
+          "reference": {
+            "stdout": {
+              "base64": "YWRkZWQgeDEgMjAyNC0xMS0xM1QxMTowMCB0byAyMDI0LTExLTEzVDEyOjE1ICgxOjE1KQo=",
+              "text": "added x1 2024-11-13T11:00 to 2024-11-13T12:15 (1:15)\n"
+            },
+            "stderr": {
+              "base64": "",
+              "text": ""
+            },
+            "status": 0,
+            "signal": null,
+            "timedOut": false,
+            "log": {
+              "base64": "MjAyNC0xMS0xM1QxODozMCAyMDI0LTExLTEzVDE5OjQ1IHdlYjIgdGhlIHRlYW0KMjAyNC0xMS0xM1QyMjowMCAyMDI0LTExLTE0VDAxOjQ1IGdhbW1hIHRlc3RzIHRoZSBmaXggZml4CjIwMjQtMTEtMTRUMDM6MTUgMjAyNC0xMS0xNFQwNjowMCB6ZXRhOSBsb2dpbiBkZXBsb3kKMjAyNC0xMS0xNFQxMToxNSAyMDI0LTExLTE0VDEyOjMwIHpldGE5IGJ1ZwoyMDI0LTExLTEzVDExOjAwIDIwMjQtMTEtMTNUMTI6MTUgeDEgZml4IAo=",
+              "text": "2024-11-13T18:30 2024-11-13T19:45 web2 the team\n2024-11-13T22:00 2024-11-14T01:45 gamma tests the fix fix\n2024-11-14T03:15 2024-11-14T06:00 zeta9 login deploy\n2024-11-14T11:15 2024-11-14T12:30 zeta9 bug\n2024-11-13T11:00 2024-11-13T12:15 x1 fix \n"
+            }
+          },
+          "arm": {
+            "stdout": {
+              "base64": "YWRkZWQgeDEgMjAyNC0xMS0xM1QxMTowMCB0byAyMDI0LTExLTEzVDEyOjE1ICgxOjE1KQo=",
+              "text": "added x1 2024-11-13T11:00 to 2024-11-13T12:15 (1:15)\n"
+            },
+            "stderr": {
+              "base64": "",
+              "text": ""
+            },
+            "status": 0,
+            "signal": null,
+            "timedOut": false,
+            "log": {
+              "base64": "MjAyNC0xMS0xM1QxODozMCAyMDI0LTExLTEzVDE5OjQ1IHdlYjIgdGhlIHRlYW0KMjAyNC0xMS0xM1QyMjowMCAyMDI0LTExLTE0VDAxOjQ1IGdhbW1hIHRlc3RzIHRoZSBmaXggZml4CjIwMjQtMTEtMTRUMDM6MTUgMjAyNC0xMS0xNFQwNjowMCB6ZXRhOSBsb2dpbiBkZXBsb3kKMjAyNC0xMS0xNFQxMToxNSAyMDI0LTExLTE0VDEyOjMwIHpldGE5IGJ1ZwoyMDI0LTExLTEzVDExOjAwIDIwMjQtMTEtMTNUMTI6MTUgeDEgZml4Cg==",
+              "text": "2024-11-13T18:30 2024-11-13T19:45 web2 the team\n2024-11-13T22:00 2024-11-14T01:45 gamma tests the fix fix\n2024-11-14T03:15 2024-11-14T06:00 zeta9 login deploy\n2024-11-14T11:15 2024-11-14T12:30 zeta9 bug\n2024-11-13T11:00 2024-11-13T12:15 x1 fix\n"
+            }
+          }
+        }
+      ]
+    }
+  },
+  "coverage": {
+    "tests": "passed",
+    "lines": {
+      "covered": 401,
+      "total": 406
+    },
+    "branches": {
+      "covered": 75,
+      "total": 154
+    }
+  },
+  "ended": "done",
+  "capped": false,
+  "provenance": {
+    "claudeVersion": "2.1.314 (Claude Code)",
+    "hxCommit": "5f903ba39a6cacf20fb700ab25d0f24279f75c35",
+    "roles": {
+      "impl": {
+        "model": "claude-opus-5-5",
+        "effort": "medium",
+        "flags": [
+          "--strict-mcp-config",
+          "--disable-slash-commands",
+          "--setting-sources",
+          "project,local",
+          "--tools",
+          "Bash",
+          "Read",
+          "Edit",
+          "Write",
+          "Glob",
+          "Grep"
+        ]
+      },
+      "audit": {
+        "model": "claude-opus-5-5",
+        "effort": "medium",
+        "flags": [
+          "--strict-mcp-config",
+          "--disable-slash-commands",
+          "--setting-sources",
+          "project,local",
+          "--tools",
+          "Bash",
+          "Read",
+          "Edit",
+          "Write",
+          "Glob",
+          "Grep"
+        ]
+      },
+      "triage": {
+        "model": "claude-opus-5-5",
+        "effort": "medium",
+        "flags": [
+          "--strict-mcp-config",
+          "--disable-slash-commands",
+          "--setting-sources",
+          "project,local",
+          "--tools",
+          "Bash",
+          "Read",
+          "Edit",
+          "Write",
+          "Glob",
+          "Grep"
+        ]
+      },
+      "decompose": {
+        "model": "claude-opus-5-5",
+        "effort": "medium",
+        "flags": [
+          "--strict-mcp-config",
+          "--disable-slash-commands",
+          "--setting-sources",
+          "project,local",
+          "--tools",
+          "Bash",
+          "Read",
+          "Edit",
+          "Write",
+          "Glob",
+          "Grep"
+        ]
+      },
+      "critic": {
+        "model": "claude-opus-5-5",
+        "effort": "medium",
+        "flags": [
+          "--strict-mcp-config",
+          "--disable-slash-commands",
+          "--setting-sources",
+          "project,local",
+          "--tools",
+          "Bash",
+          "Read",
+          "Edit",
+          "Write",
+          "Glob",
+          "Grep"
+        ]
+      },
+      "revise": {
+        "model": "claude-opus-5-5",
+        "effort": "medium",
+        "flags": [
+          "--strict-mcp-config",
+          "--disable-slash-commands",
+          "--setting-sources",
+          "project,local",
+          "--tools",
+          "Bash",
+          "Read",
+          "Edit",
+          "Write",
+          "Glob",
+          "Grep"
+        ]
+      },
+      "review": {
+        "model": "claude-opus-5-5",
+        "effort": "medium",
+        "flags": [
+          "--strict-mcp-config",
+          "--disable-slash-commands",
+          "--setting-sources",
+          "project,local",
+          "--tools",
+          "Bash",
+          "Read",
+          "Edit",
+          "Write",
+          "Glob",
+          "Grep"
+        ]
+      },
+      "security": {
+        "model": "claude-opus-5-5",
+        "effort": "medium",
+        "flags": [
+          "--strict-mcp-config",
+          "--disable-slash-commands",
+          "--setting-sources",
+          "project,local",
+          "--tools",
+          "Bash",
+          "Read",
+          "Edit",
+          "Write",
+          "Glob",
+          "Grep"
+        ]
+      },
+      "selfreview": {
+        "model": "claude-opus-5-5",
+        "effort": "medium",
+        "flags": [
+          "--strict-mcp-config",
+          "--disable-slash-commands",
+          "--setting-sources",
+          "project,local",
+          "--tools",
+          "Bash",
+          "Read",
+          "Edit",
+          "Write",
+          "Glob",
+          "Grep"
+        ]
+      },
+      "bar": {
+        "model": "claude-opus-5-5",
+        "effort": "high",
+        "flags": [
+          "--strict-mcp-config",
+          "--disable-slash-commands",
+          "--setting-sources",
+          "project,local",
+          "--tools",
+          "Bash",
+          "Read",
+          "Edit",
+          "Write",
+          "Glob",
+          "Grep"
+        ]
+      }
+    }
+  },
+  "reviews": [
+    {
+      "other": "chat-202611081012-4.json",
+      "seed": 1107,
+      "verdicts": [
+        {
+          "judge": 1,
+          "order": "AB",
+          "label": "B",
+          "scores": {
+            "correctness": 9,
+            "edgeCases": 9,
+            "errorMessages": 9,
+            "clarity": 8,
+            "tests": 9,
+            "docs": 1
+          },
+          "value": 7.5
+        },
+        {
+          "judge": 1,
+          "order": "BA",
+          "label": "A",
+          "scores": {
+            "correctness": 9,
+            "edgeCases": 9,
+            "errorMessages": 9,
+            "clarity": 8,
+            "tests": 9,
+            "docs": 1
+          },
+          "value": 7.5
+        },
+        {
+          "judge": 2,
+          "order": "AB",
+          "label": "A",
+          "scores": {
+            "correctness": 9,
+            "edgeCases": 9,
+            "errorMessages": 9,
+            "clarity": 9,
+            "tests": 10,
+            "docs": 0
+          },
+          "value": 7.666666666666667
+        },
+        {
+          "judge": 2,
+          "order": "BA",
+          "label": "B",
+          "scores": {
+            "correctness": 9,
+            "edgeCases": 9,
+            "errorMessages": 9,
+            "clarity": 8,
+            "tests": 9,
+            "docs": 1
+          },
+          "value": 7.5
+        },
+        {
+          "judge": 3,
+          "order": "AB",
+          "label": "B",
+          "scores": {
+            "correctness": 9,
+            "edgeCases": 9,
+            "errorMessages": 8,
+            "clarity": 8,
+            "tests": 9,
+            "docs": 0
+          },
+          "value": 7.166666666666667
+        },
+        {
+          "judge": 3,
+          "order": "BA",
+          "label": "A",
+          "scores": {
+            "correctness": 9,
+            "edgeCases": 9,
+            "errorMessages": 9,
+            "clarity": 8,
+            "tests": 10,
+            "docs": 1
+          },
+          "value": 7.666666666666667
+        }
+      ],
+      "missing": [],
+      "score": 7.5,
+      "basedOn": 6,
+      "judges": {
+        "role": "judge",
+        "model": "claude-opus-5-5",
+        "effort": "medium",
+        "flags": [
+          "--strict-mcp-config",
+          "--disable-slash-commands",
+          "--setting-sources",
+          "project,local",
+          "--tools",
+          "Read",
+          "Glob",
+          "Grep"
+        ],
+        "claudeVersion": "2.1.314 (Claude Code)"
+      },
+      "tokens": {
+        "input": 32,
+        "cacheWrite": 121707.5,
+        "cacheRead": 304391.5,
+        "output": 6115.5,
+        "total": 432246.5
+      },
+      "costUsd": 1.1588704
+    }
+  ]
+}

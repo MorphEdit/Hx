@@ -7,7 +7,9 @@
 // fresh clone of the default branch is graded by the hidden suite (bench/project-grade.mjs), then fuzzed against the
 // reference (bench/project-fuzz.mjs) and its own tests run under coverage (bench/project-coverage.mjs), in that order.
 //
-//   node bench/project.mjs <chat|hx3> [--runs N] [--max-hours 4] [--max-usd 60]
+//   node bench/project.mjs <chat|hx3> [--runs N] [--max-hours 4] [--max-usd 60] [--config key=value ...]
+// --config overrides a key of the arm's .hx/config.json after `hx init` (e.g. singleChildMaxCriteria=30); the
+// overrides are recorded in the result's provenance as `configOverrides`.
 // One stamp per call; runs i = 1…N in a row, each with its own private GitHub repo <owner>/hx-project-<arm>-<stamp>-<i>
 // (owner from `gh`), work directory, worktree root, grade clone and caps. Each run's result, with its provenance (the
 // Claude Code version, the Hx commit, each role's model, effort and flags), goes to
@@ -63,6 +65,7 @@ function setup(ctx) {
   const cfg = JSON.parse(readFileSync(cfgFile, 'utf8'));
   cfg.workers = WORKERS[ctx.arm];
   cfg.worktreeRoot = ctx.worktreeRoot;
+  Object.assign(cfg, ctx.config ?? {});
   writeFileSync(cfgFile, JSON.stringify(cfg, null, 2));
 }
 
@@ -179,7 +182,7 @@ export function qualityLine({ fuzz: f, fuzzError, coverage: c, coverageError }) 
  *  run's result to `<resultsDir>/<arm>-<stamp>-<i>.json`. A run that throws is logged and the next one starts.
  *  Returns `{ stamp, files, failed }` (`failed`: the i of each run that threw). */
 export async function runSet({
-  arm, runs = 1, maxHours = 4, maxUsd = 60, owner, stamp = makeStamp(), resultsDir = RESULTS, tmp = os.tmpdir(),
+  arm, runs = 1, maxHours = 4, maxUsd = 60, config, owner, stamp = makeStamp(), resultsDir = RESULTS, tmp = os.tmpdir(),
   claudeBin = 'claude', commit = hxCommit(), steps = STEPS, print = console.log, fuzzOptions = {}, coverageOptions = {},
 }) {
   const files = [], failed = [];
@@ -188,13 +191,13 @@ export async function runSet({
     const name = `${arm}-${stamp}-${i}`;
     const log = (m) => print(`${new Date().toTimeString().slice(0, 8)} [project ${arm} ${i}/${runs}] ${m}`);
     const ctx = {
-      arm, i, stamp, repo: `${owner}/hx-project-${name}`, maxHours, maxUsd, log,
+      arm, i, stamp, repo: `${owner}/hx-project-${name}`, maxHours, maxUsd, log, config,
       work: path.join(tmp, 'hxp', name), worktreeRoot: path.join(tmp, 'hxp-wt', name), clone: path.join(tmp, 'hxp-grade', name),
     };
     try {
       await steps.setup(ctx);
       const roles = provenanceRoles(arm, arm === 'hx3' ? { config: loadProject(ctx.work).config } : {});
-      const provenance = { claudeVersion: claudeVersion(claudeBin), hxCommit: commit, roles };
+      const provenance = { claudeVersion: claudeVersion(claudeBin), hxCommit: commit, roles, ...(config ? { configOverrides: config } : {}) };
       const { usage, ended, t0, t1 } = await steps.arm(ctx);
       log(`finished in ${Math.round((t1 - t0) / 1000)}s`);
       const ghIssues = await steps.issues(ctx);

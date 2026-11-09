@@ -127,6 +127,14 @@ test('parseArgs: --runs defaults to 1 and must be a positive integer; the caps a
   assert.match(USAGE, /<chat\|hx3> \[--runs N\]/);
 });
 
+test('parseArgs: --config key=value is repeatable, JSON when it parses, and a bad pair is the usage line', E2E, () => {
+  assert.deepEqual(parseArgs(['hx3', '--config', 'singleChildMaxCriteria=30', '--config', 'model=opus', '--runs', '2']),
+    { arm: 'hx3', runs: 2, maxHours: 4, maxUsd: 60, config: { singleChildMaxCriteria: 30, model: 'opus' } });
+  for (const bad of [['--config'], ['--config', 'noequals'], ['--config', '=1']])
+    assert.equal(parseArgs(['hx3', ...bad]), null, bad.join(' '));
+  assert.match(USAGE, /--config key=value/);
+});
+
 test('bench/project.mjs: a bad --runs prints the usage line and exits 2, before any gh call', E2E, () => {
   for (const bad of [['--runs', '0'], ['--runs', '-1'], ['--runs', '1.5'], ['--runs']]) {
     let err: any;
