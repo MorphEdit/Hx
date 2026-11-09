@@ -61,3 +61,29 @@ export function countCriteria(body: string): number {
   const top = Math.min(...indents);
   return indents.filter((n) => n === top).length;
 }
+
+/** Why the engine files one child for a PRD instead of starting a decompose session (PRD #422), or null to decompose.
+ *  The first rule that applies decides: `max` 0 (off) → null; no criteria → null; a pool of one (`workers` 1, autoWorkers
+ *  off) → 'pool'; at most `max` criteria → 'count'; else null. `workers` and `auto` are the run's (`--workers`, HX_AUTO_WORKERS). */
+export function singleChild(body: string, max: number, workers: number, auto: boolean): 'pool' | 'count' | null {
+  if (max === 0) return null;
+  const n = countCriteria(body);
+  if (n === 0) return null;
+  if (workers === 1 && !auto) return 'pool';
+  return n <= max ? 'count' : null;
+}
+
+/** The engine-filed child's body: PRD `prd`'s `## Acceptance criteria` section word for word (heading to the next `## `
+ *  heading), a pointer to the PRD for the rest, then `## Blocked by` None and `## Parent` #prd as decompose children end. */
+export function singleChildBody(prdBody: string, prd: number): string {
+  const h = /^##[ \t]+Acceptance criteria[ \t]*$/im.exec(prdBody ?? '');
+  let section = h ? prdBody.slice(h.index) : '';
+  const next = /^##[ \t]+/m.exec(section.slice(h ? h[0].length : 0));
+  if (h && next) section = section.slice(0, h[0].length + next.index);
+  return `${section.trimEnd()}\n\nEverything else (the goals, the behaviour, the edge cases, the notes for implementers) is in PRD #${prd}: read it before you start.\n\n## Blocked by\nNone\n\n## Parent\n#${prd}\n`;
+}
+
+/** The run.log line and the PRD comment for an engine-filed child. */
+export function singleChildLine(prd: number, child: number, reason: 'pool' | 'count', max: number): string {
+  return `prd #${prd}: one child #${child} (${reason === 'pool' ? 'a pool of one' : `≤ ${max} acceptance criteria`}) — no decompose`;
+}

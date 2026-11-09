@@ -55,6 +55,7 @@ export interface Config {
   maxOpenQuestions: number; // open needs-human issues at once (the owner's questions)
   sizeCheck: boolean; // a single issue (no parent, not a bug or gate fix) is sized by one session before its first impl session, and split when too big
   gauntlet: boolean; // critique and revise a PRD in rounds before it is decomposed
+  singleChildMaxCriteria: number; // a PRD with at most this many acceptance criteria gets one engine-filed child, no decompose session; 0 = off
   gauntletRounds: number; // critic → reviser rounds before the PRD is decomposed anyway
   reviewRounds: number; // PRD reviews (each may file gap issues) before a human has to look
   barRounds: number; // quality-bar rounds (each lost one files a gap issue) before the PRD is signed off with the gap standing
@@ -125,6 +126,7 @@ export const DEFAULTS: Omit<Config, 'repo' | 'defaultBranch' | 'worktreeRoot'> =
   maxOpenQuestions: 3,
   sizeCheck: true,
   gauntlet: true,
+  singleChildMaxCriteria: 15, // provisional (PRD #422): the large-fixture benchmark will recalibrate it
   gauntletRounds: 2,
   reviewRounds: 3,
   barRounds: 3,
@@ -263,6 +265,12 @@ export function autoWorkersConfigError(c: { workers?: unknown; autoWorkers?: unk
   const u = c.scaleUpMinutes;
   if (u !== undefined && !(num(u) && u > 0)) return `scaleUpMinutes: ${JSON.stringify(u)} must be a number of minutes above 0`;
   return null;
+}
+
+/** What is wrong with config.singleChildMaxCriteria (a whole number, 0 or more), or null when it is valid. */
+export function singleChildError(v: unknown): string | null {
+  if (v === undefined || (typeof v === 'number' && Number.isInteger(v) && v >= 0)) return null;
+  return `singleChildMaxCriteria: ${JSON.stringify(v)} must be a whole number, 0 or more (0 turns the one-child path off)`;
 }
 
 /** What is wrong with config.worktreeCopy, or null when it is valid: plain relative paths inside the repo only. */
