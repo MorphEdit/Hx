@@ -235,6 +235,8 @@ Getting from nothing to a running board takes one install line and one command. 
 - **The skill template lives in `templates/`.** `hx install-skill` writes `templates/hx-skill.md` to
   `~/.claude/skills/hx/SKILL.md`, so a user can ask Claude Code to build with hx. It is not under
   `prompts/skills/`: those are notes appended to worker prompts, this is a skill for the user's own session.
+  It is rendered on install: its `{{TIERS}}` placeholder becomes `tierTable()` (`src/tiers.ts`), so the tier
+  numbers live in one place and the template holds none of its own.
 
 ## Models per role
 

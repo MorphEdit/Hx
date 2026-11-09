@@ -5,9 +5,36 @@ description: Build something with hx — use when the user asks Claude Code to b
 
 # hx
 
-hx runs a pool of headless Claude Code workers that build a repository's GitHub issues. You do not build
-the feature yourself: you set the repository up, turn the user's idea into a PRD, file it, and get
-`hx run --watch` going so the workers build it.
+hx runs a pool of headless Claude Code workers that build a repository's GitHub issues. First you pick a
+tier with the user. On the Direct path only, you build the change yourself, on a branch with a PR. Otherwise
+you set the repository up, turn the user's idea into a PRD, file it, and get `hx run --watch` going so the
+workers build it.
+
+## 0. Pick the tier
+
+Do this before anything else: no `hx doctor`, no `hx init`, no file written. Read the code you need (README,
+CLAUDE.md, the source the idea touches) and ask the user just enough to estimate the size of the work.
+
+{{TIERS}}
+
+Then tell the user, in this order:
+- the tier you pick: Direct, One child or Fleet;
+- the reason, against the table above;
+- a rough direct estimate and a rough fleet estimate, in minutes and dollars: the table's benchmark figures
+  scaled by the size of this work. Say they are rough. When there is no data for this kind of work, say the
+  estimate is a guess, and still offer the choice.
+
+The user decides. An override in either direction is followed: Direct when you picked One child or Fleet, or
+One child or Fleet when you picked Direct.
+
+When the request is unattended (the user will not be around while it is built), do not offer Direct: the
+choice is between One child and Fleet.
+
+- **Direct:** follow "The Direct path" below, and skip steps 1–5.
+- **One child or Fleet:** go on with step 1. Once the PRD is filed, One child versus Fleet is hx's own rule,
+  not yours: a PRD with few acceptance criteria gets one child issue, a bigger one is decomposed. When the user
+  wants the other one, name the settings that decide it (`singleChildMaxCriteria`, `workers`, `autoWorkers` in
+  `.hx/config.json`), and do not edit `.hx/config.json` unless they ask.
 
 ## 1. Check the machine
 
@@ -72,7 +99,29 @@ the workers and the gate share the CPUs. It comes from the `testConcurrency` con
 positive integer to fix it, `0` to leave it unset. If the user asks why tests run fewer files at once, point
 them to that key.
 
+## The Direct path
+
+On Direct you do the work in this session. Run no `hx init`, write no PRD and run no `hx run`.
+
+1. **Is hx running here?** Look for `.hx/config.json` in the repository root.
+   - Not there: run no `hx` command at all (no `hx doctor`, no `hx init`) and no overlap check. Go to step 3.
+   - There: go on with step 2.
+2. **Overlap check, before changing anything.** Run `hx overlap <the files you expect to change>`.
+   - Exit code 0 (`no overlap`): go on.
+   - Exit code 1: do not make the change. File the work with `hx issue` instead, and tell the user which issue
+     or PR overlaps (the output names them).
+   - Exit code 2: tell the user the check failed, and do not commit.
+3. **Make the change.** Branch from the base branch, make the change, and run the tests the change needs:
+   `rtdd which` names them where the repository uses rtdd (`.rtdd/config.yaml`). Not the full suite.
+4. **Overlap check again, before committing** (only where `.hx/config.json` exists). Run `hx overlap` with the
+   files of `git diff --name-only <base branch>`. On exit code 1, do not commit or push: file the work with
+   `hx issue`, and tell the user which issue or PR overlaps. On exit code 2, tell the user the check failed,
+   and do not commit.
+5. **Open a PR** whose body has the line `Direct fix: fits one session`, so history and the dashboard can tell
+   it apart from fleet work. Merge it only once its checks pass and the user agrees.
+
 ## Rules
 
 - Never run `gh auth login`, and never log in for the user.
-- Never commit, push or merge the feature yourself: the workers build it from the PRD.
+- Commit, push and merge yourself only on the Direct path the user accepted. Never commit, push or merge work
+  filed for the workers (a PRD, or an issue filed with `hx issue`): the workers build it.

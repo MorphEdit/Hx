@@ -8,6 +8,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { run } from './exec.ts';
+import { render } from './state.ts';
+import { tierTable } from './tiers.ts';
 
 export interface Skill {
   name: string;
@@ -26,11 +28,12 @@ export const skillsHome = (): string => process.env.HX_SKILLS_HOME || os.homedir
 /** The /hx Claude Code skill hx install-skill writes (not under prompts/skills/: those are notes, not skills). */
 export const HX_SKILL_TEMPLATE = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'templates', 'hx-skill.md');
 
-/** Write the /hx skill to <home>/.claude/skills/hx/SKILL.md, replacing any file there; returns the path. */
+/** Write the /hx skill to <home>/.claude/skills/hx/SKILL.md, replacing any file there; returns the path.
+ *  The template's {{TIERS}} becomes tierTable(), so the skill gets the current tier numbers on each install. */
 export function installSkill(home: string = skillsHome()): string {
   const file = path.join(home, '.claude', 'skills', 'hx', 'SKILL.md');
   mkdirSync(path.dirname(file), { recursive: true });
-  writeFileSync(file, readFileSync(HX_SKILL_TEMPLATE, 'utf8'));
+  writeFileSync(file, render(readFileSync(HX_SKILL_TEMPLATE, 'utf8'), { TIERS: tierTable() }));
   return file;
 }
 

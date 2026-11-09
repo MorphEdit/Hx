@@ -144,7 +144,7 @@ hx dashboard [--open]   # a read-only page on http://127.0.0.1:4777/ (localhost 
 hx dashboard --fleet [--open]   # one page over every hx repo on this machine (alias: hx fleet dashboard)
 hx fleet run --watch    # one hx run per repo in the fleet, sharing one worker cap (see Several repos)
 hx overlap src/a.ts     # the agent-working issues and open PRs touching these paths (see Checking for overlap)
-hx install-skill        # write the /hx Claude Code skill to ~/.claude/skills/hx/SKILL.md: ask Claude Code to build with hx
+hx install-skill        # write the /hx Claude Code skill to ~/.claude/skills/hx/SKILL.md: ask Claude Code to build with hx (see The hx skill)
 hx update [--force]     # install the latest hx release, check it runs, run hx doctor
 hx --version            # the installed version
 ```
@@ -192,6 +192,46 @@ Each filing command ends with one line saying what happens next (after `It will 
 | running, paused or pausing | `hx run (pid N) is pausing — run  hx resume  to continue.` |
 | not running | `no hx run is running — start it with  hx run --watch` |
 | not running, paused | `no hx run is running and hx is paused — run  hx resume, then  hx run --watch` |
+
+## The hx skill: tiers and the Direct path
+
+`hx install-skill` writes the `hx` Claude Code skill. Ask Claude Code to build something "with hx" and the
+skill's first step picks a **tier**, before it runs `hx doctor` or `hx init` or writes any file:
+
+| Tier | When | What happens |
+|---|---|---|
+| **Direct** | The work fits one session: one subsystem, few acceptance criteria, a small diff, and you are around (or the job is short). | The session makes the change itself, on a branch, with a PR. No PRD, no `hx init`, no workers. |
+| **One child** | It fits one session, but you want it unattended, or you want the independent checks (audit, review, security) because the area is risky. | A PRD is filed; hx files one child issue for it, with no decompose session. |
+| **Fleet** | It will not fit one session: many acceptance criteria, several subsystems or workstreams, hours of work. | The full PRD flow. |
+
+The thresholds (acceptance criteria, changed lines and files, minutes) live in `src/tiers.ts`, as named
+constants. They are provisional: a later benchmark will recalibrate them. The template holds a `{{TIERS}}`
+placeholder and `hx install-skill` writes the table with the current numbers into the skill, so a changed number
+reaches your installed skill on the next `hx install-skill`.
+
+How the skill picks: it reads the code it needs and asks you just enough to estimate. Then it states the tier,
+the reason, and a rough direct and fleet estimate in minutes and dollars (the project benchmark's figures scaled
+by the size of the work; a guess, said so, for a kind of work there is no data for). You decide, and an
+override either way is followed. For an unattended request Direct is not offered: the choice is One child or
+Fleet. Once a PRD is filed, One child versus Fleet is hx's rule; the skill names the settings that decide it
+(`singleChildMaxCriteria`, `workers`, `autoWorkers`) and does not edit `.hx/config.json` unless you ask.
+
+**The Direct path.** Without `.hx/config.json` in the repo root, the session runs no `hx` command at all and
+no overlap check. With it (hx is running here), the session checks for overlap twice with
+[`hx overlap`](#checking-for-overlap-hx-overlap):
+
+1. before changing anything, with the files it expects to change;
+2. before committing, with the files of `git diff --name-only <base branch>`.
+
+On exit code 1 (a worker's issue or an open PR touches one of the files) it does not make, commit or push the
+change: it files the work with `hx issue` instead and tells you which issue or PR overlaps. On exit code 2 it
+tells you the check failed and does not commit. Otherwise it branches from the base branch, makes the change,
+runs the tests the change needs (`rtdd which` where the repo uses rtdd, not the full suite), and opens a PR
+whose body has the line `Direct fix: fits one session`. It merges the PR only once its checks pass and you
+agree.
+
+The skill's rule on committing: it commits, pushes and merges only on the Direct path you accepted, and never
+work filed for the workers (a PRD, or an issue filed with `hx issue`).
 
 ## Checking for overlap (`hx overlap`)
 
