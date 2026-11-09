@@ -15,7 +15,7 @@ import { docsText } from './docs-text.ts';
 const issue = (number: number, files: string[]): OverlapSource => ({ kind: 'issue', number, files });
 const pr = (number: number, files: string[]): OverlapSource => ({ kind: 'pr', number, files });
 
-test('normPath: \\ becomes /, a leading ./ is dropped, an absolute path under the root is made relative', () => {
+test('normPath: \\ becomes /, a leading ./ is dropped, an absolute path under the root is made relative', E2E, () => {
   assert.equal(normPath('src\\a.ts'), 'src/a.ts');
   assert.equal(normPath('./src/a.ts'), 'src/a.ts');
   assert.equal(normPath('.\\src\\a.ts'), 'src/a.ts');
@@ -23,31 +23,31 @@ test('normPath: \\ becomes /, a leading ./ is dropped, an absolute path under th
   assert.equal(normPath(path.join(root, 'src', 'a.ts'), root), 'src/a.ts');
 });
 
-test('overlapLines: \\ and ./ in the asked paths and in the sources match the same file', () => {
+test('overlapLines: \\ and ./ in the asked paths and in the sources match the same file', E2E, () => {
   assert.deepEqual(overlapLines(['src\\a.ts'], [pr(3, ['src/a.ts'])]), ['src/a.ts: PR #3']);
   assert.deepEqual(overlapLines(['./src/a.ts'], [issue(4, ['src/a.ts'])]), ['src/a.ts: issue #4']);
   assert.deepEqual(overlapLines(['src/a.ts'], [pr(5, ['src\\a.ts'])]), ['src/a.ts: PR #5']);
 });
 
-test('overlapLines: a path in an issue diff and a PR names both, the issue first', () => {
+test('overlapLines: a path in an issue diff and a PR names both, the issue first', E2E, () => {
   assert.deepEqual(overlapLines(['src/a.ts'], [pr(9, ['src/a.ts']), issue(7, ['src/a.ts'])]), ['src/a.ts: issue #7, PR #9']);
 });
 
-test('overlapLines: each group in ascending number order (PR #9, PR #12)', () => {
+test('overlapLines: each group in ascending number order (PR #9, PR #12)', E2E, () => {
   assert.deepEqual(overlapLines(['src/a.ts'], [pr(12, ['src/a.ts']), issue(30, ['src/a.ts']), pr(9, ['src/a.ts']), issue(7, ['src/a.ts'])]),
     ['src/a.ts: issue #7, issue #30, PR #9, PR #12']);
 });
 
-test('overlapLines: a path given twice (in any spelling) is reported once', () => {
+test('overlapLines: a path given twice (in any spelling) is reported once', E2E, () => {
   assert.deepEqual(overlapLines(['src/a.ts', 'src\\a.ts', './src/a.ts'], [pr(9, ['src/a.ts'])]), ['src/a.ts: PR #9']);
 });
 
-test('overlapLines: lines sorted by path in plain string order', () => {
+test('overlapLines: lines sorted by path in plain string order', E2E, () => {
   const src = [pr(1, ['b.ts', 'B.ts', 'a/z.ts', 'a.ts'])];
   assert.deepEqual(overlapLines(['b.ts', 'a/z.ts', 'B.ts', 'a.ts'], src), ['B.ts: PR #1', 'a.ts: PR #1', 'a/z.ts: PR #1', 'b.ts: PR #1']);
 });
 
-test('overlapLines: no overlap → empty', () => {
+test('overlapLines: no overlap → empty', E2E, () => {
   assert.deepEqual(overlapLines(['src/x.ts'], [issue(7, ['src/a.ts']), pr(9, ['src/b.ts'])]), []);
   assert.deepEqual(overlapLines(['src/x.ts'], []), []);
 });
@@ -192,7 +192,7 @@ test('hx overlap with no path is a usage error; outside an hx project it exits 2
   assert.match(r2.stderr, /\.hx\/config\.json/);
 });
 
-test('hx overlap is documented: the guide section, the command list and hx help', () => {
+test('hx overlap is documented: the guide section, the command list and hx help', E2E, () => {
   const guide = readFileSync(path.join(here, '..', 'docs', 'guide.md'), 'utf8');
   assert.match(guide, /^## Checking for overlap \(`hx overlap`\)/m);
   assert.match(guide, /^hx overlap src\/a\.ts/m);
