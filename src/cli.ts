@@ -20,7 +20,8 @@ import { workersLine } from './load.ts';
 import { outsideTestEnv, testConcurrencyError } from './concurrency.ts';
 import { reuseTestedTreesError, testedTreesEnv } from './tested.ts';
 import { DEFAULT_PORT, serveDashboard, serveFleetDashboard } from './dashboard.ts';
-import { fileBug, filePrd } from './prd.ts';
+import { countCriteria, fileBug, filePrd } from './prd.ts';
+import { DIRECT_MAX_CRITERIA } from './tiers.ts';
 import { agentFor } from './agents/index.ts';
 import { ideaFrom, sessionPaths, sessionPrompt } from './grill.ts';
 import { formatSkills, installSkill } from './skills.ts';
@@ -469,7 +470,9 @@ async function prd(args: string[]): Promise<number> {
   if (!file) throw new Error('usage: hx prd <file.md> [--title "..."]');
   const url = await filePrd(p.config, file, flag(args, '--title'));
   writeWake(p.stateDir);
-  console.log(`filed ${url}\n${nextLine(p.stateDir, 'decompose')}`);
+  const n = countCriteria(readFileSync(file, 'utf8'));
+  const hint = n >= 1 && n <= DIRECT_MAX_CRITERIA ? `note: ${n} acceptance criteria (Direct tier: at most ${DIRECT_MAX_CRITERIA}) — this work may fit one session\n` : '';
+  console.log(`filed ${url}\n${hint}${nextLine(p.stateDir, 'decompose')}`);
   return 0;
 }
 

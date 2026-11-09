@@ -9,6 +9,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DEFAULTS, saveConfig } from '../src/config.ts';
 import { writeLive } from '../src/runstate.ts';
+import { DIRECT_MAX_CRITERIA } from '../src/tiers.ts';
+import { docsText } from './docs-text.ts';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const HX = path.join(here, '..', 'bin', 'hx.mjs');
@@ -51,4 +53,56 @@ test('hx prd with a missing file: nothing filed, no .hx/wake', E2E, () => {
   const r = hx(['prd', path.join(tmp, 'nope.md')]);
   assert.notEqual(r.code, 0, r.out);
   assert.ok(!existsSync(path.join(hxDir, 'wake')));
+});
+
+const criteria = (n: number) => Array.from({ length: n }, (_, i) => `- [ ] criterion ${i + 1}\n  wrapped line`).join('\n');
+const hint = (n: number) => `note: ${n} acceptance criteria (Direct tier: at most ${DIRECT_MAX_CRITERIA}) — this work may fit one session`;
+const issues = () => JSON.parse(readFileSync(stateFile, 'utf8')).issues;
+
+test('hx prd: at most DIRECT_MAX_CRITERIA criteria prints the Direct-tier hint after filed <url>, and still files', E2E, () => {
+  writeFileSync(stateFile, JSON.stringify({ comments: [], prs: [], issues: [] }));
+  rmSync(path.join(hxDir, 'live.json'), { force: true });
+  const file = path.join(tmp, 'small.md');
+  writeFileSync(file, `# Small\n\n## Acceptance criteria\n\n${criteria(DIRECT_MAX_CRITERIA)}\n\n## Quality bar\n\n- a\n- b\n`);
+  let r = hx(['prd', file]);
+  assert.equal(r.code, 0, r.out);
+  assert.ok(r.out.includes(`filed https://github.com/me/app/issues/1\n${hint(DIRECT_MAX_CRITERIA)}\n${D}${NONE}\n`), r.out);
+  assert.equal(issues().length, 1);
+
+  writeFileSync(file, '# One\n\n## Acceptance criteria\n\n1. it works\n');
+  r = hx(['prd', file]);
+  assert.equal(r.code, 0, r.out);
+  assert.ok(r.out.includes(`filed https://github.com/me/app/issues/2\n${hint(1)}\n${D}${NONE}\n`), r.out);
+  assert.equal(issues().length, 2);
+});
+
+test('hx prd: more than DIRECT_MAX_CRITERIA criteria, or no Acceptance criteria list, prints no hint', E2E, () => {
+  writeFileSync(stateFile, JSON.stringify({ comments: [], prs: [], issues: [] }));
+  rmSync(path.join(hxDir, 'live.json'), { force: true });
+  const file = path.join(tmp, 'big.md');
+  writeFileSync(file, `# Big\n\n## Acceptance criteria\n\n${criteria(DIRECT_MAX_CRITERIA + 1)}\n`);
+  let r = hx(['prd', file]);
+  assert.equal(r.code, 0, r.out);
+  assert.ok(r.out.includes(`filed https://github.com/me/app/issues/1\n${D}${NONE}\n`), r.out);
+  assert.ok(!r.out.includes('note:'), r.out);
+
+  writeFileSync(file, '# None\n\nGoals.\n\n- a bullet outside any criteria section\n');
+  r = hx(['prd', file]);
+  assert.equal(r.code, 0, r.out);
+  assert.ok(r.out.includes(`filed https://github.com/me/app/issues/2\n${D}${NONE}\n`), r.out);
+  assert.ok(!r.out.includes('note:'), r.out);
+
+  writeFileSync(file, '# Empty\n\n## Acceptance criteria\n\nIt works.\n');
+  r = hx(['prd', file]);
+  assert.ok(r.out.includes(`filed https://github.com/me/app/issues/3\n${D}${NONE}\n`), r.out);
+  assert.ok(!r.out.includes('note:'), r.out);
+  assert.equal(issues().length, 3);
+});
+
+test('docs: the hx prd entry documents the Direct-tier hint', () => {
+  const lines = docsText().split('\n');
+  const i = lines.findIndex((l) => l.startsWith('hx prd feature.md'));
+  assert.ok(i >= 0);
+  const entry = lines.slice(i, i + 3).join(' ').replace(/\s+#\s+/g, ' ');
+  for (const s of ['Acceptance criteria', `Direct tier: at most ${DIRECT_MAX_CRITERIA}`, 'may fit one session', 'still files']) assert.ok(entry.includes(s), s);
 });
