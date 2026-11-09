@@ -131,7 +131,7 @@ export function parseParent(body: string, selfRepo: string): Ref | null {
 
 export type Action =
   | { kind: 'gauntlet'; prd: number; title: string }
-  | { kind: 'decompose'; prd: number; title: string; children: Issue[] }
+  | { kind: 'decompose'; prd: number; title: string; children: Issue[]; body: string } // body: the PRD's, as read for this pass
   | { kind: 'review'; prd: number; title: string; children: Issue[] }
   | { kind: 'security'; prd: number; title: string; children: Issue[] }
   | { kind: 'bar'; prd: number; title: string; children: Issue[] }
@@ -246,7 +246,7 @@ export function plan(all: Issue[], repo: string, labels: Labels, states: Map<str
       ...(trusted ? {} : { author: p.author ?? '' }), ...(trusted && parseQualityBar(p.body) ? { qualityBar: true as const } : {}) });
 
     if (status === 'gauntlet') actions.push({ kind: 'gauntlet', prd: p.number, title: p.title });
-    else if (status === 'decompose') actions.push({ kind: 'decompose', prd: p.number, title: p.title, children: kids });
+    else if (status === 'decompose') actions.push({ kind: 'decompose', prd: p.number, title: p.title, children: kids, body: p.body ?? '' });
     else if (status === 'review') actions.push({ kind: 'review', prd: p.number, title: p.title, children: kids });
     else if (status === 'security') actions.push({ kind: 'security', prd: p.number, title: p.title, children: kids });
     else if (status === 'bar') actions.push({ kind: 'bar', prd: p.number, title: p.title, children: kids });

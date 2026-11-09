@@ -3,7 +3,7 @@ import { appendFileSync, cpSync, mkdirSync, mkdtempSync, readFileSync, renameSyn
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { autoWorkersConfigError, DEFAULTS, effectiveRtddBin, formatRoleModels, ghReservePctError, healthConfigError, labelSpecs, modelMatches, roleModel, roleModelMap, roleModelsError, testPatternsError, workerArgs, worktreeCopyError, type Config, type LabelSpec, type Project } from './config.ts';
+import { autoWorkersConfigError, DEFAULTS, effectiveRtddBin, formatRoleModels, ghReservePctError, healthConfigError, labelSpecs, modelMatches, roleModel, roleModelMap, roleModelsError, singleChildError, testPatternsError, workerArgs, worktreeCopyError, type Config, type LabelSpec, type Project } from './config.ts';
 import * as gh from './github.ts';
 import type { Issue } from './github.ts';
 import { hhmm, reserveState, type GhBudget } from './ghlimit.ts';
@@ -25,7 +25,7 @@ import { checkGit, checkRelease, crashRollback, currentVersion, gateAtOld, hando
   updateSelfUpdate, watchEvent, watchGood, watchOpen, watchVerdict, writeSelfUpdate, type Check, type WatchEvent } from './selfupdate.ts';
 import { findingBody, parseFindings, readSelfReview, selfReviewDecision, SELFREVIEW_PROMISE, writeSelfReview } from './selfreview.ts';
 import { BAR_JUDGE_PROMISE, BAR_PROMISE, barCapComment, barLine, barMarker, barRound, barStatus, gapIssueBody, parseJudgeReply, pickMapping, readMapping, refDir, roundDir, writeMapping, type Side } from './bar.ts';
-import { parseQualityBar } from './prd.ts';
+import { parseQualityBar, singleChild, singleChildBody, singleChildLine } from './prd.ts';
 import { cappedQuestion, cappedQuestionNote, IMPL_TOO_MANY_QUESTIONS, ownerAnswer, ownerAnswerNote, questionFromReply, TOO_MANY_QUESTIONS } from './question.ts';
 import { HELD_STATUS, heldComment, mergeFailure, readHeld, setHeld } from './held.ts';
 import { decideTarget, initialTarget, loadReading, mayClaim, startSampler, type LoadReading, type LoadSnapshot } from './load.ts';
@@ -330,6 +330,8 @@ async function pool(p: Project, o: PoolOptions): Promise<number> {
   if (badHealth) { log(`STOPPED: ${badHealth}`); return 2; }
   const badSelfUpdate = selfUpdateConfigError(c);
   if (badSelfUpdate) { log(`STOPPED: ${badSelfUpdate}`); return 2; }
+  const badSingle = singleChildError(c.singleChildMaxCriteria);
+  if (badSingle) { log(`STOPPED: ${badSingle}`); return 2; }
   const badAuto = autoWorkersConfigError(c);
   if (badAuto) { log(`STOPPED: ${badAuto}`); return 2; }
   const badConcurrency = testConcurrencyError(c.testConcurrency);
@@ -400,6 +402,11 @@ async function pool(p: Project, o: PoolOptions): Promise<number> {
   const snapshots: LoadSnapshot[] = [];
   let targetState = initialTarget(o.workers, loadClock());
   if (auto) live.autoWorkers = { target: targetState.target };
+  // PRD #422: a small PRD (or any, in a pool of one) gets one engine-filed child instead of a decompose session. An engine
+  // step like close-prd: no worker or fleet slot, no session. `filedChild`: the board read after filing may not list it yet
+  const filedChild = new Set<number>();
+  const oneChild = (a: Action) => (a.kind === 'decompose' ? singleChild(a.body, c.singleChildMaxCriteria, o.workers, auto) : null);
+  const isEngine = (a: Action) => a.kind === 'close-prd' || a.kind === 'label-ready' || (a.kind === 'decompose' && (filedChild.has(a.prd) || oneChild(a) !== null));
   const decideWorkers = () => {
     const now = loadClock();
     const r = o.loadReader ? o.loadReader() : loadReading(snapshots, now);
@@ -903,8 +910,8 @@ async function pool(p: Project, o: PoolOptions): Promise<number> {
           actions = claimable(pl.actions, { only: o.only, gateRed: gateRed(), fixIssue: gs.fixIssue });
           if (c.budgetGate) {
             // the files are read once per pass; a skipped action is looked at again next pass
-            const g = budgetFilter(actions, readBudget(p.stateDir, c, new Date()));
-            actions = g.claim;
+            const g = budgetFilter(actions.filter((a) => !isEngine(a)), readBudget(p.stateDir, c, new Date()));
+            actions = actions.filter((a) => isEngine(a) || g.claim.includes(a));
             budgetBlocked = g.skipped.length > 0;
             for (const l of newSkipLines(g.skipped, budgetLogged)) log(l);
           }
@@ -914,10 +921,15 @@ async function pool(p: Project, o: PoolOptions): Promise<number> {
       }
 
       for (const a of actions) {
-        if (a.kind !== 'close-prd' && a.kind !== 'label-ready') sharedHold();
+        if (!isEngine(a)) sharedHold();
         sharedGithubHold();
         if (stop.signal.aborted || fatal || live.draining || Date.now() < (live.pausedUntil ?? 0) || githubLowNow()) break; // fatal may land during readPlan
         if (a.kind === 'close-prd' || a.kind === 'label-ready') { await engineStep(p, a).then(() => { if (a.kind === 'close-prd') void releaseCheck(); }).catch((e) => log(`${a.kind} failed: ${e.message}`, target(a))); continue; }
+        if (a.kind === 'decompose' && isEngine(a)) {
+          const why = oneChild(a);
+          if (!filedChild.has(a.prd) && why) await fileOneChild(p, a, why, filedChild).catch((e) => log(`one child failed: ${e.message}`, a.prd));
+          continue;
+        }
         // autoWorkers: below the target counting a running gate as one, or below the floor; else a fixed count
         const full = auto ? !mayClaim({ sessions: inFlight.size, gateRunning: gateRunning !== null, target: targetState.target, minWorkers: c.minWorkers, ceiling: o.workers })
           : inFlight.size >= o.workers;
@@ -944,7 +956,7 @@ async function pool(p: Project, o: PoolOptions): Promise<number> {
         if (finished !== finishedBefore) continue; // the plan predates a session ending: read it again
         const limited = Date.now() < (live.pausedUntil ?? 0) || githubLowNow() || budgetBlocked;
         // an engine step (PRD closed, child labelled) may have unlocked work: re-read before giving up
-        const engineOnly = !budgetBlocked && actions.length > 0 && actions.every((a) => a.kind === 'close-prd' || a.kind === 'label-ready');
+        const engineOnly = !budgetBlocked && actions.length > 0 && actions.every(isEngine);
         engineRetries = engineOnly ? engineRetries + 1 : 0;
         if (!o.watch && !limited && (!engineOnly || engineRetries > 3)) {
           if (c.autoRelease) {
@@ -1101,6 +1113,17 @@ async function engineStep(p: Project, a: Extract<Action, { kind: 'close-prd' | '
     await gh.editLabels(c.repo, a.issue, [c.labels.ready]);
     log(`labelled ${c.labels.ready} (child of PRD #${a.prd} without a label)`, a.issue);
   }
+}
+
+/** PRD #422: file the PRD's one child (`Implement PRD #<n>: <title>`, ready) instead of a decompose session, log it and
+ *  tell the PRD. The comment comes only after the issue exists; from then on `filed` keeps this runner from filing another. */
+async function fileOneChild(p: Project, a: Extract<Action, { kind: 'decompose' }>, why: 'pool' | 'count', filed: Set<number>): Promise<void> {
+  const c = p.config;
+  const url = await gh.createIssue(c.repo, `Implement PRD #${a.prd}: ${a.title}`, singleChildBody(a.body, a.prd), [c.labels.ready]);
+  filed.add(a.prd);
+  const line = singleChildLine(a.prd, Number(/(\d+)\s*$/.exec(url)?.[1]), why, c.singleChildMaxCriteria);
+  log(line, a.prd);
+  await gh.comment(c.repo, a.prd, line).catch((e) => log(`one child: the comment on the PRD failed: ${e.message}`, a.prd));
 }
 
 const childList = (kids: Issue[]) =>

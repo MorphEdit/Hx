@@ -85,7 +85,9 @@ export function gh(a, { input = () => '', cwd = process.cwd(), inProcess = false
       if (s.listFails === true || (s.listFails && s.listFails === opt('-R'))) { printErr('HTTP 502: Bad Gateway'); exit(1); }
       const state = opt('--state') ?? 'open';
       const label = opt('--label'); // --label L: only issues carrying L (an issue may store closedAt and stateReason)
-      const out = s.issues.filter((i) => (state === 'all' || i.state === state.toUpperCase()) && (!i.repo || i.repo === opt('-R'))
+      // an issue with hiddenReads k (state.createHiddenReads at its creation) is left out of the next k lists: GitHub lagging
+      if (s.issues.some((i) => i.hiddenReads > 0)) mutate((cur) => { for (const i of cur.issues) if (i.hiddenReads > 0) i.hiddenReads--; });
+      const out = s.issues.filter((i) => !(i.hiddenReads > 0) && (state === 'all' || i.state === state.toUpperCase()) && (!i.repo || i.repo === opt('-R'))
         && (!label || i.labels.includes(label))).map((i) => ({ ...i, labels: ghLabels(i), author: author(i) }));
       // state.slowList = { add, wake, ms }: a slow read — once the list is taken, `add` joins the board and `wake` is
       // written, then the answer (without it) comes ms later (a wake that lands while hx reads the board)
@@ -268,7 +270,8 @@ export function gh(a, { input = () => '', cwd = process.cwd(), inProcess = false
       withStdin((body) => {
         const number = mutate((cur) => {
           const n = Math.max(0, ...cur.issues.map((i) => i.number)) + 1;
-          cur.issues.push({ number: n, title: opt('--title'), body, state: 'OPEN', labels: all('--label'), author: LOGIN });
+          cur.issues.push({ number: n, title: opt('--title'), body, state: 'OPEN', labels: all('--label'), author: LOGIN,
+            ...(cur.createHiddenReads ? { hiddenReads: cur.createHiddenReads } : {}) });
           return n;
         });
         print(`https://github.com/me/app/issues/${number}\n`);

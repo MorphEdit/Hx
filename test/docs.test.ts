@@ -613,3 +613,20 @@ test('docs: the hx prd entry documents the Direct-tier hint (#423)', () => {
   const entry = lines.slice(i, i + 3).join(' ').replace(/\s+#\s+/g, ' ');
   for (const s of ['Acceptance criteria', `Direct tier: at most ${DIRECT_MAX_CRITERIA}`, 'may fit one session', 'still files']) assert.ok(entry.includes(s), s);
 });
+
+test('guide: the one-child path section and the singleChildMaxCriteria row (#425)', () => {
+  const g = read('docs/guide.md');
+  assert.ok(hasRow(g, 'singleChildMaxCriteria', String(DEFAULTS.singleChildMaxCriteria)), 'singleChildMaxCriteria row');
+  assert.match(g.split('\n').find((l) => l.startsWith('| `singleChildMaxCriteria`'))!, /Provisional/);
+  const start = g.indexOf('### One child for a small PRD');
+  assert.ok(start >= 0, 'section');
+  const sec = g.slice(start, g.indexOf('\n## ', start));
+  for (const s of ['`singleChildMaxCriteria` is `0` → decompose', 'no `## Acceptance criteria` section', 'A pool of one', '--workers 1',
+    'at most `singleChildMaxCriteria` items', 'Otherwise → decompose', 'Implement PRD #<n>: <PRD title>', 'word for word', '`ready-for-agent`',
+    '## Blocked by', '## Parent', 'prd #<n>: one child #<c> (≤ K acceptance criteria) — no decompose',
+    'prd #<n>: one child #<c> (a pool of one) — no decompose', 'to `0`'])
+    assert.ok(sec.includes(s), s);
+  // the order of the rules: off switch, no criteria, pool of one, the count
+  const at = (s: string) => sec.indexOf(s);
+  assert.ok(at('1. `singleChildMaxCriteria`') < at('2. The PRD has no') && at('2. The PRD has no') < at('3. A pool of one') && at('3. A pool of one') < at('4. The section'));
+});

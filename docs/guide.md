@@ -697,6 +697,7 @@ PRD #20 [prd] ──gauntlet──▶ [prd-hardened] ──decompose──▶ ch
   the code; on FAIL a reviser rewrites the body to resolve its findings (the original body is kept once in
   a `<!-- hx-prd-original -->` comment). Every round posts a `<!-- hx-gauntlet -->` comment. A PASS, or
   `gauntletRounds` rounds, labels the PRD `prd-hardened`. A PRD that already has children never goes back.
+- A small PRD gets one child and no decompose session: see [One child for a small PRD](#one-child-for-a-small-prd).
 - A PRD's own `## Blocked by` sequences PRDs: nothing of PRD #21 runs until #20 is closed.
   PRDs without blockers run in parallel.
 - Every review posts a `<!-- hx-review -->` comment on the PRD. After `reviewRounds` reviews
@@ -737,6 +738,34 @@ PRD #20 [prd] ──gauntlet──▶ [prd-hardened] ──decompose──▶ ch
   `[needs you]` issue labelled `needs-human`, blocking no sibling; the PRD stays `building` until it is
   answered. See [When hx needs you](../README.md#when-hx-needs-you).
 - Decompose, review and security sessions only file issues, labels and comments; they never push code.
+
+### One child for a small PRD
+
+Where a decompose session would start (an open, trusted PRD with no children: after the gauntlet, or right
+away with `gauntlet: false`, `prd-hardened` or not), `hx run` first decides from the PRD body it just read
+whether one child is enough. The first rule that applies decides:
+
+1. `singleChildMaxCriteria` is `0` → decompose (the off switch).
+2. The PRD has no `## Acceptance criteria` section, or an empty one → decompose (nothing to copy).
+3. A pool of one: the run's worker count is 1 (`hx run --workers 1`, else `workers`) and autoWorkers is off
+   (`autoWorkers: false`, or `HX_AUTO_WORKERS=0`) → one child, whatever the count.
+4. The section lists at most `singleChildMaxCriteria` items (top-level list items; nested bullets belong to
+   their item) → one child.
+5. Otherwise → decompose, as before.
+
+For one child, hx starts no session. It files one issue itself, `Implement PRD #<n>: <PRD title>`, labelled
+`ready-for-agent`, whose body is the PRD's `## Acceptance criteria` section word for word, a line pointing
+to the PRD for the rest, then `## Blocked by` `None` and `## Parent` `#<n>`, the way decompose children end.
+It logs `prd #<n>: one child #<c> (≤ K acceptance criteria) — no decompose` (K = `singleChildMaxCriteria`),
+or `prd #<n>: one child #<c> (a pool of one) — no decompose` when rule 3 decided, and posts the same line
+as a comment on the PRD (only after the issue exists).
+
+It is an engine step like closing a PRD: it takes no worker or fleet slot, is not counted as a session, and
+waits only for a pause, the usage hold or the GitHub-budget hold. A failed `gh` call is logged
+(`one child failed: …`) and tried again on a later pass; a runner never files a second child for the same
+PRD, even while GitHub does not list the first one yet. The child then runs like any other: impl, audit,
+merge, then the PRD's review and security. It has a parent, so the size check does not split it. Set
+`singleChildMaxCriteria` to `0` to send every PRD through decompose.
 
 ## Single issues
 
@@ -1202,6 +1231,7 @@ and the dashboard's per-model numbers use it). To spot one:
 | `sizeCheck` | `true` | a single issue (no parent, not `bug` or `hx-gate-fix`) is sized by one `size` session before its first impl session and split when too big; `false` turns off the up-front check (see [Single issues](#single-issues)) |
 | `gauntlet` | `true` | critique and revise a PRD in rounds before it is decomposed |
 | `gauntletRounds` | 2 | critic → reviser rounds before the PRD is decomposed anyway |
+| `singleChildMaxCriteria` | 15 | a PRD with at most this many acceptance criteria gets one child filed by hx, no decompose session; a pool of one (1 worker, autoWorkers off) gets one child whatever the count; `0` turns it off. Provisional: a later benchmark will recalibrate it. See [One child for a small PRD](#one-child-for-a-small-prd) |
 | `reviewRounds` | 3 | PRD reviews before a human has to look |
 | `barRounds` | 3 | quality-bar rounds for a PRD with a `## Quality bar` section; a lost round files one gap issue, and the last one signs the PRD off with the gap standing. `hx status` and the dashboard show each such PRD's round and last result (`bar round 1/3 · last: lost — <gap>`, or `bar: not run yet`) |
 | `security` | `true` | a security pass checks a reviewed PRD's merged work before the PRD closes |
