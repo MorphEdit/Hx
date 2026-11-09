@@ -176,7 +176,7 @@ test('prompts/issue.md: no tier check — no {{TIERS}}, and the issue session\'s
   assert.ok(!readFileSync(promptFile, 'utf8').includes(tierTable()));
 });
 
-test('docs: hx grill\'s tier check and what Direct does to hx grill and hx start', async () => {
+test('docs: hx grill\'s tier check and what Direct does to hx grill and hx start', () => {
   const d = docsText();
   assert.match(d, /hx grill "dark mode"[\s\S]*?checks the tier[\s\S]*?Direct accepted: no PRD is written[\s\S]*?no PRD written — nothing filed" and exits 1/);
   assert.match(d, /grill session checks the tier first[\s\S]*?accept Direct it writes no PRD,\s+and `hx start` stops here with exit 1/);
