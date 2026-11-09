@@ -34,12 +34,13 @@ export function overlapLines(paths: string[], sources: OverlapSource[], root?: s
   return lines;
 }
 
-/** The files issue `n`'s impl worktree differs in from origin/<base>, uncommitted changes to tracked files included;
+/** The files issue `n`'s impl worktree changed since it branched from origin/<base> (against their merge-base, so what
+ *  landed on origin/<base> after the branch point is not the issue's, #433), uncommitted changes to tracked files included;
  *  none when the worktree directory does not exist on this machine. */
 async function worktreeFiles(worktreeRoot: string, n: number, base: string): Promise<string[]> {
   const dir = path.join(worktreeRoot, implWorktree(n, base).name);
   if (!existsSync(dir)) return [];
-  const out = await runOk(GIT, ['-C', dir, '-c', 'core.quotePath=false', 'diff', '--name-only', `origin/${base}`]);
+  const out = await runOk(GIT, ['-C', dir, '-c', 'core.quotePath=false', 'diff', '--name-only', '--merge-base', `origin/${base}`]);
   return out.split('\n').map((l) => l.trim()).filter(Boolean);
 }
 
