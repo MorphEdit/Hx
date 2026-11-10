@@ -97,6 +97,22 @@ test('the table: fixtures by reference size then name, chat first, every column;
   assert.equal(L.at(-1), 'crossover: alpha (20 lines): hx3 no worse on quality and faster than chat');
 });
 
+test('the order is by reference size, then by name among fixtures of one size, whatever order they come in', () => {
+  const order = (L: string[]) => L.filter((l) => !l.startsWith('crossover:')).map((l) => l.split(' ').slice(0, 2).join(' '));
+  const want = ['bbb 10', 'ccc 10', 'zed 10', 'aaa 40', 'tally 50'];
+  const given = [['aaa', 40], ['zed', 10], ['tally', 50], ['ccc', 10], ['bbb', 10]].map(([name, size]) => ({ name, size, runs: [] }));
+  assert.deepEqual(order(cx.crossoverLines(given)), want);
+  assert.deepEqual(order(cx.crossoverLines([...given].reverse())), want);
+  // through the CLI: no flag (names come sorted by name) and a flag in another order
+  const bench = benchDir({ tally: 50, aaa: 40, zed: 10, ccc: 10, bbb: 10 });
+  const results = mkdtempSync(path.join(os.tmpdir(), 'hx-cxr-'));
+  for (const argv of [[], ['--fixtures', 'zed,ccc,tally,bbb,aaa']]) {
+    const out = cx.main(argv, { benchDir: bench, resultsDir: results });
+    assert.equal(out.code, 0, out.lines.join('\n'));
+    assert.deepEqual(order(out.lines), want, argv.join(' '));
+  }
+});
+
 test('each comparison counts only the chat reviews against that arm', () => {
   const { bench, results } = scene();
   const L: string[] = cx.main(['--fixtures', 'alpha'], { benchDir: bench, resultsDir: results }).lines;

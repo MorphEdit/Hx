@@ -12,7 +12,8 @@ describe('the library', { concurrency: true }, () => {
     assert.equal(lib.parseAmount('42.10'), 4210);
     assert.equal(lib.parseAmount('-7.05'), -705);
     assert.equal(lib.parseAmount('007.50'), 750);
-    assert.equal(Object.is(lib.parseAmount('-0.00'), 0), true);
+    // the brief leaves the sign of a parsed zero open: -0 and 0 both pass
+    assert.equal(lib.parseAmount('-0.00') === 0, true);
   });
 
   test('parseAmount throws for text that is not an amount', async () => {

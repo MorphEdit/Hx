@@ -158,6 +158,23 @@ test('a reference with one rule broken diverges, classed under the feature that 
   assert.ok('depth-sort / stdout' in r.classes, Object.keys(r.classes).join(', '));
 });
 
+test('a behaviour the brief leaves open is not graded: a reference whose parseAmount("-0.00") is -0 passes every case', E2E, async () => {
+  const { cpSync, mkdtempSync, writeFileSync } = await import('node:fs');
+  const os = await import('node:os');
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'ledge-minus0-'));
+  cpSync(fixture.reference, dir, { recursive: true });
+  const file = path.join(dir, 'src', 'amount.js');
+  const src = readFileSync(file, 'utf8');
+  const changed = src.replace(/if \(cents === 0\) \{\r?\n\s*return 0;\r?\n\s*\}\r?\n/, '');
+  assert.notEqual(changed, src);
+  writeFileSync(file, changed);
+  const lib = await import(pathToFileURL(file).href);
+  assert.equal(Object.is(lib.parseAmount('-0.00'), -0), true);
+  const r = grade(dir, gradeOptions(fixture));
+  assert.deepEqual(r.failures, []);
+  assert.equal(r.passed, r.total);
+});
+
 test('docs/benchmark.md has the empty ledge markers', () => {
   const doc = readFileSync(path.join(root, 'docs', 'benchmark.md'), 'utf8');
   assert.match(doc, /<!-- project-bench:ledge:start -->\r?\n<!-- project-bench:ledge:end -->/);
