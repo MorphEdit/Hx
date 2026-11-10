@@ -117,7 +117,8 @@ describe('the library', { concurrency: true }, () => {
 
   test('toCsv and parseCsv round-trip', async () => {
     const lib = await loadLib();
-    const rows = [['date', 'payee'], ['2024-01-01', 'Shop, "the" one'], ['x', 'a\r\nb']];
+    // a line break inside a field is LF: the brief leaves open whether a quoted CRLF comes back as CRLF
+    const rows = [['date', 'payee'], ['2024-01-01', 'Shop, "the" one'], ['x', 'a\nb']];
     assert.deepEqual(lib.parseCsv(lib.toCsv(rows)), rows);
   });
 });

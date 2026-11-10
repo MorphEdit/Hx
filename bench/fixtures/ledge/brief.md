@@ -6,15 +6,18 @@ format, and ledge answers questions about it: balances, a register, monthly repo
 
 ## Files and dates
 - The journal is the file named by the `LEDGE_FILE` environment variable; without it, `ledger.journal` in the current
-  folder. A journal that does not exist yet is an empty journal. The commands that write create it.
+  folder. A journal that does not exist yet is an empty journal. The commands that write create it. A path in
+  `LEDGE_FILE` or on the command line is relative to the current folder.
 - Dates are written `YYYY-MM-DD` and must be real dates (`2024-02-30` is wrong). There are no times or time zones.
 - "Today" is the `LEDGE_TODAY` environment variable (a date, e.g. `LEDGE_TODAY=2024-03-15`); if it is not set, the
   computer's local date. If it is set but is not a real date, every command fails with it (exit 2), even one that does
   not use today.
-- Amounts are written with exactly two decimals and an optional leading minus: `42.10`, `-7.00`, `0.50`, `1200.00`.
-  No plus sign, no thousands separators, no other number of decimals. ledge works in whole cents, so sums are exact
-  and are never rounded. ledge always prints an amount the same way: a minus for a negative amount, no leading zeros
-  (`007.50` is printed `7.50`), and zero as `0.00` (never `-0.00`).
+- Amounts are written with an optional leading minus, at least one digit before the point and exactly two decimals
+  after it: `42.10`, `-7.00`, `0.50`, `1200.00`. No plus sign, no thousands separators, no other number of decimals,
+  and no amount that starts at the point (`.50` is wrong). ledge works in whole cents, so sums are exact and are
+  never rounded. ledge always prints an amount the same way: a minus for a negative amount, no leading zeros but the
+  one `0` of an amount under `1.00` (`007.50` is printed `7.50`, five cents `0.05`), and zero as `0.00` (never
+  `-0.00`).
 - A currency is exactly three capital letters (`USD`, `EUR`, `THB`).
 - An account name is one or more parts joined by `:`, e.g. `Expenses:Food:Coffee`. The first part is one of `Assets`,
   `Liabilities`, `Equity`, `Income` and `Expenses`. Every part starts with a letter and holds only letters, digits,
@@ -44,8 +47,9 @@ The journal is read line by line. "Whitespace" is spaces and tabs; any run of wh
 end with LF or CRLF, and may have whitespace at the end.
 - A **blank line** holds only whitespace. A **comment line**'s first non-whitespace character is `#` or `;`.
   Comment lines are ignored wherever they are, also between the postings of a transaction.
-- `account <name>` declares an account. Every account must be declared before (above, in reading order) any posting
-  that uses it. Declaring an account a second time is an error.
+- `account <name>` declares an account; anything else after the name on that line is an error. Every account must be
+  declared before (above, in reading order) any posting that uses it: a posting to an account not declared above it
+  is an error at that posting's line. Declaring an account a second time is an error.
 - `include <path>` reads another journal file in place of that line, as if its lines were there. The path is the rest
   of the line (it may hold spaces), relative to the folder of the file that holds the `include`. A file that includes
   itself, directly or through other files, is an error (an include cycle) at the `include` line that closes the cycle.
@@ -58,7 +62,8 @@ end with LF or CRLF, and may have whitespace at the end.
 - A transaction has at least two postings. At most one posting may leave out its amount: it gets the amount that
   makes the transaction balance, in the one currency of the other postings; when the other postings use more than one
   currency, that is an error. In every currency, the amounts of a transaction add up to exactly `0.00`, or it is an
-  error. A transaction may post to the same account twice.
+  error. A transaction may post to the same account twice. A transaction's postings keep the order they are written
+  in, wherever ledge shows or writes them.
 - A line that starts with something other than whitespace and is not a comment, an `account`, an `include` or a date
   line is an error. So is a line that starts with whitespace when no transaction is open.
 - Transactions need not be in date order. **Reading order** is the order of the lines with every include in place.
@@ -74,8 +79,8 @@ line number in that file counting every line from 1 (blank and comment lines inc
 
 ## The command line
 Output goes to stdout, and every line of output ends with `\n`. Errors go to stderr only, never stdout, and on any
-error stdout is empty and no file is changed. An error is a message the CLI prints and exits with, never an uncaught
-exception.
+error stdout is empty and no file is created or changed. An error is a message the CLI prints and exits with, never an
+uncaught exception.
 
 ### Exit codes, and which error wins
 When several things are wrong, the first one in this list is reported, with its exit code:
@@ -188,7 +193,7 @@ quote before the next comma or line end, is an error.
 - Each row becomes a transaction on its date, with its payee and two postings: `--account` with the amount, then the
   other account with the amount's sign turned over, in the row's currency.
 - A row is a duplicate, and is skipped, when the journal already has a transaction on the same date with the same
-  payee and a posting to `--account` of the same amount and currency. Rows are checked in file order, each against the
+  payee (exactly, case included) and a posting to `--account` of the same amount and currency. Rows are checked in file order, each against the
   journal with the rows imported before it, so a row repeated in the file is imported once.
 - `--account`, and every other account that a row that is not a duplicate would use, must be declared in the journal
   (exit 5, the first one in row order, `--account` first). Nothing is written then.
@@ -208,16 +213,20 @@ spaces, the amount, one space, the currency. Every posting is written with its a
 ## Using it from Node
 Importing the package gives these functions. An amount is a whole number of cents (`4210` is `42.10`).
 
-- `parseAmount(text)` → the cents, or throws an `Error` for text that is not an amount.
+- `parseAmount(text)` → the cents, or throws an `Error` for text that is not exactly an amount (whitespace around it
+  included).
 - `formatAmount(cents)` → the text, as ledge prints it.
 - `parseJournal(text, name)` → `{ accounts, transactions }` for one journal text named `name` (used in error
   messages; default `journal`). `accounts` are the declared names in reading order, and `transactions` are in
-  reading order too, not sorted by date. A transaction is `{ line, date, payee, postings }`, and a posting
-  `{ account, amount, currency }`, with an inferred amount filled in. `include` is not followed here: an `include`
+  reading order too, not sorted by date. A transaction is `{ line, date, payee, postings }`, `line` the number of its
+  date line, and a posting `{ account, amount, currency }`, the postings in their written order with an inferred
+  amount filled in. `include` is not followed here: an `include`
   line is an error. On an error it throws an `Error` whose message contains `line N` and whose `line` property is N.
 - `loadJournal(file)` → the same for a journal file, following its includes; a missing file is an empty journal.
 - `balance(journal, options)` → `{ rows: [{ account, currency, amount }], totals: [{ currency, amount }] }`, in the
-  printed order. `options` are `{ account, from, to, payee, currency, depth, sort }`, each optional; `account` is a list.
+  printed order. `options` are `{ account, from, to, payee, currency, depth, sort }`, each optional, and `options`
+  itself may be left out. `account` is a list of names; `depth` is a number; the others are text, as on the command
+  line.
 - `register(journal, options)` → `[{ date, payee, account, amount, currency, running }]`, in the printed order, with
   the options of `balance` but `depth`.
 - `parseCsv(text)` → the rows, each a list of strings, blank lines skipped; throws on bad quoting.

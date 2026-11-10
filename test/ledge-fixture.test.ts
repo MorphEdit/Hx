@@ -185,6 +185,51 @@ test('what the suite grades beyond the precedence list, the brief states: transa
   assert.ok(imports.includes("both.stderr.includes('none.csv')"));
 });
 
+test('the sweep of every hidden case: the brief states each behaviour the suite or the fuzz grades', () => {
+  const flat = brief.replace(/\s+/g, ' ');
+  for (const rule of [
+    // amounts: parseAmount('.50') throws, parseAmount('1.00 ') throws, formatAmount(5) is 0.05, 0000.05 prints 0.05
+    /at least one digit before the point and exactly two decimals after it/, /no amount that starts at the point \(`\.50` is wrong\)/,
+    /no leading zeros but the one `0` of an amount under `1\.00` \(`007\.50` is printed `7\.50`, five cents `0\.05`\)/,
+    /throws an `Error` for text that is not exactly an amount \(whitespace around it included\)/,
+    // the library's shapes: a transaction's line, the postings' order, balance(j) with no options, depth 2
+    /`line` the number of its date line/, /the postings in their written order/, /`options` itself may be left out/, /`depth` is a number/,
+    // print and add keep the written posting order
+    /A transaction's postings keep the order they are written in, wherever ledge shows or writes them/,
+    // a failed add on a missing journal leaves no file (the hidden suite and the fuzz's missing-journal feature)
+    /on any error stdout is empty and no file is created or changed/,
+    // journal errors: an undeclared account at the posting's line, a second name on an account line
+    /a posting to an account not declared above it is an error at that posting's line/, /anything else after the name on that line is an error/,
+    // import: `shop` is no duplicate of `Shop`
+    /the same payee \(exactly, case included\)/,
+    // --budget plans/b.txt, LEDGE_FILE books/mine.txt
+    /A path in `LEDGE_FILE` or on the command line is relative to the current folder/,
+  ]) assert.match(flat, rule);
+  const library = readFileSync(path.join(fixture.hidden, 'library.test.mjs'), 'utf8');
+  assert.ok(library.includes("'.50', '1.00 '"), 'parseAmount still grades .50 and a trailing space');
+  // the round trip grades no CRLF inside a quoted field: the brief leaves open whether it comes back as CRLF
+  const roundTrip = library.slice(library.indexOf("test('toCsv and parseCsv round-trip'"));
+  assert.ok(roundTrip.length < library.length, 'the round-trip case is there');
+  assert.doesNotMatch(roundTrip.slice(0, roundTrip.indexOf('\n  });')), /\\r\\n/);
+});
+
+test('a behaviour the brief leaves open is not graded: a reference that reads a quoted CRLF as LF passes every case', E2E, async () => {
+  const { cpSync, mkdtempSync, writeFileSync } = await import('node:fs');
+  const os = await import('node:os');
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'ledge-crlf-'));
+  cpSync(fixture.reference, dir, { recursive: true });
+  const file = path.join(dir, 'src', 'csv.js');
+  const src = readFileSync(file, 'utf8');
+  const changed = src.replace(/export function readCsvRows\(text\) \{\r?\n/, (m) => `${m}  text = text.replaceAll('\\r\\n', '\\n');\n`);
+  assert.notEqual(changed, src);
+  writeFileSync(file, changed);
+  const lib = await import(pathToFileURL(path.join(dir, 'src', 'ledge.js')).href);
+  assert.deepEqual(lib.parseCsv('x,"a\r\nb"\n'), [['x', 'a\nb']]);
+  const r = grade(dir, gradeOptions(fixture));
+  assert.deepEqual(r.failures, []);
+  assert.equal(r.passed, r.total);
+});
+
 test('docs/benchmark.md has the empty ledge markers', () => {
   const doc = readFileSync(path.join(root, 'docs', 'benchmark.md'), 'utf8');
   assert.match(doc, /<!-- project-bench:ledge:start -->\r?\n<!-- project-bench:ledge:end -->/);
