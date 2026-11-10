@@ -175,6 +175,16 @@ test('a behaviour the brief leaves open is not graded: a reference whose parseAm
   assert.equal(r.passed, r.total);
 });
 
+test('what the suite grades beyond the precedence list, the brief states: transactions in reading order, a missing file named', () => {
+  const flat = brief.replace(/\s+/g, ' ');
+  assert.match(flat, /`transactions` are in reading order too, not sorted by date/);
+  assert.match(flat, /cannot be read \(for `import`: the CSV file first, then the rules file\)\. The error names that file/);
+  const library = readFileSync(path.join(fixture.hidden, 'library.test.mjs'), 'utf8');
+  assert.ok(library.includes('parseJournal keeps reading order, not date order'));
+  const imports = readFileSync(path.join(fixture.hidden, 'import.test.mjs'), 'utf8');
+  assert.ok(imports.includes("both.stderr.includes('none.csv')"));
+});
+
 test('docs/benchmark.md has the empty ledge markers', () => {
   const doc = readFileSync(path.join(root, 'docs', 'benchmark.md'), 'utf8');
   assert.match(doc, /<!-- project-bench:ledge:start -->\r?\n<!-- project-bench:ledge:end -->/);

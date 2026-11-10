@@ -85,7 +85,8 @@ When several things are wrong, the first one in this list is reported, with its 
    that is not valid where the command line is read (a malformed date, month, account name, currency, amount or
    number; `--from` after `--to`). Nothing is read before these are checked.
 2. **Environment, exit 2:** `LEDGE_TODAY` set but not a real date; then a file named on the command line, or the
-   budget file, that does not exist or cannot be read (for `import`: the CSV file first, then the rules file).
+   budget file, that does not exist or cannot be read (for `import`: the CSV file first, then the rules file). The
+   error names that file (at least the last part of its path).
 3. **The journal, exit 3:** any error in the journal or a file it includes, as above.
 4. **The other input files, exit 4:** an error in the content of the CSV file, the rules file or the budget file
    (for `import`: the CSV file first, then the rules file). Their errors name the file and contain `line N` like the
@@ -210,10 +211,10 @@ Importing the package gives these functions. An amount is a whole number of cent
 - `parseAmount(text)` → the cents, or throws an `Error` for text that is not an amount.
 - `formatAmount(cents)` → the text, as ledge prints it.
 - `parseJournal(text, name)` → `{ accounts, transactions }` for one journal text named `name` (used in error
-  messages; default `journal`). `accounts` are the declared names in reading order. A transaction is
-  `{ line, date, payee, postings }`, and a posting `{ account, amount, currency }`, with an inferred amount filled
-  in. `include` is not followed here: an `include` line is an error. On an error it throws an `Error` whose message
-  contains `line N` and whose `line` property is N.
+  messages; default `journal`). `accounts` are the declared names in reading order, and `transactions` are in
+  reading order too, not sorted by date. A transaction is `{ line, date, payee, postings }`, and a posting
+  `{ account, amount, currency }`, with an inferred amount filled in. `include` is not followed here: an `include`
+  line is an error. On an error it throws an `Error` whose message contains `line N` and whose `line` property is N.
 - `loadJournal(file)` → the same for a journal file, following its includes; a missing file is an empty journal.
 - `balance(journal, options)` → `{ rows: [{ account, currency, amount }], totals: [{ currency, amount }] }`, in the
   printed order. `options` are `{ account, from, to, payee, currency, depth, sort }`, each optional; `account` is a list.
