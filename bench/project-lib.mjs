@@ -6,6 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DEFAULTS, ROLES, roleModel, workerArgs } from '../src/config.ts';
 import { parseOutcomes } from '../src/outcomes.ts';
+import { takeFixtureArg } from './project-fixtures.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 export const TEMPLATE = path.join(here, 'project', 'template');
@@ -20,13 +21,35 @@ export function escapedDefects(failed, ended) {
   return ended === 'done' ? failed : null;
 }
 
-/** The repo setup step: `template/` into `dir`, then a git repo on `main` with one commit. Nothing else is copied. */
-export function setupRepo(dir, { template = TEMPLATE } = {}) {
+/** The repo setup step: `template/` into `dir`, then a git repo on `main` with one commit. Nothing else is copied.
+ *  `name` is the product's name in the commit message (the fixture manifest's `bin`). */
+export function setupRepo(dir, { template = TEMPLATE, name = 'tally' } = {}) {
   cpSync(template, dir, { recursive: true });
   const git = (...args) => execFileSync('git', args, { cwd: dir, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] });
   git('init', '-q', '-b', 'main');
   git('add', '-A');
-  git('commit', '-q', '-m', 'tally: empty project');
+  git('commit', '-q', '-m', `${name}: empty project`);
+}
+
+/** The arms: `chat` one session; `hx1` `hx run --watch --workers 1` with autoWorkers false (always the one-child
+ *  path); `hx3` `hx run --watch --workers 3` as configured. */
+export const ARMS = ['chat', 'hx1', 'hx3'];
+const WORKERS = { chat: 1, hx1: 1, hx3: 3 };
+
+/** What the benchmark sets in an arm's .hx/config.json after `hx init`, before --config: the worker count, and
+ *  for hx1 autoWorkers false. */
+export function armConfig(arm) {
+  return arm === 'hx1' ? { workers: WORKERS[arm], autoWorkers: false } : { workers: WORKERS[arm] };
+}
+
+/** The `hx` arguments an Hx arm runs: `run --watch --workers <n>`. */
+export function hxRunArgs(arm) {
+  return ['run', '--watch', '--workers', String(WORKERS[arm])];
+}
+
+/** The chat session's nudges: how many turns after the first it was sent (each one the continue prompt). */
+export function countNudges(turns) {
+  return turns.filter((i) => i > 1).length;
 }
 
 /** Distinct `sessionId`s per `role` over usage records. */
@@ -69,13 +92,17 @@ export function parseJsonl(text) {
   return out;
 }
 
-export const USAGE = 'usage: node bench/project.mjs <chat|hx3> [--runs N] [--max-hours 4] [--max-usd 60] [--config key=value ...]';
+export const USAGE = 'usage: node bench/project.mjs <chat|hx1|hx3> [--fixture <name>] [--runs N] [--max-hours 4] [--max-usd 60] [--config key=value ...]';
 
-/** The CLI's arguments: `{ arm, runs, maxHours, maxUsd }`, or null for the usage line (an unknown arm, `--runs` not a
- *  positive integer, a cap not a positive number, a flag with no value). */
+/** The CLI's arguments: `{ arm, runs, maxHours, maxUsd }`, with `config` and `fixture` when given, or null for the usage
+ *  line (an unknown arm, `--runs` not a positive integer, a cap not a positive number, a flag with no value). The
+ *  fixture's name is checked by the caller (bench/project-fixtures.mjs resolveFixture). */
 export function parseArgs(argv) {
   const arm = argv[0];
-  if (arm !== 'chat' && arm !== 'hx3') return null;
+  if (!ARMS.includes(arm)) return null;
+  const { fixture, rest } = takeFixtureArg(argv);
+  if (fixture === null) return null;
+  argv = rest;
   const flag = (name, dflt, ok) => {
     const i = argv.indexOf(name);
     if (i < 0) return dflt;
@@ -97,7 +124,9 @@ export function parseArgs(argv) {
     try { v = JSON.parse(v); } catch { /* a plain string */ }
     config[m[1]] = v;
   }
-  return Object.keys(config).length ? { arm, runs, maxHours, maxUsd, config } : { arm, runs, maxHours, maxUsd };
+  return {
+    arm, runs, maxHours, maxUsd, ...(Object.keys(config).length ? { config } : {}), ...(fixture !== undefined ? { fixture } : {}),
+  };
 }
 
 /** What the `chat` arm's one session is given: the default model and effort, and Hx's lean flags as `extraArgs`
@@ -106,7 +135,7 @@ export function chatSession(defaults = DEFAULTS) {
   return { model: defaults.model, effort: defaults.effort, extraArgs: workerArgs(defaults) };
 }
 
-/** The `roles` of a run's provenance. `chat`: one role, `chat`, from the chat session's values. `hx3`: every role in
+/** The `roles` of a run's provenance. `chat`: one role, `chat`, from the chat session's values. `hx1`, `hx3`: every role in
  *  ROLES, ran or not, from the arm's config as `hx run` loads it: model and effort from roleModel, flags from
  *  workerArgs (every session `hx run` starts gets them). The flags leave out what every claude session gets (`-p`,
  *  `--output-format`, `--model`, …): workerArgs holds none of those. */

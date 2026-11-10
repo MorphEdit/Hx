@@ -219,3 +219,53 @@ test('the CLI: globs over a temp dir give the same result as the pure function, 
   assert.equal(broken.status, 2);
   assert.match(broken.stdout, /error: .*hx3-500-1\.json/);
 });
+
+test('runs of two fixtures across the two sets: refused before check 1, each set\'s fixtures listed, exit 2', () => {
+  const ledge = (stamp: string) => set(stamp, () => ({ fixture: 'ledge' }));
+  const out = sr.shipRule(set('1'), ledge('2'));
+  assert.equal(out.code, 2);
+  assert.deepEqual(out.lines, ['more than one fixture: baseline tally · change ledge; both sets must be runs of one fixture']);
+  // also when one set mixes them, and before "not enough runs"
+  const mixed = sr.shipRule([...set('1', undefined, 2), ...ledge('3').slice(0, 1)], set('2', undefined, 1));
+  assert.equal(mixed.code, 2);
+  assert.match(mixed.lines[0], /more than one fixture: baseline ledge, tally · change tally/);
+});
+
+test('runs all of one fixture that is not --fixture: a usage error naming both, exit 2; a missing field is tally', () => {
+  const ledge = (stamp: string) => set(stamp, () => ({ fixture: 'ledge' }));
+  const wrong = sr.shipRule(ledge('1'), ledge('2'));
+  assert.equal(wrong.code, 2);
+  assert.deepEqual(wrong.lines, ['the runs are of fixture ledge, not tally: pass --fixture ledge']);
+  assert.equal(sr.shipRule(ledge('1'), ledge('2'), { fixture: 'ledge' }).code, 0);
+  assert.match(sr.shipRule(set('1'), set('2'), { fixture: 'ledge' }).lines[0], /fixture tally, not ledge/);
+  // an explicit tally field is the same as none
+  assert.equal(sr.shipRule(set('1', () => ({ fixture: 'tally' })), set('2')).code, 0);
+});
+
+test('the CLI: --fixture checks the runs the globs pick, and never filters them', () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'hx-ship-'));
+  files(dir, 'hx3', set('100', () => ({ fixture: 'ledge' })));
+  files(dir, 'hx3', set('200', () => ({ fixture: 'ledge' })));
+  files(dir, 'hx3', set('300'));
+  const g = (stamp: string) => path.join(dir, 'project', `hx3-${stamp}-*.json`);
+  assert.equal(cli(['--baseline', g('100'), '--change', g('200'), '--fixture', 'ledge']).status, 0);
+  const missing = cli(['--baseline', g('100'), '--change', g('200')]);
+  assert.equal(missing.status, 2);
+  assert.match(missing.stdout, /the runs are of fixture ledge, not tally: pass --fixture ledge/);
+  // a ledge baseline and a tally change: refused, not filtered down to the matching runs
+  const two = cli(['--baseline', g('100'), '--change', g('300'), '--fixture', 'ledge']);
+  assert.equal(two.status, 2);
+  assert.match(two.stdout, /more than one fixture: baseline ledge · change tally/);
+  const unknown = cli(['--baseline', g('100'), '--change', g('200'), '--fixture', 'nope']);
+  assert.equal(unknown.status, 2);
+  assert.match(unknown.stdout, /unknown fixture "nope"; fixtures: tally, ledge/);
+  assert.equal(cli(['--baseline', g('100'), '--change', g('200'), '--fixture']).status, 2);
+});
+
+test('qualityChecks: checks 2 to 6, each with its number, the same lines the ship rule prints', () => {
+  const checks = sr.qualityChecks(set('1'), set('2', () => ({ passed: 140 })));
+  assert.deepEqual(checks.map((c: { n: number }) => c.n), [2, 3, 4, 5, 6]);
+  const out = sr.shipRule(set('1'), set('2', () => ({ passed: 140 })));
+  for (const c of checks) assert.ok(out.lines.includes(c.line), c.line);
+  assert.equal(checks[0].pass, false);
+});

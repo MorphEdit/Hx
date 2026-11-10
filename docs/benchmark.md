@@ -112,20 +112,26 @@ the caps (`--max-hours` and `--max-usd`, 4 h and $60 per run by default):
 
 ```bash
 node bench/project.mjs chat --runs 5    # 5 runs of the single session, each up to the caps
+node bench/project.mjs hx1 --runs 5     # 5 runs of Hx with 1 worker (the one-child path), each up to the caps
 node bench/project.mjs hx3 --runs 5     # 5 runs of Hx with 3 workers, each up to the caps
 node bench/project-review.mjs --all     # the blind review: 6 judge sessions per pair of runs
 node bench/shiprule.mjs --baseline '<glob>' --change '<glob>'   # the ship rule: reads results only, no usage
 node bench/figures.mjs                  # redraws the table below: no usage
+node bench/crossover.mjs                # the size × arm table over every fixture: no usage
 ```
+
+Every one of these takes `--fixture <name>` (default `tally`; see [Fixtures](#fixtures-and-the-crossover)), and
+`crossover.mjs` takes `--fixtures a,b`.
 
 - `--runs N` (default 1) runs the arm N times in a row under one stamp. Each run gets its own repo, its own
   caps and its own results file, `bench/results/project/<arm>-<stamp>-<i>.json` (i = 1…N). A run that fails
   is named at the end and the call exits 1; the other runs' files stay. The old
   `bench/results/project-<arm>.json` files still read, each as a single run.
-- `project-review.mjs --all` pairs every run of `hx3` that has no review yet with the `chat` run of the same
-  i in the newest `chat` set, and reviews each pair; a run with no such `chat` run is listed and skipped.
-  `node bench/project-review.mjs <results-a> <results-b>` reviews one pair. A pair costs 6 judge sessions
-  (3 judges, each in both orders), and each run is charged half.
+- `project-review.mjs --all` pairs every run of every arm but `chat` (`hx1`, `hx3`) that has no review yet
+  with the `chat` run of the same i in the newest `chat` set, and reviews each pair, so a `chat` run gets one
+  review per Hx arm. A run with no such `chat` run is listed and skipped, and so are the old single files
+  (`bench/results/project-<arm>.json`). `node bench/project-review.mjs <results-a> <results-b>` reviews one
+  pair. A pair costs 6 judge sessions (3 judges, each in both orders), and each run is charged half.
 - `shiprule.mjs` takes two globs of results files of the same arm, e.g.
   `'bench/results/project/hx3-202611100900-*.json'`. Quote them: the Windows shell does not expand a glob,
   and the script expands it itself. A glob may match the files of several `--runs` calls.
@@ -178,6 +184,12 @@ median (the middle run; with an even count, the mean of the two middle ones) and
 the lowest and the highest run, e.g. `147 (145–149)/149`. The brackets are left out when every run has the
 same value. A run without a value is left out of that cell.
 
+**The arms.** `chat` is one Claude Code session, sent the continue prompt after each turn until it says it is
+done; its results record `nudges`, how many times it was sent that prompt after its first turn (0 when it
+says it is done on its first turn). `hx1` is `hx run --watch --workers 1` with `autoWorkers` false, which
+always takes the one-child path: Hx with one child. `hx3` is `hx run --watch --workers 3`, Hx as configured.
+Hx results record `nudges: null`. `--config key=value` applies to either Hx arm.
+
 **The ship rule** (`bench/shiprule.mjs`) says whether a change to Hx is safe to keep: whether a set of runs
 made with the change is no worse than a set made before it. It passes only if all of these hold:
 1. each set has at least 5 runs;
@@ -193,7 +205,9 @@ and PASS or FAIL, then the verdict: PASS exits 0, FAIL exits 1. A run without th
 old file, a run never reviewed) is left out of that check, and a check with no data in either set FAILs.
 When the two sets' fuzz runs differ in seed, case count or generator, checks 3 and 4 FAIL as not
 comparable. It also prints the change in median wall time, tokens and cost, as information only: a time
-or cost win never makes a FAIL pass.
+or cost win never makes a FAIL pass. Its `--fixture <name>` (default `tally`) names the fixture the runs must
+belong to: runs of two fixtures, or runs of a fixture other than `--fixture`, are a usage error (exit 2), checked
+before check 1. The globs still pick the files; the flag never filters them.
 
 <!-- project-bench:start -->
 | Arm | n | Hidden passed | Fuzz divergences | Fuzz classes | Blind review | Coverage lines/branches | Wall time | Tokens | Cost | Sessions | Issues closed/filed | Audit FAILs | Gate reds | Escaped defects | Capped |
@@ -252,6 +266,64 @@ node bench/shiprule.mjs --baseline 'bench/results/project/hx3-202611081012-*.jso
 
 What this says: on this brief one child keeps the quality of the full fleet at a little over half the cost
 and about 60% of the time, but by the ship rule it is not yet shown to be no worse. The default stays 15.
+
+### Fixtures and the crossover
+
+`tally` answers "is Hx worth it on a small brief?" (no). The question Hx exists for is a different one: from
+what size of work does Hx match or beat one session? A fixture is one brief with everything that grades it,
+and the benchmark can run several, of different sizes.
+
+- **A fixture** is a directory with `brief.md`, `hidden/` (the hidden suite), `reference/` (a complete
+  build), `template/` (the empty repo a run starts from), a fuzz generator, and a manifest `fixture.json`:
+  the CLI's `bin`, the variable the hidden suite reads the checkout from (`checkoutEnv`), the variables the
+  coverage run clears (`coverageClearEnv`), and the data file and the two variables each fuzz case sets
+  (`fuzzFile`, `fuzzFileEnv`, `fuzzNowEnv`, the last null for a product with no clock). A fixture missing one
+  of these is a usage error (exit 2) before any repo is created.
+- **`tally`** is the fixture at `bench/project/`, its generator `bench/project-fuzz-gen.mjs`; its files, results
+  and table are as they were. Every other fixture is `bench/fixtures/<name>/` with its generator
+  `fuzz-gen.mjs`, and its results go to `bench/results/fixtures/<name>/project/`. Every new results file
+  records `fixture`; a file without it is a `tally` run.
+- **`--fixture <name>`** picks the fixture in `project.mjs`, `project-grade.mjs`, `project-fuzz.mjs`,
+  `project-coverage.mjs`, `project-review.mjs`, `figures.mjs` and `shiprule.mjs`; an unknown name is a usage
+  error that lists the fixtures (exit 2). `project-review.mjs` with two files reads each file's fixture and
+  refuses two fixtures, or a fixture other than `--fixture`, before any clone; its judges get that fixture's
+  brief.
+- **The reference size** of a fixture is the number of non-blank lines of its reference's `.js`, `.mjs` and
+  `.cjs` files, test files left out (the files the coverage run counts as source). `tally`'s is 237.
+- **`ledge`** (`bench/fixtures/ledge/`) is the medium fixture: a plain-text double-entry accounts CLI and
+  library (a strict journal with includes, balance, register, monthly reports, a budget, CSV export and
+  import), a reference of about 1,570 lines, 217 hidden tests and a fuzz generator at the same defaults as
+  `tally`'s. Its fuzz covers the journal and the queries over one journal file; what needs a second file
+  (`include`, the budget file, CSV import) is graded by the hidden suite. Its brief states one list of which
+  error wins, every exit code, every output order, rounding, and stdout versus stderr.
+- **`tally`'s brief has a gap**, left as it is so its five-run baseline stays comparable: it does not say which
+  error wins when a usage error and a log error both apply (the `plain / exit status` class of the
+  one-child experiment above). `ledge`'s brief closes that kind of gap with its precedence list.
+
+**The size × arm table** (`node bench/crossover.mjs [--fixtures a,b]`, all fixtures by default) prints one row
+per fixture and arm from that arm's newest set, fixtures by reference size (then by name): the size, the
+arm, the number of runs, and the median hidden tests passed out of the total, median fuzz classes,
+blind-review mean, median escaped defects, median wall time, median cost with review halves, median
+sessions, and median nudges for `chat`. An arm with fewer than 5 runs is marked `(n<5)`.
+
+After each fixture's rows, one line per Hx arm compares it with `chat` on that fixture: the ship rule's
+checks 2, 3, 5 and 6 with `chat` as the baseline, each verdict shown, whether it is no worse on quality, and
+its time and cost as ratios to `chat` (e.g. `time ×0.8, cost ×3.1`). A `chat` run reviewed against both
+`hx1` and `hx3` has two reviews; each comparison counts only the one against its own arm, in the review mean
+and in the cost. When the arm or `chat` has fewer than 5 runs, the line reads `not enough runs` in place of
+the verdicts. The last line names the crossover: the smallest fixture where an Hx arm with at least 5 runs,
+against a `chat` with at least 5, is no worse on quality and faster than `chat`; or `no crossover in these
+fixtures`.
+
+`node bench/figures.mjs --fixture <name>` writes that fixture's project table (the one above, over its runs)
+between its own markers, `<!-- project-bench:<name>:start -->` and `<!-- project-bench:<name>:end -->`. It
+leaves `tally`'s table alone, leaves the file unchanged when the markers are missing or there are no runs,
+and draws no SVG (the six-issue figures belong to no fixture).
+
+**`ledge`** (no runs yet):
+
+<!-- project-bench:ledge:start -->
+<!-- project-bench:ledge:end -->
 
 **First run, 2026-11-06** (`claude-opus-5-5`, medium effort, both arms):
 - **Correctness:** both arms passed all 149 hidden tests, and neither had an escaped defect.

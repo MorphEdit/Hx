@@ -127,7 +127,7 @@ test('docs/benchmark.md has the Project benchmark section, its table is what ben
 function figuresCopy(sixIssue: boolean) {
   const dir = mkdtempSync(path.join(os.tmpdir(), 'hx-ptab-'));
   mkdirSync(path.join(dir, 'bench', 'results'), { recursive: true });
-  for (const f of ['figures.mjs', 'project-table.mjs', 'project-results.mjs', 'issues.json']) copyFileSync(path.join(bench, f), path.join(dir, 'bench', f));
+  for (const f of ['figures.mjs', 'project-table.mjs', 'project-results.mjs', 'project-fixtures.mjs', 'issues.json']) copyFileSync(path.join(bench, f), path.join(dir, 'bench', f));
   if (sixIssue) for (const f of ['chat.json', 'hx1.json', 'hx3.json']) copyFileSync(path.join(bench, 'results', f), path.join(dir, 'bench', 'results', f));
   mkdirSync(path.join(dir, 'docs'), { recursive: true });
   writeFileSync(path.join(dir, 'docs', 'benchmark.md'), withMarkers);
@@ -381,4 +381,96 @@ test('CLAUDE.md: the bench/ line names the project benchmark files and the resul
     'bench/results/project/<arm>-<stamp>-<i>.json']) {
     assert.ok(line.includes(f), `the bench/ line names ${f}`);
   }
+});
+
+// --- per-fixture tables (PRD #439) -------------------------------------------------------------------------------------
+
+const L_START = '<!-- project-bench:ledge:start -->';
+const L_END = '<!-- project-bench:ledge:end -->';
+const withBoth = `${before}${START}${END}\n\n#### ledge\n\n${L_START}\n${L_END}${after}`;
+
+test('markers: tally keeps its own; another fixture has project-bench:<name>:start and :end', async () => {
+  const { markers } = await import(pathToFileURL(path.join(bench, 'project-table.mjs')).href);
+  assert.deepEqual(markers(), { start: START, end: END });
+  assert.deepEqual(markers('ledge'), { start: L_START, end: L_END });
+});
+
+test('updateReadme for a fixture writes between its markers only; the tally table untouched; no markers or no runs: unchanged', () => {
+  const runs = set({ ...base, fixture: 'ledge' }, 's1', T0, [{}, {}]);
+  const out = updateReadme(withBoth, runs, 'ledge');
+  assert.equal(out.slice(0, out.indexOf(L_START)), withBoth.slice(0, withBoth.indexOf(L_START)), 'everything before the ledge markers as it was');
+  assert.ok(out.endsWith(`${L_END}${after}`));
+  const table = out.slice(out.indexOf(L_START) + L_START.length, out.indexOf(L_END));
+  assert.equal(table, `\n${projectTable(runs)}\n`);
+  assert.equal(updateReadme(withMarkers, runs, 'ledge'), withMarkers, 'no ledge markers: unchanged');
+  assert.equal(updateReadme(withBoth, [], 'ledge'), withBoth, 'no runs: unchanged');
+  // the tally call still finds its own markers beside the ledge ones
+  assert.ok(updateReadme(withBoth, runs).includes(`${START}\n| Arm |`));
+});
+
+/** figures.mjs on a copy holding a ledge fixture directory and these ledge results. */
+function ledgeCopy(doc: string, runs: ReturnType<typeof set>) {
+  const dir = figuresCopy(true);
+  mkdirSync(path.join(dir, 'bench', 'fixtures', 'ledge'), { recursive: true });
+  const out = path.join(dir, 'bench', 'results', 'fixtures', 'ledge', 'project');
+  mkdirSync(out, { recursive: true });
+  for (const r of runs) writeFileSync(path.join(out, r.name), JSON.stringify(r.result));
+  writeFileSync(path.join(dir, 'docs', 'benchmark.md'), doc);
+  return dir;
+}
+const runFiguresWith = (dir: string, args: string[]) => spawnSync(process.execPath, [path.join(dir, 'bench', 'figures.mjs'), ...args], { encoding: 'utf8' });
+
+test('figures.mjs --fixture ledge writes the ledge table between its markers, leaves the tally table, and draws no SVG', () => {
+  const runs = [...set({ ...base, fixture: 'ledge' }, '202611100900', T0, [{ passed: 150 }, { passed: 160 }]),
+    ...set({ ...hx3, fixture: 'ledge', provenance: prov() }, '202611100900', T0, [{}])];
+  const dir = ledgeCopy(withBoth, runs);
+  const r = runFiguresWith(dir, ['--fixture', 'ledge']);
+  assert.equal(r.status, 0, r.stderr);
+  const out = readFileSync(path.join(dir, 'docs', 'benchmark.md'), 'utf8');
+  const results = path.join(dir, 'bench', 'results');
+  assert.equal(out, updateReadme(withBoth, loadRuns(resultFiles(results, 'ledge')), 'ledge'));
+  assert.ok(out.includes(`${START}${END}`), 'the tally markers and their (empty) table as they were');
+  const rows = out.slice(out.indexOf(L_START), out.indexOf(L_END)).split('\n').filter((l) => l.startsWith('| chat') || l.startsWith('| hx3'));
+  assert.deepEqual(rows.map((l) => l.split('|')[1].trim()), ['chat', 'hx3']);
+  assert.equal(readdirSync(path.join(dir, 'docs')).includes('figures'), false, 'no SVG drawn');
+  // run again: byte-identical
+  runFiguresWith(dir, ['--fixture', 'ledge']);
+  assert.equal(readFileSync(path.join(dir, 'docs', 'benchmark.md'), 'utf8'), out);
+});
+
+test('figures.mjs --fixture ledge with no ledge markers leaves docs/benchmark.md unchanged; tally results are not read for it', () => {
+  const dir = ledgeCopy(withMarkers, set({ ...base, fixture: 'ledge' }, '202611100900', T0, [{}]));
+  writeFileSync(path.join(dir, 'bench', 'results', 'project-chat.json'), JSON.stringify(chat));
+  const r = runFiguresWith(dir, ['--fixture', 'ledge']);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /unchanged: no markers for ledge/);
+  assert.equal(readFileSync(path.join(dir, 'docs', 'benchmark.md'), 'utf8'), withMarkers);
+  assert.equal(readdirSync(path.join(dir, 'docs')).includes('figures'), false);
+});
+
+test('figures.mjs --fixture tally is the default run: the tally table and the SVGs', () => {
+  const dir = ledgeCopy(withBoth, []);
+  writeFileSync(path.join(dir, 'bench', 'results', 'project-hx3.json'), JSON.stringify(hx3));
+  const r = runFiguresWith(dir, ['--fixture', 'tally']);
+  assert.equal(r.status, 0, r.stderr);
+  const out = readFileSync(path.join(dir, 'docs', 'benchmark.md'), 'utf8');
+  assert.ok(out.includes(`${START}\n| Arm |`));
+  assert.ok(out.includes(`${L_START}\n${L_END}`), 'the ledge markers stay empty');
+  assert.ok(readFileSync(path.join(dir, 'docs', 'figures', 'bench-summary.svg'), 'utf8').includes('<svg'));
+});
+
+test('figures.mjs: an unknown fixture or a stray argument is exit 2, nothing written', () => {
+  const dir = ledgeCopy(withBoth, []);
+  const bad = runFiguresWith(dir, ['--fixture', 'nope']);
+  assert.equal(bad.status, 2);
+  assert.match(bad.stderr, /unknown fixture "nope"; fixtures: tally, ledge/);
+  assert.equal(runFiguresWith(dir, ['extra']).status, 2);
+  assert.equal(readFileSync(path.join(dir, 'docs', 'benchmark.md'), 'utf8'), withBoth);
+});
+
+test('docs/benchmark.md has the tally markers and, in the project-benchmark section, the empty ledge markers', () => {
+  const doc = readFileSync(path.join(root, 'docs', 'benchmark.md'), 'utf8');
+  const section = doc.slice(doc.indexOf('## Project benchmark'));
+  assert.ok(section.includes(START) && section.includes(END));
+  assert.match(section.slice(0, section.indexOf('\n## ', 1) < 0 ? undefined : section.indexOf('\n## ', 1)), /<!-- project-bench:ledge:start -->\r?\n<!-- project-bench:ledge:end -->/);
 });

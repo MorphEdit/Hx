@@ -1,20 +1,26 @@
 #!/usr/bin/env node
-// Project benchmark: one end-user brief (bench/project/brief.md) built end to end, two ways.
-//   chat — one Claude session gets the brief and works until it says it is done
+// Project benchmark: one end-user brief (a fixture's brief.md; tally's is bench/project/brief.md) built end to end,
+// three ways.
+//   chat — one Claude session gets the brief and works until it says it is done; `nudges` counts the continue prompts
+//   hx1  — the brief filed with `hx prd`, then `hx run --watch --workers 1` with autoWorkers false until the PRD closes
 //   hx3  — the brief filed with `hx prd`, then `hx run --watch --workers 3` until the PRD closes
 // Both run with Hx's lean flags: the chat session gets `workerArgs` of the default config, and `hx run` gives every
 // session `workerArgs` of the arm's config. Each run stops at --max-hours or --max-usd, whichever comes first. Then a
 // fresh clone of the default branch is graded by the hidden suite (bench/project-grade.mjs), then fuzzed against the
 // reference (bench/project-fuzz.mjs) and its own tests run under coverage (bench/project-coverage.mjs), in that order.
 //
-//   node bench/project.mjs <chat|hx3> [--runs N] [--max-hours 4] [--max-usd 60] [--config key=value ...]
+//   node bench/project.mjs <chat|hx1|hx3> [--fixture <name>] [--runs N] [--max-hours 4] [--max-usd 60] [--config key=value ...]
+// --fixture picks the fixture (bench/project-fixtures.mjs, default tally): its brief, template, hidden suite, reference
+// and fuzz generator. An unknown name, or a fixture missing a required file, is a usage error (exit 2) before any repo
+// is created.
 // --config overrides a key of the arm's .hx/config.json after `hx init` (e.g. singleChildMaxCriteria=30); the
 // overrides are recorded in the result's provenance as `configOverrides`.
 // One stamp per call; runs i = 1…N in a row, each with its own private GitHub repo <owner>/hx-project-<arm>-<stamp>-<i>
-// (owner from `gh`), work directory, worktree root, grade clone and caps. Each run's result, with its provenance (the
-// Claude Code version, the Hx commit, each role's model, effort and flags), goes to
-// bench/results/project/<arm>-<stamp>-<i>.json. A run that throws is logged and the next one starts; the call then
-// exits 1 naming the failed runs. Costs real usage.
+// (owner from `gh`; another fixture's repos are hx-project-<fixture>-<arm>-<stamp>-<i>), work directory, worktree root,
+// grade clone and caps. Each run's result, with its fixture and provenance (the Claude Code version, the Hx commit,
+// each role's model, effort and flags), goes to bench/results/project/<arm>-<stamp>-<i>.json (another fixture's to
+// bench/results/fixtures/<name>/project/). A run that throws is logged and the next one starts; the call then exits 1
+// naming the failed runs. Costs real usage.
 import { execFileSync, spawn } from 'node:child_process';
 import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
@@ -24,21 +30,25 @@ import { runGoal } from '../src/agent.ts';
 import { DEFAULTS, loadProject } from '../src/config.ts';
 import { resolveCmd } from '../src/exec.ts';
 import { coverage } from './project-coverage.mjs';
+import { DEFAULT_FIXTURE, FixtureError, resolveFixture, resultsDirOf } from './project-fixtures.mjs';
 import { fuzz } from './project-fuzz.mjs';
-import { grade } from './project-grade.mjs';
-import { USAGE, auditFails, capCheck, chatSession, escapedDefects, gateReds, parseArgs, parseJsonl, provenanceRoles, sessionsByRole, setupRepo, usageTotals } from './project-lib.mjs';
+import { grade, gradeOptions } from './project-grade.mjs';
+import {
+  USAGE, armConfig, auditFails, capCheck, chatSession, countNudges, escapedDefects, gateReds, hxRunArgs, parseArgs, parseJsonl,
+  provenanceRoles, sessionsByRole, setupRepo, usageTotals,
+} from './project-lib.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const HX = path.join(here, '..', 'bin', 'hx.mjs');
-const WORKERS = { chat: 1, hx3: 3 };
-const RESULTS = path.join(here, 'results', 'project');
+const RESULTS_ROOT = path.join(here, 'results');
 
 const sh = (cmd, args, opts = {}) => execFileSync(cmd, args, { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'], ...opts });
 const json = (cmd, args, opts) => JSON.parse(sh(cmd, args, opts));
 const hx = (args, opts = {}) => sh(process.execPath, ['--disable-warning=ExperimentalWarning', HX, ...args], opts);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const TICK = 60_000;
-const briefFile = path.join(here, 'project', 'brief.md');
+/** The brief of the run's fixture (tally's when the context names none). */
+const briefOf = (ctx) => ctx.fixture?.brief ?? path.join(here, 'project', 'brief.md');
 
 /** `YYYYMMDDhhmm` (UTC): one per call. */
 export const makeStamp = (d = new Date()) => d.toISOString().slice(0, 16).replace(/[-:T]/g, '');
@@ -57,23 +67,24 @@ export function hxCommit(dir = path.join(here, '..')) {
 // 1. a fresh repo from the template, `hx init`, and the benchmark's own edits to .hx/config.json
 function setup(ctx) {
   mkdirSync(ctx.work, { recursive: true });
-  setupRepo(ctx.work);
+  setupRepo(ctx.work, ctx.fixture ? { template: ctx.fixture.template, name: ctx.fixture.manifest.bin } : {});
   sh('gh', ['repo', 'create', ctx.repo, '--private', '--source', ctx.work, '--push'], { cwd: ctx.work });
   ctx.log(`created ${ctx.repo} in ${ctx.work}`);
   hx(['init'], { cwd: ctx.work });
   const cfgFile = path.join(ctx.work, '.hx', 'config.json');
   const cfg = JSON.parse(readFileSync(cfgFile, 'utf8'));
-  cfg.workers = WORKERS[ctx.arm];
+  Object.assign(cfg, armConfig(ctx.arm));
   cfg.worktreeRoot = ctx.worktreeRoot;
   Object.assign(cfg, ctx.config ?? {});
   writeFileSync(cfgFile, JSON.stringify(cfg, null, 2));
 }
 
-// 2. run the arm until it is done, capped or ends early: { usage, ended, t0, t1 }
-/** The `chat` arm: one session (chatSession's model, effort and lean flags) on the brief, resumed until it says done. */
+// 2. run the arm until it is done, capped or ends early: { usage, ended, t0, t1 } (chat: and nudges)
+/** The `chat` arm: one session (chatSession's model, effort and lean flags) on the brief, resumed until it says done.
+ *  `nudges` is how many turns after the first it was sent: 0 when it says done on its first turn. */
 export async function chatArm(ctx, { run = runGoal, bin = 'claude', session = chatSession() } = {}) {
   const { log, maxHours, maxUsd } = ctx;
-  const brief = readFileSync(briefFile, 'utf8');
+  const brief = readFileSync(briefOf(ctx), 'utf8');
   const PROMISE = 'PROJECT DONE';
   const prompt = `${brief.trimEnd()}\n\n---\nBuild this in the current directory, a git repo whose default branch is \`main\` `
     + `(remote: ${ctx.repo}). Commit and push to \`main\` as you go: only what is pushed counts. `
@@ -82,6 +93,7 @@ export async function chatArm(ctx, { run = runGoal, bin = 'claude', session = ch
     + `When it is finished and pushed, output exactly:\n<promise>${PROMISE}</promise>`;
   const eventLog = path.join(ctx.work, '.hx', 'chat.jsonl');
   const usage = [];
+  const turns = [];
   const ac = new AbortController();
   let costUsd = 0, capped = false, t1;
   const check = () => {
@@ -100,6 +112,7 @@ export async function chatArm(ctx, { run = runGoal, bin = 'claude', session = ch
       prompt, promise: PROMISE, continuePrompt, maxIterations: 1000, signal: ac.signal,
       onEvent: (ev) => appendFileSync(eventLog, JSON.stringify(ev) + '\n'),
       onTurn: (i, sessionId, t) => {
+        turns.push(i);
         usage.push({ ts: new Date().toISOString(), issue: 0, role: 'chat', sessionId, iteration: i, durationMs: t.durationMs, usage: t.usage, costUsd: t.costUsd, ok: t.ok });
         costUsd += t.costUsd ?? 0;
         log(`turn ${i}: ${t.ok ? 'ok' : 'error ' + t.error} · ${Math.round(t.durationMs / 1000)}s · $${costUsd.toFixed(2)}`);
@@ -111,14 +124,15 @@ export async function chatArm(ctx, { run = runGoal, bin = 'claude', session = ch
   }
   t1 ??= Date.now();
   log(`session ended: ${r.stopReason} after ${r.iterations} turn(s)`);
-  return { usage, ended: r.stopReason === 'promise' ? 'done' : capped ? 'capped' : 'early', t0, t1 };
+  return { usage, ended: r.stopReason === 'promise' ? 'done' : capped ? 'capped' : 'early', t0, t1, nudges: countNudges(turns) };
 }
 
-/** The `hx3` arm: the brief filed with `hx prd`, then `hx run --watch --workers 3` until the PRD closes. */
-async function hx3Arm(ctx) {
+/** An Hx arm (`hx1`, `hx3`): the brief filed with `hx prd`, then `hx run --watch --workers <n>` until the PRD closes. */
+async function hxArm(ctx) {
   const { log, repo, work, maxHours, maxUsd } = ctx;
+  const briefFile = briefOf(ctx);
   const brief = readFileSync(briefFile, 'utf8');
-  const title = /^#\s+(.+)$/m.exec(brief)?.[1]?.trim() ?? 'tally';
+  const title = /^#\s+(.+)$/m.exec(brief)?.[1]?.trim() ?? ctx.fixture?.manifest.bin ?? 'tally';
   const out = hx(['prd', briefFile, '--title', `PRD: ${title}`], { cwd: work });
   const prd = Number(/\/issues\/(\d+)/.exec(out)?.[1]);
   if (!prd) throw new Error(`hx prd printed no issue url:\n${out}`);
@@ -126,7 +140,7 @@ async function hx3Arm(ctx) {
   const usageFile = path.join(work, '.hx', 'usage.jsonl');
   const readUsage = () => (existsSync(usageFile) ? parseJsonl(readFileSync(usageFile, 'utf8')) : []);
   const t0 = Date.now();
-  const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', HX, 'run', '--watch', '--workers', '3'], { cwd: work, stdio: 'inherit' });
+  const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', HX, ...hxRunArgs(ctx.arm)], { cwd: work, stdio: 'inherit' });
   let exited = false, ended;
   const exit = new Promise((resolve) => child.on('close', () => { exited = true; resolve(); }));
   for (;;) {
@@ -157,7 +171,7 @@ function clone(ctx) {
 }
 
 /** The real per-run steps; a test passes its own. `fuzz` and `coverage` take (dir, options). */
-export const STEPS = { setup, arm: (ctx) => (ctx.arm === 'chat' ? chatArm(ctx) : hx3Arm(ctx)), issues, clone, grade, fuzz, coverage };
+export const STEPS = { setup, arm: (ctx) => (ctx.arm === 'chat' ? chatArm(ctx) : hxArm(ctx)), issues, clone, grade, fuzz, coverage };
 
 /** `step(dir, options)` as { value } or, when it throws, { error } (the message): it never blocks the results file. */
 async function guarded(step, dir, options, what, log) {
@@ -178,34 +192,45 @@ export function qualityLine({ fuzz: f, fuzzError, coverage: c, coverageError }) 
 }
 
 // 5. the runs and their results
+/** The per-fixture options of the grade, fuzz and coverage steps: none for tally (they default to it), so a tally run
+ *  calls them exactly as before; another fixture's suite, generator, names and variables otherwise. */
+function fixtureOptions(fixture) {
+  if (fixture.name === DEFAULT_FIXTURE) return { grade: {}, fuzz: {}, coverage: {} };
+  return { grade: gradeOptions(fixture), fuzz: { fixture }, coverage: { clearEnv: fixture.manifest.coverageClearEnv } };
+}
+
 /** Runs `arm` `runs` times in a row under one stamp, each run on its own repo, directories and caps, and writes each
- *  run's result to `<resultsDir>/<arm>-<stamp>-<i>.json`. A run that throws is logged and the next one starts.
- *  Returns `{ stamp, files, failed }` (`failed`: the i of each run that threw). */
+ *  run's result to `<resultsDir>/<arm>-<stamp>-<i>.json` (by default the fixture's results directory). A run that
+ *  throws is logged and the next one starts. Returns `{ stamp, files, failed }` (`failed`: the i of each run that threw). */
 export async function runSet({
-  arm, runs = 1, maxHours = 4, maxUsd = 60, config, owner, stamp = makeStamp(), resultsDir = RESULTS, tmp = os.tmpdir(),
+  arm, runs = 1, maxHours = 4, maxUsd = 60, config, owner, stamp = makeStamp(), fixture = resolveFixture(DEFAULT_FIXTURE),
+  resultsDir = resultsDirOf(fixture.name, RESULTS_ROOT), tmp = os.tmpdir(),
   claudeBin = 'claude', commit = hxCommit(), steps = STEPS, print = console.log, fuzzOptions = {}, coverageOptions = {},
 }) {
   const files = [], failed = [];
+  const per = fixtureOptions(fixture);
   mkdirSync(resultsDir, { recursive: true });
   for (let i = 1; i <= runs; i++) {
     const name = `${arm}-${stamp}-${i}`;
+    // another fixture's repo and directories carry its name, so they never meet tally's
+    const unique = fixture.name === DEFAULT_FIXTURE ? name : `${fixture.name}-${name}`;
     const log = (m) => print(`${new Date().toTimeString().slice(0, 8)} [project ${arm} ${i}/${runs}] ${m}`);
     const ctx = {
-      arm, i, stamp, repo: `${owner}/hx-project-${name}`, maxHours, maxUsd, log, config,
-      work: path.join(tmp, 'hxp', name), worktreeRoot: path.join(tmp, 'hxp-wt', name), clone: path.join(tmp, 'hxp-grade', name),
+      arm, i, stamp, repo: `${owner}/hx-project-${unique}`, maxHours, maxUsd, log, config, fixture,
+      work: path.join(tmp, 'hxp', unique), worktreeRoot: path.join(tmp, 'hxp-wt', unique), clone: path.join(tmp, 'hxp-grade', unique),
     };
     try {
       await steps.setup(ctx);
-      const roles = provenanceRoles(arm, arm === 'hx3' ? { config: loadProject(ctx.work).config } : {});
+      const roles = provenanceRoles(arm, arm !== 'chat' ? { config: loadProject(ctx.work).config } : {});
       const provenance = { claudeVersion: claudeVersion(claudeBin), hxCommit: commit, roles, ...(config ? { configOverrides: config } : {}) };
-      const { usage, ended, t0, t1 } = await steps.arm(ctx);
+      const { usage, ended, t0, t1, nudges } = await steps.arm(ctx);
       log(`finished in ${Math.round((t1 - t0) / 1000)}s`);
       const ghIssues = await steps.issues(ctx);
       await steps.clone(ctx);
-      const score = await steps.grade(ctx.clone);
+      const score = await steps.grade(ctx.clone, per.grade);
       // after the hidden tests, fuzz first: the arm's own tests cannot change what is fuzzed
-      const fz = await guarded(steps.fuzz, ctx.clone, fuzzOptions, 'fuzz', log);
-      const cov = await guarded(steps.coverage, ctx.clone, coverageOptions, 'coverage', log);
+      const fz = await guarded(steps.fuzz, ctx.clone, { ...per.fuzz, ...fuzzOptions }, 'fuzz', log);
+      const cov = await guarded(steps.coverage, ctx.clone, { ...per.coverage, ...coverageOptions }, 'coverage', log);
       const quality = {
         ...(fz.error === undefined ? { fuzz: fz.value } : { fuzzError: fz.error }),
         ...(cov.error === undefined ? { coverage: cov.value } : { coverageError: cov.error }),
@@ -214,10 +239,11 @@ export async function runSet({
       const totals = usageTotals(usage);
       const session = arm === 'chat' ? roles.chat : roles.impl;
       const result = {
-        arm, run: i, stamp, repo: ctx.repo, model: session.model, effort: session.effort, startedAt: new Date(t0).toISOString(), maxHours, maxUsd,
+        fixture: fixture.name, arm, run: i, stamp, repo: ctx.repo, model: session.model, effort: session.effort, startedAt: new Date(t0).toISOString(), maxHours, maxUsd,
         passed: score.passed, failed: score.failed, total: score.total, failures: score.failures,
         wallMs: t1 - t0, tokens: totals.tokens, costUsd: totals.costUsd,
         sessions: sessionsByRole(usage),
+        nudges: arm === 'chat' ? nudges ?? null : null,
         issuesFiled: ghIssues.length, issuesClosed: ghIssues.filter((x) => x.state === 'CLOSED').length,
         auditFails: arm === 'chat' ? null : auditFails(readState('run.log')),
         gateReds: arm === 'chat' ? null : gateReds(readState('gate-runs.jsonl')),
@@ -241,6 +267,12 @@ export async function runSet({
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const args = parseArgs(process.argv.slice(2));
   if (!args) { console.error(USAGE); process.exit(2); }
+  // the fixture is checked before anything is created or spent
+  try { args.fixture = resolveFixture(args.fixture); } catch (e) {
+    if (!(e instanceof FixtureError)) throw e;
+    console.error(e.message);
+    process.exit(2);
+  }
   const owner = sh('gh', ['api', 'user', '-q', '.login']).trim();
   const { failed } = await runSet({ ...args, owner });
   if (failed.length) { console.error(`failed runs: ${failed.join(', ')} of ${args.runs}`); process.exit(1); }

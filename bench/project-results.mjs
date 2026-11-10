@@ -4,12 +4,15 @@
 //
 // Where the files are:
 // - old single files: bench/results/project-<arm>.json, one run each (a set of its own);
-// - new files: bench/results/project/<arm>-<stamp>-<i>.json, run i of the set <arm> + <stamp>.
+// - new files: bench/results/project/<arm>-<stamp>-<i>.json, run i of the set <arm> + <stamp>;
+// - another fixture's files (PRD #439): bench/results/fixtures/<name>/project/<arm>-<stamp>-<i>.json, read as new files.
 //
 // The results file. Fields as bench/project.mjs writes them: arm, repo, model, effort, startedAt, maxHours,
 // maxUsd, passed, failed, total, failures, wallMs, tokens (a number in old files, or
 // { input, cacheWrite, cacheRead, output, total }), costUsd, sessions, issuesFiled, issuesClosed, auditFails,
 // gateReds, escapedDefects, ended, capped. New fields, each optional (an old file has none of them):
+// - fixture: the fixture's name (bench/project-fixtures.mjs); a file without it is a `tally` run;
+// - nudges: for `chat`, how many times the session was sent the continue prompt after its first turn; null for Hx;
 // - fuzz: { seed, count, genHash, timeLimitMs, divergences, classes, excluded: { count, examples }, examples }
 //   classes maps a class key ("<feature> / <what differed>", or "no CLI") to its divergence count; a run's class
 //   count is the number of keys of classes; examples maps a class key to its example cases.
@@ -29,18 +32,28 @@
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { DEFAULT_FIXTURE, resultsDirOf } from './project-fixtures.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const has = (v) => v !== null && v !== undefined;
 const tokTotal = (t) => (has(t) && typeof t === 'object' ? t.total : t);
 
-/** The old single files resultsDir/project-*.json and every *.json in resultsDir/project/, sorted. */
-export function resultFiles(resultsDir = path.join(here, 'results')) {
-  const old = readdirSync(resultsDir).filter((f) => /^project-.+\.json$/.test(f)).map((f) => path.join(resultsDir, f));
-  const dir = path.join(resultsDir, 'project');
+/** A fixture's results files, sorted: for `tally` the old single files resultsDir/project-*.json and every *.json in
+ *  resultsDir/project/; for any other fixture every *.json in resultsDir/fixtures/<name>/project/. */
+export function resultFiles(resultsDir = path.join(here, 'results'), fixture = DEFAULT_FIXTURE) {
+  const tally = fixture === DEFAULT_FIXTURE;
+  const old = tally && existsSync(resultsDir)
+    ? readdirSync(resultsDir).filter((f) => /^project-.+\.json$/.test(f)).map((f) => path.join(resultsDir, f)) : [];
+  const dir = resultsDirOf(fixture, resultsDir);
   const now = existsSync(dir) ? readdirSync(dir).filter((f) => f.endsWith('.json')).map((f) => path.join(dir, f)) : [];
   return [...old, ...now].sort();
 }
+
+/** An old single file (bench/results/project-<arm>.json): any file outside a directory named `project`. */
+export const isOldFile = (file) => path.basename(path.dirname(file)) !== 'project';
+
+/** A run read from an old single file named project-<arm>.json (loadRun gives an old file its name as its stamp). */
+export const isOldRun = (run) => run.stamp === run.name && /^project-.+\.json$/.test(run.name ?? '');
 
 /** A file in a directory named `project` is a new file (<arm>-<stamp>-<i>.json); any other is an old one. */
 function loadRun(file) {
@@ -48,7 +61,7 @@ function loadRun(file) {
   let result;
   try { result = JSON.parse(readFileSync(file, 'utf8')); } catch (e) { throw new Error(`${file}: ${e.message}`); }
   if (!result || typeof result !== 'object' || Array.isArray(result)) throw new Error(`${file}: not a results object`);
-  if (path.basename(path.dirname(file)) !== 'project') {
+  if (isOldFile(file)) {
     // An old file is a set of its own: its file name is its stamp, which no new file's stamp can be.
     return { file, name, arm: result.arm ?? name.replace(/^project-|\.json$/g, ''), stamp: name, i: 1, result };
   }

@@ -1,0 +1,12 @@
+{
+  "name": "ledge",
+  "version": "1.0.0",
+  "description": "Plain-text double-entry accounts from the command line",
+  "type": "module",
+  "main": "src/ledge.js",
+  "bin": { "ledge": "bin/ledge.js" },
+  "scripts": {
+    "test": "node --test"
+  },
+  "license": "MIT"
+}

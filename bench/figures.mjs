@@ -8,25 +8,43 @@
 // First it renders the "Project benchmark" table in docs/benchmark.md (bench/project-table.mjs): each arm's newest
 // set of runs, read through bench/project-results.mjs from bench/results/project-<arm>.json (old single runs)
 // and bench/results/project/<arm>-<stamp>-<i>.json.
-// Run: node bench/figures.mjs
+// Run: node bench/figures.mjs [--fixture <name>]
+// --fixture <name> other than tally (PRD #439) writes only that fixture's project table, from
+// bench/results/fixtures/<name>/project/, between its markers <!-- project-bench:<name>:start --> and
+// <!-- project-bench:<name>:end -->, and draws no SVG (the six-issue figures belong to no fixture). With missing
+// markers or no runs docs/benchmark.md is left as it is. An unknown fixture is a usage error, exit 2.
+// HX_BENCH_ROOT (tests only) reads bench/results and writes docs/ under another root than this checkout.
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { FixtureError, checkFixtureName, fixtureOf, takeFixtureArg } from './project-fixtures.mjs';
 import { loadRuns, resultFiles } from './project-results.mjs';
 import { tableSets, updateReadme } from './project-table.mjs';
 
-const here = path.dirname(fileURLToPath(import.meta.url));
-const out = path.join(here, '..', 'docs', 'figures');
+const root = process.env.HX_BENCH_ROOT ? path.resolve(process.env.HX_BENCH_ROOT) : path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
+const here = path.join(root, 'bench');
+const out = path.join(root, 'docs', 'figures');
+const { fixture: fixtureArg, rest: extra } = takeFixtureArg(process.argv.slice(2));
+if (fixtureArg === null || extra.length) { console.error('usage: node bench/figures.mjs [--fixture <name>]'); process.exit(2); }
+let fixture;
+try { fixture = checkFixtureName(fixtureArg, { benchDir: here }); } catch (e) {
+  if (!(e instanceof FixtureError)) throw e;
+  console.error(e.message);
+  process.exit(2);
+}
 const CONFIGS = [
   { id: 'chat', name: 'Single session', note: 'one Claude session does all 6 issues in a row' },
   { id: 'hx1', name: 'Hx · 1 worker', note: 'a fresh session per issue, one at a time' },
   { id: 'hx3', name: 'Hx · 3 workers', note: 'fresh sessions, in parallel where Blocked by allows' },
 ];
-const readmePath = path.join(here, '..', 'docs', 'benchmark.md');
-const projectRuns = loadRuns(resultFiles(path.join(here, 'results')));
+const readmePath = path.join(root, 'docs', 'benchmark.md');
+const projectRuns = loadRuns(resultFiles(path.join(here, 'results'), fixture)).filter((r) => fixtureOf(r.result) === fixture);
 const readme = readFileSync(readmePath, 'utf8');
-const nextReadme = updateReadme(readme, projectRuns);
-if (nextReadme !== readme) { writeFileSync(readmePath, nextReadme); console.log(`docs/benchmark.md: Project benchmark table (${tableSets(projectRuns).length} arm(s))`); }
+const nextReadme = updateReadme(readme, projectRuns, fixture);
+if (nextReadme !== readme) { writeFileSync(readmePath, nextReadme); console.log(`docs/benchmark.md: Project benchmark table${fixture === 'tally' ? '' : ` of ${fixture}`} (${tableSets(projectRuns).length} arm(s))`); }
+else if (fixture !== 'tally') console.log(`docs/benchmark.md unchanged: ${projectRuns.length ? `no markers for ${fixture}` : `no ${fixture} runs`}`);
+// the six-issue figures belong to no fixture: only the default (tally) invocation draws them
+if (fixture !== 'tally') process.exit(0);
 
 const runs = CONFIGS.filter((c) => existsSync(path.join(here, 'results', `${c.id}.json`)))
   .map((c) => ({ ...c, r: JSON.parse(readFileSync(path.join(here, 'results', `${c.id}.json`), 'utf8')) }));
