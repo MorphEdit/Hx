@@ -1,0 +1,8 @@
+{
+  "bin": "ledge",
+  "checkoutEnv": "LEDGE_CHECKOUT",
+  "coverageClearEnv": ["LEDGE_FILE", "LEDGE_TODAY"],
+  "fuzzFile": "ledger.journal",
+  "fuzzFileEnv": "LEDGE_FILE",
+  "fuzzNowEnv": "LEDGE_TODAY"
+}

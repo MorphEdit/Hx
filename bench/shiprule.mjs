@@ -1,8 +1,12 @@
 // The ship rule (PRD #397): is one set of project-benchmark runs (a change) no worse than another (the baseline)?
-//   node bench/shiprule.mjs --baseline "<glob>" --change "<glob>"
+//   node bench/shiprule.mjs --baseline "<glob>" --change "<glob>" [--fixture <name>]
 // Each glob may match the files of several `--runs` calls; every file it matches is a run of that set. The script
 // expands the globs itself (quote them: the Windows shell does not expand them, and a shell that does still works,
 // as each flag takes every argument up to the next flag). Results are read only through bench/project-results.mjs.
+// --fixture (default tally) names the fixture the runs must belong to; it does not change which files the globs match.
+// A run's fixture is its `fixture` field (`tally` when absent). Before check 1, like the "more than one arm" refusal:
+// runs of more than one fixture across the two sets, or runs all of one fixture other than --fixture, are a usage
+// error, exit 2.
 //
 // 1. each set has at least 5 runs; otherwise "not enough runs", no other check, exit 2 (not a FAIL);
 // 2. the change's median hidden-test pass count (`passed`) is no lower than the baseline's;
@@ -13,10 +17,11 @@
 // A run without a check's value is left out of that check; a check where either set has no such run FAILs with
 // "no data". When the runs with `fuzz` do not all share one seed, count and generator hash, checks 3 and 4 FAIL
 // with "not comparable". Median wall time, tokens and cost (runTokens / runCost) are printed as information only.
-// Exit 0 on PASS (all of 2–6 pass), 1 on FAIL, 2 on not enough runs, more than one arm, or a usage error.
+// Exit 0 on PASS (all of 2–6 pass), 1 on FAIL, 2 on not enough runs, more than one arm or fixture, or a usage error.
 import { globSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { DEFAULT_FIXTURE, FixtureError, checkFixtureName, fixtureOf, takeFixtureArg } from './project-fixtures.mjs';
 import { fuzzClassCount, fuzzKeys, fuzzParams, loadRuns, median, reviewScore, runCost, runTokens } from './project-results.mjs';
 
 export const MIN_RUNS = 5;
@@ -92,11 +97,42 @@ function info(label, baseline, change, value, fmt) {
   return `${label}: baseline ${fmt(b)} → change ${fmt(c)} (${signed(c - b, fmt)})`;
 }
 
+/** Checks 2–6 over two sets (no run count, arm or fixture check): [{ n, pass, line }] in check order. */
+export function qualityChecks(baselineRuns, changeRuns) {
+  return [
+    numeric(2, 'hidden tests passed (median)', baselineRuns, changeRuns, (r) => r?.passed, median, (b, c) => c >= b),
+    ...fuzzChecks(baselineRuns, changeRuns),
+    numeric(5, 'blind review (mean)', baselineRuns, changeRuns, reviewScore, mean,
+      (b, c) => b - c <= MAX_REVIEW_DROP + EPS, (b, c) => `, drop ${plain(b - c)} (at most ${MAX_REVIEW_DROP})`),
+    numeric(6, 'escaped defects (median)', baselineRuns, changeRuns, (r) => r?.escapedDefects, median, (b, c) => c <= b),
+  ].map((c) => ({ n: Number(c.line.split('.')[0]), ...c }));
+}
+
+/** The fixture checks: null when every run is of `fixture`, else { lines, code: 2 } (more than one fixture across the
+ *  two sets, or one fixture that is not `fixture`). */
+export function fixtureCheck(baselineRuns, changeRuns, fixture = DEFAULT_FIXTURE) {
+  const all = [...new Set([...baselineRuns, ...changeRuns].map((r) => fixtureOf(r.result)))].sort();
+  if (all.length > 1) {
+    const list = (runs) => [...new Set(runs.map((r) => fixtureOf(r.result)))].sort().join(', ') || 'none';
+    return {
+      lines: [`more than one fixture: baseline ${list(baselineRuns)} · change ${list(changeRuns)}; both sets must be runs of one fixture`],
+      code: 2,
+    };
+  }
+  if (all.length === 1 && all[0] !== fixture) {
+    return { lines: [`the runs are of fixture ${all[0]}, not ${fixture}: pass --fixture ${all[0]}`], code: 2 };
+  }
+  return null;
+}
+
 /**
- * The ship rule over two sets of runs (as loadRuns returns them: { name, arm, result }).
- * Returns { lines, code }: the printed lines and the exit code (0 PASS, 1 FAIL, 2 not enough runs or mixed arms).
+ * The ship rule over two sets of runs (as loadRuns returns them: { name, arm, result }), of fixture `fixture`.
+ * Returns { lines, code }: the printed lines and the exit code (0 PASS, 1 FAIL, 2 not enough runs, mixed arms or
+ * fixtures).
  */
-export function shipRule(baselineRuns, changeRuns) {
+export function shipRule(baselineRuns, changeRuns, { fixture = DEFAULT_FIXTURE } = {}) {
+  const wrong = fixtureCheck(baselineRuns, changeRuns, fixture);
+  if (wrong) return wrong;
   const arms = [...new Set([...baselineRuns, ...changeRuns].map((r) => r.arm))].sort();
   if (arms.length > 1) {
     const list = (runs) => [...new Set(runs.map((r) => r.arm))].sort().join(', ') || 'none';
@@ -115,13 +151,7 @@ export function shipRule(baselineRuns, changeRuns) {
       code: 2,
     };
   }
-  const checks = [
-    numeric(2, 'hidden tests passed (median)', baselineRuns, changeRuns, (r) => r?.passed, median, (b, c) => c >= b),
-    ...fuzzChecks(baselineRuns, changeRuns),
-    numeric(5, 'blind review (mean)', baselineRuns, changeRuns, reviewScore, mean,
-      (b, c) => b - c <= MAX_REVIEW_DROP + EPS, (b, c) => `, drop ${plain(b - c)} (at most ${MAX_REVIEW_DROP})`),
-    numeric(6, 'escaped defects (median)', baselineRuns, changeRuns, (r) => r?.escapedDefects, median, (b, c) => c <= b),
-  ];
+  const checks = qualityChecks(baselineRuns, changeRuns);
   const pass = checks.every((c) => c.pass);
   return {
     lines: [
@@ -143,11 +173,14 @@ export function expand(pattern, cwd = process.cwd()) {
   return globSync(pattern.replaceAll('\\', '/'), { cwd }).map((f) => path.resolve(cwd, f)).sort();
 }
 
-/** --baseline and --change, each followed by one or more patterns (a shell that expands the glob gives several). */
+/** --baseline and --change, each followed by one or more patterns (a shell that expands the glob gives several), and
+ *  --fixture <name> (in `fixture` when given). */
 export function parseArgs(argv) {
-  const out = { baseline: [], change: [] };
+  const { fixture, rest } = takeFixtureArg(argv);
+  if (fixture === null) return null;
+  const out = { baseline: [], change: [], ...(fixture !== undefined ? { fixture } : {}) };
   let at = null;
-  for (const a of argv) {
+  for (const a of rest) {
     if (a === '--baseline' || a === '--change') at = a.slice(2);
     else if (at && !a.startsWith('--')) out[at].push(a);
     else return null;
@@ -158,10 +191,15 @@ export function parseArgs(argv) {
 /** The CLI: { lines, code } for an argv, reading the files the globs match. */
 export function main(argv) {
   const args = parseArgs(argv);
-  if (!args) return { lines: ['usage: node bench/shiprule.mjs --baseline "<glob>" --change "<glob>"'], code: 2 };
+  if (!args) return { lines: ['usage: node bench/shiprule.mjs --baseline "<glob>" --change "<glob>" [--fixture <name>]'], code: 2 };
+  let fixture;
+  try { fixture = checkFixtureName(args.fixture); } catch (e) {
+    if (e instanceof FixtureError) return { lines: [e.message], code: 2 };
+    throw e;
+  }
   const files = (patterns) => [...new Set(patterns.flatMap((p) => expand(p)))].sort();
   try {
-    return shipRule(loadRuns(files(args.baseline)), loadRuns(files(args.change)));
+    return shipRule(loadRuns(files(args.baseline)), loadRuns(files(args.change)), { fixture });
   } catch (e) {
     return { lines: [`error: ${e.message}`], code: 2 };
   }

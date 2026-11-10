@@ -22,6 +22,13 @@ import {
 export const START = '<!-- project-bench:start -->';
 export const END = '<!-- project-bench:end -->';
 
+/** A fixture's markers in docs/benchmark.md: tally's are START and END; any other fixture's
+ *  `<!-- project-bench:<name>:start -->` and `<!-- project-bench:<name>:end -->`. */
+export function markers(fixture = 'tally') {
+  return fixture === 'tally' ? { start: START, end: END }
+    : { start: `<!-- project-bench:${fixture}:start -->`, end: `<!-- project-bench:${fixture}:end -->` };
+}
+
 const DASH = '–';
 const NA = 'n/a';
 const has = (v) => v !== null && v !== undefined;
@@ -173,15 +180,16 @@ export function projectTable(runs) {
 }
 
 /**
- * Replaces what is between the project-bench markers with the table and its notes. Returns the text
- * unchanged when there are no runs or the markers are missing.
+ * Replaces what is between the fixture's project-bench markers (tally's by default) with the table and its notes.
+ * Returns the text unchanged when there are no runs or the markers are missing.
  */
-export function updateReadme(readmeText, runs) {
+export function updateReadme(readmeText, runs, fixture = 'tally') {
   if (!runs || !runs.length) return readmeText;
-  const a = readmeText.indexOf(START);
-  const b = a < 0 ? -1 : readmeText.indexOf(END, a + START.length);
+  const { start, end } = markers(fixture);
+  const a = readmeText.indexOf(start);
+  const b = a < 0 ? -1 : readmeText.indexOf(end, a + start.length);
   if (b < 0) return readmeText;
   const eol = readmeText.includes('\r\n') ? '\r\n' : '\n';
   const table = projectTable(runs).replace(/\n/g, eol);
-  return `${readmeText.slice(0, a + START.length)}${eol}${table}${eol}${readmeText.slice(b)}`;
+  return `${readmeText.slice(0, a + start.length)}${eol}${table}${eol}${readmeText.slice(b)}`;
 }

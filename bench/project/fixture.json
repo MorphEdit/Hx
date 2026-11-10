@@ -1,0 +1,8 @@
+{
+  "bin": "tally",
+  "checkoutEnv": "TALLY_CHECKOUT",
+  "coverageClearEnv": ["TALLY_LOG", "TALLY_NOW"],
+  "fuzzFile": "tally.log",
+  "fuzzFileEnv": "TALLY_LOG",
+  "fuzzNowEnv": "TALLY_NOW"
+}

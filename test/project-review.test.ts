@@ -2,7 +2,7 @@
 // fake clone (no gh); the checkouts are fixture git repos in a temp dir.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -253,7 +253,7 @@ test('--all pairing: newest chat set, same i; reviewed runs skipped; unmatched r
     ['hx3-202611070000-1.json', 'chat-202611050000-1.json'],
   ]);
   assert.deepEqual(unmatched.map((r: any) => r.name), ['hx3-202611060000-3.json']);
-  assert.deepEqual(pr.pairRuns([]), { pairs: [], unmatched: [] });
+  assert.deepEqual(pr.pairRuns([]), { pairs: [], unmatched: [], skipped: [] });
 });
 
 /** A fake `claude`: --version prints a version; a session reads its prompt from stdin and replies, as stream-json,
@@ -352,4 +352,93 @@ test('#415: the --all loop goes on past a failed pair, and stops at a usage limi
   assert.deepEqual(out, { reviewed: 1, failed: 2 });
   assert.ok(said.some((m) => /a1.*gh: not found/.test(m)));
   assert.ok(said.some((m) => /usage limit/.test(m) && /stop/.test(m)));
+});
+
+test('--all pairs every non-chat arm with the newest chat set: a chat run gets one review per Hx arm; old single files are skipped', () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'hx-rv-'));
+  write(dir, {
+    'project-hx3.json': JSON.stringify({ arm: 'hx3', startedAt: '2026-10-01T00:00:00Z' }),
+    'project-chat.json': JSON.stringify({ arm: 'chat', startedAt: '2026-12-01T00:00:00Z' }),
+    'project/chat-202611050000-1.json': JSON.stringify({ startedAt: '2026-11-05T00:00:00Z' }),
+    'project/chat-202611050000-2.json': JSON.stringify({ startedAt: '2026-11-05T02:00:00Z' }),
+    'project/hx1-202611060000-1.json': JSON.stringify({ startedAt: '2026-11-06T00:00:00Z' }),
+    'project/hx1-202611060000-2.json': JSON.stringify({ startedAt: '2026-11-06T02:00:00Z' }),
+    'project/hx3-202611070000-1.json': JSON.stringify({ startedAt: '2026-11-07T00:00:00Z' }),
+    'project/hx3-202611070000-2.json': JSON.stringify({ startedAt: '2026-11-07T02:00:00Z', reviews: [{ score: 6 }] }),
+  });
+  const { pairs, unmatched, skipped } = pr.pairRuns(results.loadRuns(results.resultFiles(dir)));
+  assert.deepEqual(pairs.map((p: any) => [p.run.name, p.chat.name]), [
+    ['hx1-202611060000-1.json', 'chat-202611050000-1.json'],
+    ['hx1-202611060000-2.json', 'chat-202611050000-2.json'],
+    ['hx3-202611070000-1.json', 'chat-202611050000-1.json'],
+  ]);
+  assert.deepEqual(unmatched, []);
+  // the old chat file is newer by its start, yet no new run is paired with it: old files are skipped, and listed
+  assert.deepEqual(skipped.map((r: any) => r.name), ['project-chat.json', 'project-hx3.json']);
+  // the CLI's plan lists them too
+  const plan = pr.plan(['--all'], { resultsDir: dir });
+  assert.deepEqual(plan.skipped, ['project-chat.json', 'project-hx3.json']);
+  assert.deepEqual(plan.todo.map((t: string[]) => t.map((f) => path.basename(f))), pairs.map((p: any) => [p.chat.name, p.run.name]));
+  assert.equal(plan.brief, readFileSync(path.join(root, 'bench', 'project', 'brief.md'), 'utf8'));
+});
+
+test('--all --fixture reads only that fixture\'s results and gives its brief', () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'hx-rv-'));
+  write(dir, {
+    'project/chat-202611050000-1.json': JSON.stringify({ startedAt: '2026-11-05T00:00:00Z' }),
+    'project/hx3-202611050000-1.json': JSON.stringify({ startedAt: '2026-11-05T00:00:00Z' }),
+    'fixtures/ledge/project/chat-202611090000-1.json': JSON.stringify({ fixture: 'ledge', startedAt: '2026-11-09T00:00:00Z' }),
+    'fixtures/ledge/project/hx1-202611090000-1.json': JSON.stringify({ fixture: 'ledge', startedAt: '2026-11-09T01:00:00Z' }),
+    'fixtures/ledge/project/hx3-202611090000-1.json': JSON.stringify({ fixture: 'ledge', startedAt: '2026-11-09T02:00:00Z' }),
+  });
+  const plan = pr.plan(['--all', '--fixture', 'ledge'], { resultsDir: dir });
+  assert.deepEqual(plan.todo.map((t: string[]) => t.map((f) => path.basename(f))), [
+    ['chat-202611090000-1.json', 'hx1-202611090000-1.json'], ['chat-202611090000-1.json', 'hx3-202611090000-1.json'],
+  ]);
+  assert.deepEqual(plan.skipped, []);
+  assert.equal(plan.brief, readFileSync(path.join(root, 'bench', 'fixtures', 'ledge', 'brief.md'), 'utf8'));
+});
+
+test('two files: different fixtures, or a fixture other than --fixture (tally by default), are a usage error before any clone', () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'hx-rv-'));
+  const f = (name: string, body: object) => { const p = path.join(dir, name); writeFileSync(p, JSON.stringify({ repo: 'o/r', ...body })); return p; };
+  const tally = f('chat-1-1.json', {}), tally2 = f('hx3-1-1.json', { fixture: 'tally' });
+  const ledge = f('chat-2-1.json', { fixture: 'ledge' }), ledge2 = f('hx1-2-1.json', { fixture: 'ledge' });
+  assert.throws(() => pr.plan([tally, ledge]), (e: any) => e.exitCode === 2 && /different fixtures: chat-1-1\.json is tally, chat-2-1\.json is ledge/.test(e.message));
+  assert.throws(() => pr.plan([tally, ledge, '--fixture', 'ledge']), /different fixtures/);
+  assert.throws(() => pr.plan([ledge, ledge2]), (e: any) => e.exitCode === 2 && /fixture ledge, not tally: pass --fixture ledge/.test(e.message));
+  assert.throws(() => pr.plan([tally, tally2, '--fixture', 'ledge']), /fixture tally, not ledge/);
+  // otherwise the judges get that fixture's brief
+  assert.equal(pr.plan([ledge, ledge2, '--fixture', 'ledge']).brief, readFileSync(path.join(root, 'bench', 'fixtures', 'ledge', 'brief.md'), 'utf8'));
+  assert.equal(pr.plan([tally, tally2]).brief, readFileSync(path.join(root, 'bench', 'project', 'brief.md'), 'utf8'));
+  assert.deepEqual(pr.plan([tally, tally2]).todo, [[tally, tally2]]);
+  assert.equal(pr.plan([tally]), null);
+  assert.equal(pr.plan(['--all', tally]), null);
+  // the CLI: exit 2 with the message, and no gh is reached (there is none on its PATH)
+  const env: Record<string, string> = { ...process.env } as Record<string, string>;
+  for (const k of Object.keys(env)) if (/^NODE_TEST/.test(k)) delete env[k];
+  env.PATH = path.dirname(process.execPath);
+  const r = spawnSync(process.execPath, ['--disable-warning=ExperimentalWarning', path.join(root, 'bench', 'project-review.mjs'), ledge, ledge2],
+    { encoding: 'utf8', env });
+  assert.equal(r.status, 2, r.stdout + r.stderr);
+  assert.match(r.stderr, /pass --fixture ledge/);
+  assert.doesNotMatch(r.stdout, /reviewing/);
+});
+
+test('the judges are given the brief they are passed; hx1 is a name hidden from them', async () => {
+  const x = checkout('X'), y = checkout('Y');
+  writeFileSync(path.join(x, 'src', 'notes.js'), '// built by hx1\n');
+  const { judge: inner, calls } = fakeJudge();
+  const seen: string[] = [];
+  const judge = async (o: any) => {
+    for (const side of ['A', 'B']) {
+      const f = path.join(o.cwd, side, 'src', 'notes.js');
+      if (existsSync(f)) seen.push(readFileSync(f, 'utf8'));
+    }
+    return inner(o);
+  };
+  await pr.review(x, y, { judge, brief: '# ledge\nThe other brief.\n', version: 'v' });
+  assert.ok(calls[0].prompt.includes('The other brief.'));
+  assert.equal(seen.length, calls.length);
+  for (const notes of seen) assert.equal(notes, '// built by [redacted]\n');
 });

@@ -11,13 +11,15 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 // @ts-ignore: a plain .mjs bench module
-import { USAGE, auditFails, capCheck, chatSession, escapedDefects, gateReds, parseArgs, parseJsonl, provenanceRoles, sessionsByRole, setupRepo, usageTotals } from '../bench/project-lib.mjs';
+import { ARMS, USAGE, armConfig, auditFails, capCheck, chatSession, countNudges, escapedDefects, gateReds, hxRunArgs, parseArgs, parseJsonl, provenanceRoles, sessionsByRole, setupRepo, usageTotals } from '../bench/project-lib.mjs';
 // @ts-ignore: a plain .mjs bench module
 import { STEPS, chatArm, qualityLine, runSet } from '../bench/project.mjs';
 // @ts-ignore: a plain .mjs bench module
 import { coverage } from '../bench/project-coverage.mjs';
 // @ts-ignore: a plain .mjs bench module
 import { fuzz, genHash } from '../bench/project-fuzz.mjs';
+// @ts-ignore: a plain .mjs bench module
+import { resolveFixture } from '../bench/project-fixtures.mjs';
 import { DEFAULTS, ROLES, roleModel, workerArgs, type Config } from '../src/config.ts';
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -122,9 +124,80 @@ test('parseArgs: --runs defaults to 1 and must be a positive integer; the caps a
   assert.deepEqual(parseArgs(['hx3', '--runs', '5', '--max-hours', '0.5', '--max-usd', '10']), { arm: 'hx3', runs: 5, maxHours: 0.5, maxUsd: 10 });
   for (const bad of [['--runs', '0'], ['--runs', '-1'], ['--runs', '1.5'], ['--runs'], ['--runs', ''], ['--runs', 'x'], ['--runs', '--max-hours', '4'], ['--max-hours', '0'], ['--max-usd']])
     assert.equal(parseArgs(['chat', ...bad]), null, bad.join(' '));
-  assert.equal(parseArgs(['hx1']), null);
+  // hx1 is an arm (PRD #439); any other name is not
+  assert.deepEqual(parseArgs(['hx1']), { arm: 'hx1', runs: 1, maxHours: 4, maxUsd: 60 });
+  assert.equal(parseArgs(['hx2']), null);
   assert.equal(parseArgs([]), null);
-  assert.match(USAGE, /<chat\|hx3> \[--runs N\]/);
+  assert.match(USAGE, /<chat\|hx1\|hx3> \[--fixture <name>\] \[--runs N\]/);
+});
+
+test('parseArgs: --fixture <name> is passed on as given (checked by the caller); twice or with no value is the usage line', E2E, () => {
+  assert.deepEqual(parseArgs(['hx1', '--fixture', 'ledge', '--runs', '5']), { arm: 'hx1', runs: 5, maxHours: 4, maxUsd: 60, fixture: 'ledge' });
+  assert.deepEqual(parseArgs(['chat', '--runs', '2', '--fixture', 'nope']), { arm: 'chat', runs: 2, maxHours: 4, maxUsd: 60, fixture: 'nope' });
+  assert.deepEqual(parseArgs(['hx3', '--fixture', 'ledge', '--config', 'x=1']), { arm: 'hx3', runs: 1, maxHours: 4, maxUsd: 60, config: { x: 1 }, fixture: 'ledge' });
+  for (const bad of [['--fixture'], ['--fixture', '--runs', '2'], ['--fixture', 'a', '--fixture', 'b']]) assert.equal(parseArgs(['chat', ...bad]), null, bad.join(' '));
+});
+
+test('hx1 runs `hx run --watch --workers 1` with autoWorkers false; hx3 `--workers 3` as configured', E2E, () => {
+  assert.deepEqual(hxRunArgs('hx1'), ['run', '--watch', '--workers', '1']);
+  assert.deepEqual(hxRunArgs('hx3'), ['run', '--watch', '--workers', '3']);
+  assert.deepEqual(armConfig('hx1'), { workers: 1, autoWorkers: false });
+  assert.deepEqual(armConfig('hx3'), { workers: 3 });
+  assert.deepEqual(armConfig('chat'), { workers: 1 });
+  assert.deepEqual(ARMS, ['chat', 'hx1', 'hx3']);
+  // the setup step applies armConfig before the --config overrides, and the Hx arm spawns hxRunArgs
+  const src = readFileSync(path.join(root, 'bench', 'project.mjs'), 'utf8');
+  assert.match(src, /Object\.assign\(cfg, armConfig\(ctx\.arm\)\);[\s\S]*Object\.assign\(cfg, ctx\.config \?\? \{\}\)/);
+  assert.match(src, /HX, \.\.\.hxRunArgs\(ctx\.arm\)\]/);
+});
+
+test('countNudges: the turns after the first', E2E, () => {
+  assert.equal(countNudges([]), 0);
+  assert.equal(countNudges([1]), 0);
+  assert.equal(countNudges([1, 2, 3]), 2);
+});
+
+/** chatArm on a fake session that takes `turns` turns and then says done (or stops). */
+async function chatTurns(turns: number, stopReason = 'promise') {
+  const work = mkdtempSync(path.join(os.tmpdir(), 'hxp-chat-'));
+  try {
+    mkdirSync(path.join(work, '.hx'));
+    const prompts: string[] = [];
+    const run = async (o: any) => {
+      for (let i = 1; i <= turns; i++) {
+        prompts.push(i === 1 ? o.prompt : o.continuePrompt);
+        o.onTurn(i, 's1', { ok: true, durationMs: 10, usage: { input: 1, cacheWrite: 0, cacheRead: 0, output: 1 }, costUsd: 0.1 });
+      }
+      return { stopReason, iterations: turns };
+    };
+    const r = await chatArm({ arm: 'chat', repo: 'o/r', work, maxHours: 4, maxUsd: 60, log: () => {} }, { run });
+    return { r, prompts };
+  } finally {
+    rmSync(work, { recursive: true, force: true });
+  }
+}
+
+test('chatArm counts nudges: the continue prompts after the first turn; 0 when done on the first turn', E2E, async () => {
+  const once = await chatTurns(1);
+  assert.equal(once.r.nudges, 0);
+  assert.equal(once.r.ended, 'done');
+  const four = await chatTurns(4);
+  assert.equal(four.r.nudges, 3);
+  assert.equal(four.prompts.slice(1).every((p) => /^Continue building the project/.test(p)), true);
+  assert.equal((await chatTurns(2, 'max-iterations')).r.nudges, 1);
+});
+
+test('chatArm gives the session the fixture\'s brief', E2E, async () => {
+  const work = mkdtempSync(path.join(os.tmpdir(), 'hxp-chat-'));
+  try {
+    mkdirSync(path.join(work, '.hx'));
+    let prompt = '';
+    const run = async (o: any) => { prompt = o.prompt; return { stopReason: 'promise', iterations: 1 }; };
+    await chatArm({ arm: 'chat', repo: 'o/r', work, maxHours: 4, maxUsd: 60, log: () => {}, fixture: resolveFixture('ledge') }, { run });
+    assert.ok(prompt.startsWith(readFileSync(path.join(root, 'bench', 'fixtures', 'ledge', 'brief.md'), 'utf8').trimEnd()));
+  } finally {
+    rmSync(work, { recursive: true, force: true });
+  }
 });
 
 test('parseArgs: --config key=value is repeatable, JSON when it parses, and a bad pair is the usage line', E2E, () => {
@@ -419,4 +492,65 @@ test("qualityLine: divergences and classes, lines and branches, the own tests' s
   assert.equal(qualityLine({ fuzz: { divergences: 5, classes: { a: 3, b: 2 } }, coverage: lb }), 'fuzz 5 divergences in 2 classes · coverage 1/2 lines, 0/1 branches');
   assert.equal(qualityLine({ fuzzError: 'x', coverage: { tests: 'failed', lines: 'n/a', branches: 'n/a' } }), 'fuzz error: x · coverage n/a (own tests failed)');
   assert.equal(qualityLine({ fuzz: { divergences: 0, classes: {} }, coverageError: 'y' }), 'fuzz 0 divergences in 0 classes · coverage error: y');
+});
+
+test('runSet records fixture and nudges: tally and the chat session\'s count; an Hx arm records nudges null', E2E, async () => {
+  const calls: any[] = [];
+  const chat = { ...fakeSteps(calls), arm: () => ({ usage: [], ended: 'done', t0: 0, t1: 1, nudges: 3 }) };
+  await withSet(chat, {}, (results) => {
+    assert.equal(results[0].fixture, 'tally');
+    assert.equal(results[0].nudges, 3);
+  });
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'hxp-n-'));
+  try {
+    const out = await runSet({ arm: 'hx1', owner: 'me', stamp: '202611100900', resultsDir: path.join(dir, 'out'), tmp: dir, commit: 'abc',
+      claudeBin: path.join(root, 'test', 'fakes', 'claude.mjs'), steps: { ...fakeSteps([]), arm: () => ({ usage: [], ended: 'done', t0: 0, t1: 1, nudges: 7 }) }, print: () => {} });
+    const r = JSON.parse(readFileSync(out.files[0], 'utf8'));
+    assert.deepEqual([r.fixture, r.arm, r.nudges], ['tally', 'hx1', null]);
+    assert.equal(path.basename(out.files[0]), 'hx1-202611100900-1.json');
+    // an Hx arm's provenance holds every role, as hx3's does
+    assert.deepEqual(Object.keys(r.provenance.roles).sort(), [...ROLES].sort());
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('runSet with another fixture: its name on the repo and directories, its suite, generator and variables to the steps', E2E, async () => {
+  const ledge = resolveFixture('ledge');
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'hxp-f-'));
+  try {
+    const calls: any[] = [];
+    const steps = { ...fakeSteps(calls),
+      grade: (d: string, o: any) => { calls.push({ step: 'grade', d, o }); return { passed: 1, failed: 0, total: 1, failures: [] }; },
+      fuzz: (d: string, o: any) => { calls.push({ step: 'fuzz', o }); return { divergences: 0, classes: {} }; },
+      coverage: (d: string, o: any) => { calls.push({ step: 'coverage', o }); return { tests: 'none', lines: 'n/a', branches: 'n/a' }; } };
+    const resultsDir = path.join(dir, 'results', 'fixtures', 'ledge', 'project');
+    const out = await runSet({ arm: 'chat', owner: 'me', stamp: '202611100900', fixture: ledge, resultsDir, tmp: dir, commit: 'abc',
+      claudeBin: path.join(root, 'test', 'fakes', 'claude.mjs'), steps, print: () => {}, fuzzOptions: { count: 3 } });
+    const r = JSON.parse(readFileSync(out.files[0], 'utf8'));
+    assert.equal(r.fixture, 'ledge');
+    assert.equal(r.repo, 'me/hx-project-ledge-chat-202611100900-1');
+    const ctx = calls.find((c) => c.step === 'setup').ctx;
+    assert.equal(ctx.fixture, ledge);
+    for (const p of [ctx.work, ctx.worktreeRoot, ctx.clone]) assert.equal(path.basename(p), 'ledge-chat-202611100900-1');
+    assert.deepEqual(calls.find((c) => c.step === 'grade').o, { hidden: ledge.hidden, checkoutEnv: 'LEDGE_CHECKOUT' });
+    assert.deepEqual(calls.find((c) => c.step === 'fuzz').o, { fixture: ledge, count: 3 });
+    assert.deepEqual(calls.find((c) => c.step === 'coverage').o, { clearEnv: ['LEDGE_FILE', 'LEDGE_TODAY'] });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('setupRepo of another fixture: its template, its name in the commit', E2E, () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'hxp-setup-'));
+  try {
+    const ledge = resolveFixture('ledge');
+    setupRepo(dir, { template: ledge.template, name: ledge.manifest.bin });
+    const git = (...a: string[]) => execFileSync('git', a, { cwd: dir, encoding: 'utf8' }).trim();
+    assert.equal(git('log', '--format=%s'), 'ledge: empty project');
+    assert.deepEqual(git('ls-files').split('\n').sort(), ['README.md', 'package.json']);
+    assert.equal(JSON.parse(readFileSync(path.join(dir, 'package.json'), 'utf8')).name, 'ledge');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

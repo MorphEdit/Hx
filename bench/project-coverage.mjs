@@ -1,32 +1,18 @@
-// node bench/project-coverage.mjs <checkout> [--timeout-ms N]
+// node bench/project-coverage.mjs <checkout> [--fixture <name>] [--timeout-ms N]
 // Own-test coverage for the project benchmark (PRD #397): runs a checkout's own `npm test` under Node's built-in V8
 // coverage (NODE_V8_COVERAGE, which every child process inherits) and counts the line and branch coverage of its
-// source files. Prints { tests, lines, branches } as JSON.
+// source files. Prints { tests, lines, branches } as JSON. The variables cleared for the run are the fixture
+// manifest's `coverageClearEnv` (tally's: TALLY_LOG and TALLY_NOW).
 import { mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runShell } from '../src/exec.ts';
+import { FixtureError, codeFiles, isTestFile, resolveFixture, takeFixtureArg } from './project-fixtures.mjs';
 
-const CODE = /\.(js|mjs|cjs)$/i;
-const SKIP = new Set(['.git', '.hx', 'node_modules']);
-// what `node --test` picks up by default: *.test.*, *-test.*, *_test.*, test-*.*, test.*, and anything under test/
-const TEST_NAME = /^((.*[.\-_])?test|test-.+)\.(js|mjs|cjs)$/i;
-
-/** Every .js/.mjs/.cjs file of the checkout outside .git, .hx and node_modules, relative to it. */
-export function codeFiles(checkout, rel = '') {
-  return readdirSync(path.join(checkout, rel), { withFileTypes: true }).flatMap((d) => {
-    const p = path.join(rel, d.name);
-    if (d.isDirectory()) return SKIP.has(d.name) ? [] : codeFiles(checkout, p);
-    return d.isFile() && CODE.test(d.name) ? [p] : [];
-  });
-}
-
-/** Whether a checkout-relative file is a test file by `node --test`'s default patterns. */
-export function isTestFile(rel) {
-  const parts = rel.split(/[\\/]/);
-  return parts.slice(0, -1).includes('test') || TEST_NAME.test(parts[parts.length - 1]);
-}
+// codeFiles and isTestFile live in bench/project-fixtures.mjs (the reference size counts the same files) and are
+// exported from here as well
+export { codeFiles, isTestFile };
 
 /** A path in one form for comparing: the long name of an existing file (no 8.3 short names), case-folded on Windows. */
 function key(p) {
@@ -94,14 +80,18 @@ function testScript(checkout) {
   } catch { return null; }
 }
 
-/** The caller's environment for the own tests: no NODE_TEST* / NODE_OPTIONS / TALLY_LOG / TALLY_NOW, a temp home,
- *  coverage into `covDir`. A removed key is undefined (runShell spreads it over process.env; spawn drops it). */
-export function testEnv(covDir, home, env = process.env) {
+export const TALLY_CLEAR_ENV = ['TALLY_LOG', 'TALLY_NOW'];
+
+/** The caller's environment for the own tests: no NODE_TEST* / NODE_OPTIONS / `clear` (tally's TALLY_LOG and
+ *  TALLY_NOW), a temp home, coverage into `covDir`. A removed key is undefined (runShell spreads it over process.env;
+ *  spawn drops it). */
+export function testEnv(covDir, home, env = process.env, clear = TALLY_CLEAR_ENV) {
   const set = { NODE_V8_COVERAGE: covDir, HOME: home, USERPROFILE: home };
+  const cleared = new Set(clear.map((k) => k.toUpperCase()));
   const out = {};
   for (const k of Object.keys(env)) {
     const K = k.toUpperCase();
-    if (/^NODE_(TEST|OPTIONS)/.test(K) || K === 'TALLY_LOG' || K === 'TALLY_NOW' || K in set) out[k] = undefined;
+    if (/^NODE_(TEST|OPTIONS)/.test(K) || cleared.has(K) || K in set) out[k] = undefined;
   }
   return Object.assign(out, set);
 }
@@ -119,7 +109,7 @@ function readCoverage(dir) {
  * Run `checkout`'s own `npm test` under V8 coverage and count the line and branch coverage of its source files.
  * Never throws for a failing or hanging suite: `failed` with `n/a` coverage.
  */
-export async function coverage(checkout, { timeoutMs = 30 * 60_000 } = {}) {
+export async function coverage(checkout, { timeoutMs = 30 * 60_000, clearEnv = TALLY_CLEAR_ENV } = {}) {
   const none = (tests) => ({ tests, lines: 'n/a', branches: 'n/a' });
   const dir = path.resolve(checkout);
   const files = codeFiles(dir);
@@ -128,7 +118,7 @@ export async function coverage(checkout, { timeoutMs = 30 * 60_000 } = {}) {
   const covDir = mkdtempSync(path.join(os.tmpdir(), 'hx-cov-'));
   const home = mkdtempSync(path.join(os.tmpdir(), 'hx-cov-home-'));
   try {
-    const r = await runShell('npm test', { cwd: dir, timeoutMs, env: testEnv(covDir, home), sweep: true });
+    const r = await runShell('npm test', { cwd: dir, timeoutMs, env: testEnv(covDir, home, process.env, clearEnv), sweep: true });
     if (r.code !== 0 || r.timedOut) return none('failed');
     // the text as V8 compiled it: Node drops a byte order mark first
     const byKey = new Map(sources.map((f) => [key(path.join(dir, f)),
@@ -147,13 +137,19 @@ export async function coverage(checkout, { timeoutMs = 30 * 60_000 } = {}) {
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const args = process.argv.slice(2);
+  const { fixture: name, rest: args } = takeFixtureArg(process.argv.slice(2));
   const t = args.indexOf('--timeout-ms');
   const timeoutMs = t >= 0 ? Number(args[t + 1]) : undefined;
   const checkout = args.find((a, i) => !a.startsWith('--') && (t < 0 || i !== t + 1));
-  if (!checkout || (t >= 0 && !(timeoutMs > 0))) {
-    console.error('usage: node bench/project-coverage.mjs <checkout> [--timeout-ms N]');
+  if (!checkout || (t >= 0 && !(timeoutMs > 0)) || name === null) {
+    console.error('usage: node bench/project-coverage.mjs <checkout> [--fixture <name>] [--timeout-ms N]');
     process.exit(1);
   }
-  console.log(JSON.stringify(await coverage(checkout, timeoutMs ? { timeoutMs } : {}), null, 2));
+  let fixture;
+  try { fixture = resolveFixture(name); } catch (e) {
+    if (!(e instanceof FixtureError)) throw e;
+    console.error(e.message);
+    process.exit(2);
+  }
+  console.log(JSON.stringify(await coverage(checkout, { ...(timeoutMs ? { timeoutMs } : {}), clearEnv: fixture.manifest.coverageClearEnv }), null, 2));
 }

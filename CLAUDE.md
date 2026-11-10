@@ -33,11 +33,11 @@ roadmap and the agreed order of the next features) before changing anything.
 - `test/` — `npm test`. End-to-end tests use real git (local bare origin) with fake `gh` and `claude`
   in `test/fakes/` (`HX_GH_BIN`, `claudeBin` pointing at a `.mjs` run under node; `test/isolate.ts` sets `HX_GH_INPROC`, so the fake gh answers in-process).
   `test/fakedom.ts` is the fake DOM the dashboard page's script runs in (the page's static markup, tabs, clicks); `test/fixtures/control-room-state.ts` is the design reference's sample in `dashboardState`'s shape, for the same-look test (`test/dashboard-look.test.ts`)
-- `bench/` — the six-issue benchmark (`node bench/run.mjs chat|hx1|hx3`, then `node bench/figures.mjs`), and the project benchmark (`node bench/project.mjs chat|hx3 --runs N`: one brief
+- `bench/` — the six-issue benchmark (`node bench/run.mjs chat|hx1|hx3`, then `node bench/figures.mjs`), and the project benchmark (`node bench/project.mjs chat|hx1|hx3 --runs N`: one brief
   through the whole PRD flow, graded by hidden tests, each run to `bench/results/project/<arm>-<stamp>-<i>.json` (the old `bench/results/project-<arm>.json` still read);
   `bench/project-fuzz.mjs` the differential fuzz against the reference, its blind case generator `bench/project-fuzz-gen.mjs`; `bench/project-coverage.mjs` the own tests' line and branch coverage;
   `figures.mjs` renders its table in `docs/benchmark.md` via `bench/project-table.mjs`; `bench/project-results.mjs` reads project results as runs and sets, with the shared accessors;
-  `bench/project-review.mjs` the blind review of two runs by judge sessions, its prompt and rubric in `bench/project/review-prompt.md`; `bench/shiprule.mjs` the ship rule, a change's runs against the baseline's).
+  `bench/project-review.mjs` the blind review of two runs by judge sessions, its prompt and rubric in `bench/project/review-prompt.md`; `bench/shiprule.mjs` the ship rule, a change's runs against the baseline's; `bench/project-fixtures.mjs` the fixtures (`--fixture`, default `tally` at `bench/project/`; others `bench/fixtures/<name>/`, e.g. the medium `ledge`); `bench/crossover.mjs` the size × arm table).
   It creates private GitHub repos and spends real usage: run it only when asked.
 
 ## Conventions

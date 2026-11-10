@@ -1,5 +1,5 @@
-// node bench/project-review.mjs <results-a> <results-b>    review those two runs
-// node bench/project-review.mjs --all                      review every non-chat run with no scored review yet
+// node bench/project-review.mjs <results-a> <results-b> [--fixture <name>]   review those two runs
+// node bench/project-review.mjs --all [--fixture <name>]                     review every non-chat run with no scored review yet
 // The blind review of two project-benchmark runs (PRD #397): each run's checkout is cloned from its results
 // file's `repo`, copied without .git, .hx, node_modules and every name of Hx, Claude, an arm or an author, and
 // shown to judge sessions as A and B, in both orders. Each judge scores both copies on the rubric of
@@ -7,6 +7,10 @@
 // bench/project-results.mjs documents); no other field of a results file is touched. A review in which every
 // judge failed is no review: nothing is written, and --all tries that run again next time.
 // Spends real usage: 6 judge sessions per pair by default.
+// Fixtures (PRD #439): --fixture defaults to tally. --all reads that fixture's results only and skips the old single
+// files (bench/results/project-<arm>.json), listing them. Two files: each file's fixture is its `fixture` field (tally
+// when absent); two files of different fixtures, or of a fixture other than --fixture, are a usage error (exit 2)
+// before any clone or judge session. The judges get that fixture's brief.md.
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
@@ -15,7 +19,8 @@ import { fileURLToPath } from 'node:url';
 import { runGoal } from '../src/agent.ts';
 import { DEFAULTS, workerArgs } from '../src/config.ts';
 import { run } from '../src/exec.ts';
-import { loadRuns, newestSet, resultFiles } from './project-results.mjs';
+import { DEFAULT_FIXTURE, FixtureError, fixtureOf, resolveFixture, takeFixtureArg } from './project-fixtures.mjs';
+import { isOldRun, loadRuns, newestSet, resultFiles } from './project-results.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -24,7 +29,7 @@ export const CRITERIA = ['correctness', 'edgeCases', 'errorMessages', 'clarity',
 export const JUDGE_MODEL = 'claude-opus-5-5';
 // the lean set with read-only tools: no Bash, Edit or Write
 export const JUDGE_FLAGS = workerArgs({ ...DEFAULTS, leanWorkers: true, workerTools: ['Read', 'Glob', 'Grep'], claudeArgs: [] });
-const FIXED_NAMES = ['hx', 'hx3', 'chat', 'claude', 'anthropic'];
+const FIXED_NAMES = ['hx', 'hx1', 'hx3', 'chat', 'claude', 'anthropic'];
 const SKIP = new Set(['.git', '.hx', 'node_modules']);
 const TOKEN_KEYS = ['input', 'cacheWrite', 'cacheRead', 'output'];
 const rm = (d) => rmSync(d, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
@@ -258,10 +263,13 @@ export async function reviewRuns(fileA, fileB, { clone = ghClone, ...opts } = {}
   }
 }
 
-/** --all: every run of a non-chat arm with no scored review yet (an entry with no verdict does not count),
- *  paired with the chat run of the same i in the newest chat set. → { pairs: [{ run, chat }], unmatched: [run] }
- *  (runs as loadRuns gives them). */
-export function pairRuns(runs) {
+/** --all: every run of every non-chat arm with no scored review yet (an entry with no verdict does not count), paired
+ *  with the chat run of the same i in the newest chat set; so a chat run gets one review per Hx arm. The old single
+ *  files are skipped (nor is the newest chat set taken from them). → { pairs: [{ run, chat }], unmatched: [run],
+ *  skipped: [run] } (runs as loadRuns gives them; skipped: the old files). */
+export function pairRuns(allRuns) {
+  const skipped = allRuns.filter(isOldRun);
+  const runs = allRuns.filter((r) => !skipped.includes(r));
   const chat = newestSet(runs, 'chat');
   const pairs = [], unmatched = [];
   for (const run of runs) {
@@ -270,7 +278,41 @@ export function pairRuns(runs) {
     const c = chat?.runs.find((r) => r.i === run.i);
     if (c) pairs.push({ run, chat: c }); else unmatched.push(run);
   }
-  return { pairs, unmatched };
+  return { pairs, unmatched, skipped };
+}
+
+/** The fixture of two results files to review: both files' `fixture` (tally when absent) must be one fixture, and
+ *  that fixture must be `fixture`. Throws a FixtureError otherwise, before anything is cloned or spent. */
+export function pairFixture(fileA, fileB, fixture = DEFAULT_FIXTURE) {
+  const [a, b] = [fileA, fileB].map((f) => fixtureOf(JSON.parse(readFileSync(f, 'utf8'))));
+  if (a !== b) {
+    throw new FixtureError(`different fixtures: ${path.basename(fileA)} is ${a}, ${path.basename(fileB)} is ${b}; review runs of one fixture`);
+  }
+  if (a !== fixture) throw new FixtureError(`the runs are of fixture ${a}, not ${fixture}: pass --fixture ${a}`);
+  return a;
+}
+
+export const USAGE = 'usage: node bench/project-review.mjs <results-a> <results-b> [--fixture <name>] | --all [--fixture <name>]';
+
+/**
+ * The CLI's plan: { todo: [[fileA, fileB]], brief, skipped: [name], unmatched: [run] }. Throws a FixtureError (exit 2)
+ * for an unknown fixture, a missing required file or files of the wrong fixture; returns null for the usage line.
+ */
+export function plan(argv, { resultsDir } = {}) {
+  const { fixture: name, rest } = takeFixtureArg(argv);
+  if (name === null) return null;
+  const all = rest.length === 1 && rest[0] === '--all';
+  const two = rest.length === 2 && !rest.some((a) => a.startsWith('--'));
+  if (!all && !two) return null;
+  const fixture = resolveFixture(name);
+  const brief = readFileSync(fixture.brief, 'utf8');
+  if (two) {
+    pairFixture(rest[0], rest[1], fixture.name);
+    return { todo: [rest], brief, skipped: [], unmatched: [] };
+  }
+  const runs = loadRuns(resultFiles(resultsDir, fixture.name)).filter((r) => fixtureOf(r.result) === fixture.name);
+  const { pairs, unmatched, skipped } = pairRuns(runs);
+  return { todo: pairs.map((p) => [p.chat.file, p.run.file]), brief, skipped: skipped.map((r) => r.name), unmatched };
 }
 
 const show = (f, r) => `${path.basename(f)} ${r.score === null ? '–' : r.score.toFixed(2)} (${r.basedOn} verdicts)`;
@@ -298,18 +340,18 @@ export async function reviewPairs(todo, { run = reviewRuns, say = () => {}, ...o
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const say = (m) => console.log(`${new Date().toTimeString().slice(0, 8)} [project-review] ${m}`);
-  const args = process.argv.slice(2);
-  let todo;
-  if (args.length === 1 && args[0] === '--all') {
-    const { pairs, unmatched } = pairRuns(loadRuns(resultFiles()));
-    for (const u of unmatched) say(`skipped ${u.name}: no chat run ${u.i} in the newest chat set`);
-    todo = pairs.map((p) => [p.chat.file, p.run.file]);
-  } else if (args.length === 2 && !args.some((a) => a.startsWith('--'))) {
-    todo = [args];
-  } else {
-    console.error('usage: node bench/project-review.mjs <results-a> <results-b> | --all');
+  let p;
+  try { p = plan(process.argv.slice(2)); } catch (e) {
+    if (!(e instanceof FixtureError)) throw e;
+    console.error(e.message);
+    process.exit(2);
+  }
+  if (!p) {
+    console.error(USAGE);
     process.exit(1);
   }
-  const { failed } = await reviewPairs(todo, { say });
+  for (const name of p.skipped) say(`skipped ${name}: an old single file`);
+  for (const u of p.unmatched) say(`skipped ${u.name}: no chat run ${u.i} in the newest chat set`);
+  const { failed } = await reviewPairs(p.todo, { say, brief: p.brief });
   if (failed) process.exitCode = 1;
 }
