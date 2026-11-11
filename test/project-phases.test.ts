@@ -355,7 +355,7 @@ test('runSet single-phase (tally, ledge): no phases, phase1Sha or phase1, and no
   }
 });
 
-test('stableScore: only the stable cases count; total is their number, passed those not among the failures', () => {
+test('stableScore: only the stable cases count; total is their number, passed those not among the failures', E2E, () => {
   const score = { passed: 2, failed: 3, total: 5, failures: ['a > s2', 'b > c1', 'b > c2'] };
   assert.deepEqual(stableScore(score, TAGS), { passed: 2, total: 3 });
   assert.deepEqual(stableScore({ ...score, failures: ['b > c1', 'b > c2'] }, TAGS), { passed: 3, total: 3 }, 'change failures never count');
@@ -445,6 +445,6 @@ test('runSet two-phase: a phase-1 checkout that throws is recorded as phase1Erro
   } finally { s.done(); }
 });
 
-test('the real phase1Checkout step refuses a run with no phase1Sha (the remote read failed)', () => {
+test('the real phase1Checkout step refuses a run with no phase1Sha (the remote read failed)', E2E, () => {
   assert.throws(() => STEPS.phase1Checkout({ phase1Clone: 'x', repo: 'o/r' }, null), /no phase1Sha/);
 });
