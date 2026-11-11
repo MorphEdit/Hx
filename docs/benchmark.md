@@ -311,7 +311,10 @@ and the benchmark can run several, of different sizes.
   `project-coverage.mjs`, `project-review.mjs`, `figures.mjs` and `shiprule.mjs`; an unknown name is a usage
   error that lists the fixtures (exit 2). `project-review.mjs` with two files reads each file's fixture and
   refuses two fixtures, or a fixture other than `--fixture`, before any clone; its judges get that fixture's
-  brief.
+  brief. A two-phase fixture's runs are judged against its brief followed by its change: the text in `{{BRIEF}}`
+  and in each judge's `brief.md` is the brief trimmed at the end, a blank line, then the change file, and no
+  other file is added. The judges review the final product (the repo's default branch), not the first version
+  (`phase1Sha`); `review-prompt.md` is the same for every fixture.
 - **The reference size** of a fixture is the number of non-blank lines of its reference's `.js`, `.mjs` and
   `.cjs` files, test files left out (the files the coverage run counts as source). `tally`'s is 237.
 - **`ledge`** (`bench/fixtures/ledge/`) is the medium fixture: a plain-text double-entry accounts CLI and
