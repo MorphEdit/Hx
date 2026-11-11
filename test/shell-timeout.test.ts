@@ -1,5 +1,5 @@
-// Worker shell commands may run as long as ship's test timeout (#191): BASH_MAX_TIMEOUT_MS / BASH_DEFAULT_TIMEOUT_MS in each
-// session's env, a stall timer that waits on a running tool call, and an impl prompt that never opens a PR outside ship.
+// Worker shell commands may run as long as ship's test timeout (#191): BASH_MAX_TIMEOUT_MS in each session's env (the
+// default stays Claude Code's 2 min, #443), a stall timer that waits on a running tool call, and an impl prompt that never opens a PR outside ship.
 import { E2E } from './isolate.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -27,25 +27,27 @@ async function withEnv<T>(env: Record<string, string>, f: () => Promise<T>): Pro
   try { return await f(); } finally { for (const [k, v] of Object.entries(old)) if (v === undefined) delete process.env[k]; else process.env[k] = v; }
 }
 
-test('shellEnv: ship test timeout + 5 min, below the turn timeout; a higher value already set is kept', E2E, () => {
+test('shellEnv: the max is ship test timeout + 5 min, below the turn timeout; the default is not raised; a higher value already set is kept', E2E, () => {
   assert.equal(SHIP_TEST_MINUTES, 45, "ship.mjs's --test-timeout default");
-  assert.deepEqual(shellEnv(60 * 60_000, {}), { BASH_MAX_TIMEOUT_MS: String(SHIP_MS), BASH_DEFAULT_TIMEOUT_MS: String(SHIP_MS) });
+  assert.deepEqual(shellEnv(60 * 60_000, {}), { BASH_MAX_TIMEOUT_MS: String(SHIP_MS) });
   assert.deepEqual(shellEnv(60 * 60_000, { BASH_MAX_TIMEOUT_MS: '9000000', BASH_DEFAULT_TIMEOUT_MS: '120000' }),
-    { BASH_MAX_TIMEOUT_MS: '9000000', BASH_DEFAULT_TIMEOUT_MS: String(SHIP_MS) });
+    { BASH_MAX_TIMEOUT_MS: '9000000' });
+  assert.deepEqual(shellEnv(60 * 60_000, { BASH_DEFAULT_TIMEOUT_MS: '300000' }),
+    { BASH_MAX_TIMEOUT_MS: String(SHIP_MS), BASH_DEFAULT_TIMEOUT_MS: '300000' });
   assert.equal(shellEnv(30 * 60_000, {}).BASH_MAX_TIMEOUT_MS, String(29 * 60_000), 'kept below a shorter turn timeout');
   assert.deepEqual(shellEnv(30_000, {}), {}, 'a turn too short for any: nothing set');
   assert.ok(Number(shellEnv(DEFAULTS.turnTimeoutMinutes * 60_000, {}).BASH_MAX_TIMEOUT_MS) === SHIP_MS && SHIP_MS < DEFAULTS.turnTimeoutMinutes * 60_000,
     'the default turn timeout leaves room for the full value');
 });
 
-test('a fake claude sees BASH_MAX_TIMEOUT_MS and BASH_DEFAULT_TIMEOUT_MS from the ship timeout; a higher value in the env is kept', E2E, async () => {
+test('a fake claude sees BASH_MAX_TIMEOUT_MS from the ship timeout and BASH_DEFAULT_TIMEOUT_MS unraised; a value in the env is kept', E2E, async () => {
   const out = path.join(tmp, 'env.json');
   await withEnv({ FAKE_CLAUDE_MODE: 'crash', FAKE_CLAUDE_ENV_OUT: out, BASH_MAX_TIMEOUT_MS: '', BASH_DEFAULT_TIMEOUT_MS: '' },
     () => turn({ timeoutMs: 60 * 60_000 }));
-  assert.deepEqual(JSON.parse(readFileSync(out, 'utf8')), { max: String(SHIP_MS), def: String(SHIP_MS) });
+  assert.deepEqual(JSON.parse(readFileSync(out, 'utf8')), { max: String(SHIP_MS), def: '' });
   await withEnv({ FAKE_CLAUDE_MODE: 'crash', FAKE_CLAUDE_ENV_OUT: out, BASH_MAX_TIMEOUT_MS: '7200000', BASH_DEFAULT_TIMEOUT_MS: '60000' },
     () => turn({ timeoutMs: 60 * 60_000 }));
-  assert.deepEqual(JSON.parse(readFileSync(out, 'utf8')), { max: '7200000', def: String(SHIP_MS) });
+  assert.deepEqual(JSON.parse(readFileSync(out, 'utf8')), { max: '7200000', def: '60000' });
 });
 
 test('the stall timer does not kill a turn waiting on a running tool call; it still kills one that is not', E2E, async () => {

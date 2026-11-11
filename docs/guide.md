@@ -926,9 +926,13 @@ the first poll after the gate turns green the merge is retried, and only the mer
 on the default branch's list (or none that can be named, or a green gate) sends the PR back to the
 implementer as before, the message naming the tests the branch broke; so does a rebase conflict on the retry.
 Test names are read from node's spec and TAP reporters, jest, pytest and go test output.
-Claude Code caps one shell command at 10 minutes, so each session gets `BASH_MAX_TIMEOUT_MS` and
-`BASH_DEFAULT_TIMEOUT_MS` of ship's test timeout + 5 min (kept below `turnTimeoutMinutes`; a higher value
-already in the environment is kept), and the stall timer waits as long while a tool call runs. A PR opened
+Claude Code caps one shell command at 10 minutes, so each session gets a `BASH_MAX_TIMEOUT_MS` of ship's test
+timeout + 5 min (kept below `turnTimeoutMinutes`; a higher value already in the environment is kept), and the
+impl, audit and review prompts tell the worker to pass that long a `timeout` to ship.mjs and the full test command.
+`BASH_DEFAULT_TIMEOUT_MS` is not raised: a command without its own timeout ends at Claude Code's 2 minutes (or
+a higher value already in the environment), so a hung command (one waiting on stdin, say) costs minutes, not most
+of an hour. While a tool call runs, the stall timer waits for that call's own timeout (else the default) and a
+minute. A PR opened
 outside ship is still merged after the audit: `ship --resume` rebuilds its state from the branch's PR.
 
 ## Releases
