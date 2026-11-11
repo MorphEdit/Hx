@@ -44,6 +44,8 @@ export function removeWorktree(checkout: string, dir: string): Promise<void> {
 }
 
 async function addWorktreeNow(checkout: string, root: string, { name, branch, base, fresh }: WorktreeSpec): Promise<AddedWorktree> {
+  // `git fetch origin ''` succeeds and the ref origin/ does not exist: say what is wrong instead (#442)
+  if (!base.trim()) throw new Error('no base branch: defaultBranch is empty in .hx/config.json — set it (e.g. "main"), or push a first commit and run hx init again');
   const dir = path.join(root, name);
   mkdirSync(root, { recursive: true });
   // A worktree left by an interrupted run (Ctrl+C, usage limit) may hold uncommitted work: keep it.

@@ -23,7 +23,7 @@ function setup(o: { repo?: boolean; config?: Record<string, unknown> | null; sta
   const dir = path.join(tmp, `d${++n}`);
   mkdirSync(dir);
   if (o.repo !== false) git(dir, 'init', '-q', '-b', 'main');
-  const config = o.config === undefined ? { repo: 'me/app', claudeBin: FAKE_CLAUDE, gateCommand: 'npm test' } : o.config;
+  const config = o.config === undefined ? { repo: 'me/app', defaultBranch: 'main', claudeBin: FAKE_CLAUDE, gateCommand: 'npm test' } : o.config;
   if (config && o.repo !== false) { mkdirSync(path.join(dir, '.hx')); writeFileSync(path.join(dir, '.hx', 'config.json'), JSON.stringify(config)); }
   const stateFile = path.join(tmp, `board${n}.json`);
   writeFileSync(stateFile, JSON.stringify({ login: 'me', comments: [], prs: [], issues: [], labels: ALL_LABELS, ...o.state }));
@@ -90,7 +90,7 @@ test('hx doctor: the label lookup failing while offline → ?, exit 0', E2E, () 
 });
 
 test('hx doctor: an empty gateCommand → – note, exit 0', E2E, () => {
-  const r = setup({ config: { repo: 'me/app', claudeBin: FAKE_CLAUDE, gateCommand: '' } });
+  const r = setup({ config: { repo: 'me/app', defaultBranch: 'main', claudeBin: FAKE_CLAUDE, gateCommand: '' } });
   assert.equal(r.code, 0, r.out);
   assert.match(r.out, /– gate command — not set\n\s+fix: learned from the first audited merge/);
 });

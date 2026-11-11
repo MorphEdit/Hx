@@ -91,6 +91,8 @@ run: hx run --watch --workers 2
 
 `--yes` answers yes to every question. `hx doctor` runs the checks alone (exit 1 when a required one
 fails), and `hx run` runs them at startup too: a required `✗` stops it before it claims anything.
+An empty `defaultBranch` in `.hx/config.json` is a required `✗` (`set "defaultBranch": "main" in .hx/config.json
+(or push a first commit and run hx init again)`).
 
 ## Usage
 
@@ -111,7 +113,10 @@ hx health [--fix]       # one health pass: stale PRs from issue/<N> branches, ag
 hx init                 # writes .hx/config.json and creates the GitHub labels; --rtdd also runs
                         # rtdd init in the repo root (commit .rtdd/), without it a hint if rtdd is installed;
                         # an unset worktreeSetup comes from the first lockfile (pnpm-lock.yaml → pnpm install
-                        # --frozen-lockfile, package-lock.json → npm ci, …), an unset worktreeCopy is [".env"]
+                        # --frozen-lockfile, package-lock.json → npm ci, …), an unset worktreeCopy is [".env"];
+                        # defaultBranch is GitHub's default branch, else origin's HEAD or the checked-out branch
+                        # when origin has it; a repo with no commits yet is refused ("push a first commit, then
+                        # run hx init again"), and running it again fills an empty defaultBranch
                         # when .env is git-ignored; no .gitattributes: offers one with
                         # "* text=auto eol=lf" (--yes adds it)
 hx bug "status hangs"   # file a bug issue (label bug, text or a .md file; --title T); hx run triages it
@@ -587,6 +592,12 @@ A window that passes cleanly logs `self-update: 9b8e7d6 is good`. No self-update
 
 **A crashed run** (terminal closed, machine rebooted, process killed) leaves `agent-working` on its
 issues. The next `hx run` sees that the previous runner is gone and hands those issues back first.
+
+**A crashed session** (one that fails before it runs, e.g. its worktree cannot be made: `[#n] crashed: …`) is not
+claimed again at once: hx waits 1 min after the first crash in a row and 2 min after the second
+(`crashed 1 time(s) in a row — not claimed again for 1m`). The third crash in a row labels the issue `agent-blocked`
+with a comment quoting the error (`crashed 3 times in a row — labelled agent-blocked`); fix the cause, then remove the
+label. A session that runs resets the count.
 
 **Broken branch refs:** a crash mid-write can leave a loose `issue/N`, `hx/prd-N` or `hx/audit-N` ref
 that is not a sha (NUL bytes). At startup `hx run` deletes it and recreates the branch at
