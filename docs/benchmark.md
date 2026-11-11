@@ -144,6 +144,19 @@ run under coverage (`coverage`, `bench/project-coverage.mjs`, 30 min limit), bot
 A fuzz or coverage run that throws never blocks the results file: its field is left out and the message is
 recorded as `fuzzError` or `coverageError`.
 
+A fuzz case has one of two shapes. A **file case** (`tally`, `ledge`) is `{ id, feature, args, log, now }`:
+`log` is the data file's bytes, or null for none, and the file is compared after the run (`<feature> / log`).
+A **directory case** is `{ id, feature, args, files, now }`, for a product that works over a directory: `files`
+maps paths relative to the case's directory (forward slashes, e.g. `db/orders.csv`, `script.sql`) to their
+bytes, or is null for no files. The harness writes every file (making subdirectories), sets `fuzzFileEnv` to
+`fuzzFile` (the data directory's name, relative to the case's directory) and `fuzzNowEnv` to the case's clock,
+and runs the CLI. Afterwards it reads the data directory back: every file under it by relative path with its
+bytes, or none when the directory does not exist. Files outside it (a script the CLI reads) are not compared.
+The two sides differ on files when their paths differ or any file's bytes differ (a file created, changed or
+deleted on one side only), checked after stdout, so the class is `<feature> / files`. A directory case's
+example stores the case's and both sides' `files` in place of `log`, and its environment records
+`dirExisted` (whether some file of the case lay under the data directory) in place of `logExisted`.
+
 **Same config for both arms.** Both arms and the judges run with Hx's lean flags (`--strict-mcp-config`,
 `--disable-slash-commands`, `--setting-sources project,local`, `--tools`; the judges get only `Read`,
 `Glob` and `Grep`), so none loads your own skills, plugins or MCP servers. Each run records what it ran

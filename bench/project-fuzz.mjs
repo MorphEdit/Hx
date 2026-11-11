@@ -4,9 +4,12 @@
 // byte and sorts every divergence into a root-cause class `<feature> / <what differed>`. Prints the results file's
 // `fuzz` field as JSON. The data file's name and the two variables each case sets come from the fixture's manifest
 // (PRD #439); tally's are tally.log, TALLY_LOG and TALLY_NOW, so its fuzz runs as it always has.
+// A case is a file case `{ id, feature, args, log, now }` (tally, ledge: `log` is the data file's bytes or null) or a
+// directory case `{ id, feature, args, files, now }` (PRD #446): `files` maps forward-slash paths relative to the case's
+// directory to their bytes (or is null), and the data directory (`fuzzFile`) is compared after the run.
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -53,11 +56,35 @@ export function caseEnv(dir, now, env = process.env, names = TALLY_NAMES) {
   return Object.assign(out, set);
 }
 
+/** A directory case: one with `files` (a file case has `log`). */
+export const isDirCase = (c) => Object.hasOwn(c, 'files');
+
+/** Every file under `dir` (recursively) by forward-slash path relative to it, with its bytes, in path order; null when
+ *  `dir` is not a directory. */
+export function readTree(dir) {
+  try { if (!statSync(dir).isDirectory()) return null; } catch { return null; }
+  const out = {};
+  const walk = (d, pre) => {
+    for (const e of readdirSync(d, { withFileTypes: true }).sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))) {
+      if (e.isDirectory()) walk(path.join(d, e.name), `${pre}${e.name}/`);
+      else out[pre + e.name] = readFileSync(path.join(d, e.name));
+    }
+  };
+  walk(dir, '');
+  return out;
+}
+
 /** Run one case on one side, in a fresh temp directory removed afterwards. Never throws. */
 export async function runSide(cli, c, timeLimitMs, names = TALLY_NAMES) {
   const dir = mkdtempSync(path.join(os.tmpdir(), 'hx-fuzz-'));
   try {
-    if (c.log !== null) writeFileSync(path.join(dir, names.file), c.log);
+    if (isDirCase(c)) {
+      for (const [rel, b] of Object.entries(c.files ?? {})) {
+        const file = path.join(dir, ...rel.split('/'));
+        mkdirSync(path.dirname(file), { recursive: true });
+        writeFileSync(file, b);
+      }
+    } else if (c.log !== null) writeFileSync(path.join(dir, names.file), c.log);
     const r = await new Promise((resolve) => {
       const out = [], err = [];
       let timedOut = false, child;
@@ -84,6 +111,7 @@ export async function runSide(cli, c, timeLimitMs, names = TALLY_NAMES) {
       });
     });
     const file = path.join(dir, names.file);
+    if (isDirCase(c)) return { ...r, files: readTree(file) };
     return { ...r, log: existsSync(file) ? readFileSync(file) : null };
   } finally {
     rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
@@ -99,27 +127,43 @@ export function fault(ref) {
 }
 
 const sameBytes = (a, b) => (a === null || b === null ? a === b : a.equals(b));
+/** Two data directories agree: both absent, or the same set of paths with the same bytes each. */
+function sameFiles(a, b) {
+  if (a === null || b === null) return a === b;
+  const ka = Object.keys(a), kb = Object.keys(b);
+  return ka.length === kb.length && ka.every((k) => Object.hasOwn(b, k) && a[k].equals(b[k]));
+}
 
 /** What differed between the arm and the reference, the first of: timed out, exit status, stderr (empty or not),
- *  stdout, log; null when they agree. */
+ *  stdout, log (a file case) or files (a directory case); null when they agree. */
 export function differs(arm, ref) {
   if (arm.timedOut) return 'timed out';
   if (arm.status !== ref.status) return 'exit status';
   if ((arm.stderr.length === 0) !== (ref.stderr.length === 0)) return 'stderr';
   if (!sameBytes(arm.stdout, ref.stdout)) return 'stdout';
+  if (Object.hasOwn(ref, 'files')) return sameFiles(arm.files, ref.files) ? null : 'files';
   if (!sameBytes(arm.log, ref.log)) return 'log';
   return null;
 }
 
 /** Bytes as stored: base64 (round-trips) with a UTF-8 preview beside it; null stays null (no log file). */
 const bytes = (b) => (b === null ? null : { base64: b.toString('base64'), text: b.toString('utf8') });
+/** A directory's files as stored: each path's bytes as `bytes` stores them; null stays null (no directory). */
+const tree = (files) => (files === null ? null : Object.fromEntries(Object.entries(files).map(([k, b]) => [k, bytes(b)])));
+const data = (r) => (Object.hasOwn(r, 'files') ? { files: tree(r.files) } : { log: bytes(r.log) });
 const side = (r) => r && {
-  stdout: bytes(r.stdout), stderr: bytes(r.stderr), status: r.status, signal: r.signal, timedOut: r.timedOut, log: bytes(r.log),
+  stdout: bytes(r.stdout), stderr: bytes(r.stderr), status: r.status, signal: r.signal, timedOut: r.timedOut, ...data(r),
 };
+/** A directory case's data directory existed before the run: some file of the case lies under it. */
+const dirExisted = (c, names) => c.files !== null && Object.keys(c.files).some((k) => k.startsWith(`${names.file}/`));
 function example(c, ref, arm, names = TALLY_NAMES) {
+  const dir = isDirCase(c);
   return {
-    case: { id: c.id, feature: c.feature, args: c.args, log: bytes(c.log) },
-    env: { ...(names.nowEnv ? { [names.nowEnv]: c.now } : {}), [names.fileEnv]: names.file, logExisted: c.log !== null },
+    case: { id: c.id, feature: c.feature, args: c.args, ...data(c) },
+    env: {
+      ...(names.nowEnv ? { [names.nowEnv]: c.now } : {}), [names.fileEnv]: names.file,
+      ...(dir ? { dirExisted: dirExisted(c, names) } : { logExisted: c.log !== null }),
+    },
     reference: side(ref), arm: side(arm),
   };
 }
