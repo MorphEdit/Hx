@@ -107,6 +107,14 @@ test('the generator: seed 1107 and 1000 cases by default; the same seed gives th
   assert.deepEqual(all.slice(0, 300), a);
 });
 
+// a path relative to the case directory with forward slashes only: no backslash, no leading `/`, no drive, no `.` or `..` segment, no trailing `/`
+const BAD_REL_PATH = /\\|^\/|^[A-Za-z]:|(^|\/)\.\.?(\/|$)|\/$/;
+
+test('the relative-path check rejects a backslash, a leading slash, a drive, a dot segment and a trailing slash', () => {
+  for (const ok of ['db/select.csv', 'db/2019.csv', 'notes.txt', 'a/b/c.sql', 'db/.hidden.csv', 'db/x..csv']) assert.doesNotMatch(ok, BAD_REL_PATH, ok);
+  for (const bad of ['db\\select.csv', '\\x.csv', '/db/2019.csv', '/abs', 'C:/x', 'c:x', 'db/../notes.txt', './x', 'db/./x', '..', 'db/']) assert.match(bad, BAD_REL_PATH, bad);
+});
+
 test('every case is a directory case: exactly five keys, files null or forward-slash relative paths to Buffers', () => {
   for (const [i, c] of all.entries()) {
     assert.deepEqual(Object.keys(c).sort(), ['args', 'feature', 'files', 'id', 'now'], `case ${i}`);
@@ -118,7 +126,7 @@ test('every case is a directory case: exactly five keys, files null or forward-s
     assert.equal(Object.getPrototypeOf(c.files), Object.prototype, `case ${i} files is a plain object`);
     for (const [rel, b] of Object.entries(c.files)) {
       assert.ok(Buffer.isBuffer(b), `case ${i} ${rel} is a Buffer`);
-      assert.doesNotMatch(rel, /\|^\/|^[A-Za-z]:|(^|\/)\.\.?(\/|$)|\/$/, `case ${i}: ${rel} is a forward-slash path relative to the case`);
+      assert.doesNotMatch(rel, BAD_REL_PATH, `case ${i}: ${rel} is a forward-slash path relative to the case`);
     }
   }
   // tables live under the data directory the manifest names; a script for `sift run` lives outside it
