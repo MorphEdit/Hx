@@ -6,7 +6,11 @@
 // - one row per fixture and arm, fixtures by reference size (smallest first, then by name), `chat` first, then the
 //   other arms by name: the fixture, its reference size in lines, the arm, the number of runs (`(n<5)` under 5),
 //   median hidden tests passed out of the total, median fuzz classes, blind-review mean, median escaped defects,
-//   median wall time, median cost with review halves, median sessions, and median nudges for `chat`;
+//   median wall time, median cost with review halves, median sessions, and median nudges for `chat`; for a two-phase
+//   fixture (its manifest names `change`, PRD #446) two more columns: `phase1 <passed>/<total>`, the medians of the
+//   first version's `stable` tests passed and total over the runs with a `phase1`, and `change <time>, <cost>`, the
+//   median wall time and cost of the change phase (its `phases` entry `change`: `wallMs`, `costUsd`) over the runs that
+//   reached it, `–` for each when none did. A results file with no `phases` / `phase1` reads as a single-phase run;
 // - after each fixture's rows, one line per Hx arm against `chat` on that fixture: the ship rule's checks 2, 3, 5 and 6
 //   (bench/shiprule.mjs qualityChecks) with `chat` as the baseline, each verdict shown, then whether it is no worse on
 //   quality, then time and cost as ratios to `chat`. The `chat` runs keep only their reviews against that arm (a
@@ -18,7 +22,7 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { FixtureError, fixtureNames, fixtureOf, referenceSize, resolveFixture } from './project-fixtures.mjs';
-import { fuzzClassCount, loadRuns, median, newestSet, resultFiles, reviewScore, runCost } from './project-results.mjs';
+import { changePhase, fuzzClassCount, loadRuns, median, newestSet, resultFiles, phase1Score, reviewScore, runCost } from './project-results.mjs';
 import { MIN_RUNS, qualityChecks } from './shiprule.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -61,8 +65,8 @@ function sessionTotal(result) {
 
 const med = (runs, f) => median(runs.map((r) => f(r.result)).filter(isNum));
 
-/** One row of the table. */
-export function row(fixture, size, arm, runs) {
+/** One row of the table; a two-phase fixture's has the first version's score and the change phase's time and cost. */
+export function row(fixture, size, arm, runs, twoPhase = false) {
   const n = runs.length;
   const passed = med(runs, (r) => r?.passed);
   const total = med(runs, (r) => r?.total);
@@ -76,6 +80,10 @@ export function row(fixture, size, arm, runs) {
     show(med(runs, runCost), usd),
     `${show(med(runs, sessionTotal))} sessions`,
     `nudges ${arm === 'chat' ? show(med(runs, (r) => r?.nudges)) : DASH}`,
+    ...(twoPhase ? [
+      `phase1 ${show(med(runs, (r) => phase1Score(r)?.passed))}/${show(med(runs, (r) => phase1Score(r)?.total))}`,
+      `change ${show(med(runs, (r) => changePhase(r)?.wallMs), mins)}, ${show(med(runs, (r) => changePhase(r)?.costUsd), usd)}`,
+    ] : []),
   ].join(' · ');
 }
 
@@ -103,7 +111,8 @@ export function compare(arm, armRuns, chatRuns) {
 
 const armOrder = (a, b) => (a === 'chat' ? -1 : b === 'chat' ? 1 : a < b ? -1 : a > b ? 1 : 0);
 
-/** The table's lines over fixtures [{ name, size, runs }] (runs as loadRuns gives them, all of that fixture). */
+/** The table's lines over fixtures [{ name, size, runs, twoPhase }] (runs as loadRuns gives them, all of that fixture;
+ *  twoPhase true when the manifest names `change`). */
 export function crossoverLines(fixtures) {
   const sorted = [...fixtures].sort((a, b) => a.size - b.size || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
   const lines = [];
@@ -112,7 +121,7 @@ export function crossoverLines(fixtures) {
     const arms = [...new Set(f.runs.map((r) => r.arm))].sort(armOrder);
     if (!arms.length) { lines.push(`${f.name} ${f.size} lines: no runs`); continue; }
     const newest = Object.fromEntries(arms.map((arm) => [arm, newestSet(f.runs, arm).runs]));
-    for (const arm of arms) lines.push(row(f.name, f.size, arm, newest[arm]));
+    for (const arm of arms) lines.push(row(f.name, f.size, arm, newest[arm], !!f.twoPhase));
     if (!newest.chat) continue;
     const winners = [];
     for (const arm of arms.filter((a) => a !== 'chat')) {
@@ -137,7 +146,7 @@ export function main(argv, { benchDir = here, resultsDir = path.join(here, 'resu
     const fixtures = names.map((name) => {
       const f = resolveFixture(name, { benchDir });
       const runs = loadRuns(resultFiles(resultsDir, name)).filter((r) => fixtureOf(r.result) === name);
-      return { name, size: referenceSize(f.reference), runs };
+      return { name, size: referenceSize(f.reference), runs, twoPhase: f.change !== undefined };
     });
     return { lines: crossoverLines(fixtures), code: 0 };
   } catch (e) {
