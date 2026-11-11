@@ -4,7 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, symlinkSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -157,4 +157,114 @@ test('every project-benchmark script rejects an unknown fixture with the list of
     assert.equal(r.status, 2, `${name} ${args.join(' ')}: ${r.stdout}${r.stderr}`);
     assert.match(r.stdout + r.stderr, /unknown fixture "nope"; fixtures: tally, ledge/, name);
   }
+});
+
+// PRD #446 (#447): the optional manifest keys, the two-phase fixture and the per-fixture caps
+
+test('a manifest may add change, maxHours and maxUsd; a wrong type of any of them, or an unknown key, is a bad manifest', () => {
+  assert.deepEqual(fx.OPTIONAL_MANIFEST_KEYS, ['change', 'maxHours', 'maxUsd']);
+  assert.equal(fx.manifestProblem(MANIFEST), null);
+  for (const ok of [{ change: 'change.md' }, { maxHours: 8 }, { maxUsd: 150.5 }, { change: 'c.md', maxHours: 0.5, maxUsd: 200 }])
+    assert.equal(fx.manifestProblem({ ...MANIFEST, ...ok }), null, JSON.stringify(ok));
+  for (const bad of [{ change: '' }, { change: 3 }, { change: null }, { change: ['c.md'] },
+    { maxHours: 0 }, { maxHours: -1 }, { maxHours: '8' }, { maxHours: null }, { maxUsd: 0 }, { maxUsd: -5 }, { maxUsd: 'x' }, { maxUsd: true },
+    { extra: 1 }, { change: 'c.md', other: 'x' }])
+    assert.ok(fx.manifestProblem({ ...MANIFEST, ...bad }), JSON.stringify(bad));
+  // JSON has no Infinity or NaN, but the check refuses them too
+  assert.ok(fx.manifestProblem({ ...MANIFEST, maxHours: Infinity }));
+  assert.ok(fx.manifestProblem({ ...MANIFEST, maxUsd: NaN }));
+  // an optional key never stands in for a required one
+  const { bin: _bin, ...noBin } = MANIFEST;
+  assert.ok(fx.manifestProblem({ ...noBin, change: 'c.md' }));
+  // through resolveFixture: a FixtureError naming fixture.json
+  const dir = benchDir(['demo']);
+  const file = path.join(dir, 'fixtures', 'demo', 'fixture.json');
+  for (const bad of [{ change: '' }, { maxHours: 0 }, { maxUsd: -1 }, { maxHours: '4' }, { unknown: true }]) {
+    writeFileSync(file, JSON.stringify({ ...MANIFEST, ...bad }));
+    assert.throws(() => fx.resolveFixture('demo', { benchDir: dir }), (e: any) => e instanceof fx.FixtureError && e.exitCode === 2
+      && /^fixture demo: fixture\.json: /.test(e.message), JSON.stringify(bad));
+  }
+  writeFileSync(file, JSON.stringify({ ...MANIFEST, maxHours: 8, maxUsd: 150 }));
+  const f = fx.resolveFixture('demo', { benchDir: dir });
+  assert.deepEqual([f.manifest.maxHours, f.manifest.maxUsd, 'change' in f, 'tags' in f], [8, 150, false, false]);
+});
+
+/** A bench dir with a two-phase fixture `demo`: its manifest names change.md; `files` says which of change.md and
+ *  hidden/tags.json exist. */
+function twoPhase(files: { change?: boolean; tags?: boolean } = { change: true, tags: true }) {
+  const dir = benchDir(['demo']);
+  const fdir = path.join(dir, 'fixtures', 'demo');
+  writeFileSync(path.join(fdir, 'fixture.json'), JSON.stringify({ ...MANIFEST, change: 'change.md' }));
+  if (files.change) writeFileSync(path.join(fdir, 'change.md'), '# change\n');
+  if (files.tags) writeFileSync(path.join(fdir, 'hidden', 'tags.json'), '{}\n');
+  return { dir, fdir };
+}
+
+test('a two-phase fixture resolves with its change file and hidden/tags.json; a single-phase one exactly as before', () => {
+  const { dir, fdir } = twoPhase();
+  const f = fx.resolveFixture('demo', { benchDir: dir });
+  assert.equal(f.change, path.join(fdir, 'change.md'));
+  assert.equal(f.tags, path.join(fdir, 'hidden', 'tags.json'));
+  assert.equal(f.manifest.change, 'change.md');
+  // tally and ledge: no change, no tags, the same keys as before
+  for (const name of ['tally', 'ledge']) {
+    const g = fx.resolveFixture(name);
+    assert.deepEqual(Object.keys(g), ['name', 'dir', 'manifestFile', 'brief', 'hidden', 'reference', 'template', 'generator', 'manifest'], name);
+    assert.deepEqual(Object.keys(g.manifest).sort(), [...fx.MANIFEST_KEYS].sort(), name);
+  }
+});
+
+test('a two-phase fixture without its change file, or without hidden/tags.json, is a FixtureError with exit code 2', () => {
+  for (const [files, shown] of [[{ tags: true }, 'change.md'], [{ change: true }, 'hidden/tags.json'], [{}, 'change.md']] as const) {
+    const { dir } = twoPhase(files);
+    assert.throws(() => fx.resolveFixture('demo', { benchDir: dir }), (e: any) => e instanceof fx.FixtureError && e.exitCode === 2
+      && e.message.startsWith(`fixture demo: missing ${shown} `), shown);
+  }
+  // a directory where the change file should be is not a change file
+  const { dir, fdir } = twoPhase({ tags: true });
+  mkdirSync(path.join(fdir, 'change.md'));
+  assert.throws(() => fx.resolveFixture('demo', { benchDir: dir }), /fixture demo: missing change\.md /);
+});
+
+test("runCaps: a flag, else the fixture's maxHours / maxUsd, else 4 h and $60", () => {
+  assert.deepEqual(fx.DEFAULT_CAPS, { maxHours: 4, maxUsd: 60 });
+  const big = { manifest: { ...MANIFEST, maxHours: 10, maxUsd: 200 } };
+  assert.deepEqual(fx.runCaps(big), { maxHours: 10, maxUsd: 200 });
+  assert.deepEqual(fx.runCaps(big, {}), { maxHours: 10, maxUsd: 200 });
+  assert.deepEqual(fx.runCaps(big, { maxHours: 1 }), { maxHours: 1, maxUsd: 200 });
+  assert.deepEqual(fx.runCaps(big, { maxUsd: 5 }), { maxHours: 10, maxUsd: 5 });
+  assert.deepEqual(fx.runCaps(big, { maxHours: 2, maxUsd: 7 }), { maxHours: 2, maxUsd: 7 });
+  assert.deepEqual(fx.runCaps({ manifest: { ...MANIFEST, maxUsd: 90 } }), { maxHours: 4, maxUsd: 90 });
+  // tally and ledge set no caps: 4 h and $60, a flag still overrides
+  for (const name of ['tally', 'ledge']) {
+    assert.deepEqual(fx.runCaps(fx.resolveFixture(name)), { maxHours: 4, maxUsd: 60 }, name);
+    assert.deepEqual(fx.runCaps(fx.resolveFixture(name), { maxHours: 0.5, maxUsd: 10 }), { maxHours: 0.5, maxUsd: 10 }, name);
+  }
+});
+
+test('bench/project.mjs exits 2 on a two-phase fixture missing its change file or hidden/tags.json, before any gh call', () => {
+  for (const [files, shown] of [[{ tags: true }, 'change.md'], [{ change: true }, 'hidden/tags.json']] as const) {
+    // a copy of bench/ with the demo fixture, src/ linked in, so the real script resolves it
+    const { dir } = twoPhase(files);
+    for (const f of readdirSync(bench)) if (f.endsWith('.mjs')) copyFileSync(path.join(bench, f), path.join(dir, f));
+    const top = mkdtempSync(path.join(os.tmpdir(), 'hx-fxcli-'));
+    renameSync(dir, path.join(top, 'bench'));
+    symlinkSync(path.join(root, 'src'), path.join(top, 'src'), 'junction');
+    const env: Record<string, string> = { ...process.env, PATH: '' } as Record<string, string>;
+    for (const k of Object.keys(env)) if (/^NODE_TEST/.test(k)) delete env[k];
+    const r = spawnSync(process.execPath, ['--disable-warning=ExperimentalWarning', path.join(top, 'bench', 'project.mjs'), 'chat', '--fixture', 'demo'],
+      { cwd: top, encoding: 'utf8', env });
+    assert.equal(r.status, 2, `${shown}: ${r.stdout}${r.stderr}`);
+    assert.match(r.stderr, new RegExp(`^fixture demo: missing ${shown.replace('.', '\.')} `), shown);
+  }
+});
+
+test('docs/benchmark.md documents the optional manifest keys, a two-phase fixture\'s files and tags format, and per-fixture caps', () => {
+  const doc = readFileSync(path.join(root, 'docs', 'benchmark.md'), 'utf8');
+  const at = doc.indexOf('### Fixtures and the crossover');
+  assert.ok(at >= 0);
+  const sec = doc.slice(at, doc.indexOf('**The size × arm table**', at));
+  for (const s of ['`change`', '`maxHours`', '`maxUsd`', 'positive numbers', 'two-phase', '`hidden/tags.json`', '`hidden/cases.json`',
+    '`"stable"`', '`"change"`', '`--max-hours`', '`--max-usd`', '4 h and $60', 'overrides'])
+    assert.ok(sec.includes(s), s);
 });

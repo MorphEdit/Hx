@@ -92,11 +92,12 @@ export function parseJsonl(text) {
   return out;
 }
 
-export const USAGE = 'usage: node bench/project.mjs <chat|hx1|hx3> [--fixture <name>] [--runs N] [--max-hours 4] [--max-usd 60] [--config key=value ...]';
+export const USAGE = 'usage: node bench/project.mjs <chat|hx1|hx3> [--fixture <name>] [--runs N] [--max-hours H] [--max-usd USD] [--config key=value ...]';
 
-/** The CLI's arguments: `{ arm, runs, maxHours, maxUsd }`, with `config` and `fixture` when given, or null for the usage
- *  line (an unknown arm, `--runs` not a positive integer, a cap not a positive number, a flag with no value). The
- *  fixture's name is checked by the caller (bench/project-fixtures.mjs resolveFixture). */
+/** The CLI's arguments: `{ arm, runs }`, with `maxHours`, `maxUsd`, `config` and `fixture` when given, or null for the
+ *  usage line (an unknown arm, `--runs` not a positive integer, a cap not a positive number, a flag with no value). The
+ *  fixture's name is checked by the caller (bench/project-fixtures.mjs resolveFixture); a cap not given is the fixture's
+ *  (runCaps there), applied once the fixture is resolved. */
 export function parseArgs(argv) {
   const arm = argv[0];
   if (!ARMS.includes(arm)) return null;
@@ -111,8 +112,8 @@ export function parseArgs(argv) {
     return ok(v) ? v : null;
   };
   const runs = flag('--runs', 1, (v) => Number.isInteger(v) && v > 0);
-  const maxHours = flag('--max-hours', 4, (v) => v > 0);
-  const maxUsd = flag('--max-usd', 60, (v) => v > 0);
+  const maxHours = flag('--max-hours', undefined, (v) => v > 0);
+  const maxUsd = flag('--max-usd', undefined, (v) => v > 0);
   if (runs === null || maxHours === null || maxUsd === null) return null;
   // --config key=value (repeatable): overrides of the arm's .hx/config.json; the value is JSON when it parses, else a string
   const config = {};
@@ -125,7 +126,8 @@ export function parseArgs(argv) {
     config[m[1]] = v;
   }
   return {
-    arm, runs, maxHours, maxUsd, ...(Object.keys(config).length ? { config } : {}), ...(fixture !== undefined ? { fixture } : {}),
+    arm, runs, ...(maxHours !== undefined ? { maxHours } : {}), ...(maxUsd !== undefined ? { maxUsd } : {}),
+    ...(Object.keys(config).length ? { config } : {}), ...(fixture !== undefined ? { fixture } : {}),
   };
 }
 
