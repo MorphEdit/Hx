@@ -136,6 +136,7 @@ export interface GoalOptions extends Omit<TurnOptions, 'prompt' | 'sessionId' | 
   maxIterations: number;
   continuePrompt: string;
   onTurn?: (iteration: number, sessionId: string, r: TurnResult) => void;
+  resumeSession?: string; // an earlier session to go on with: every turn, the first too, resumes it (unset = a new session)
 }
 
 export interface GoalResult {
@@ -151,7 +152,7 @@ export interface GoalResult {
 
 /** The Ralph loop: same session, re-prompted until the promise shows up. */
 export async function runGoal(o: GoalOptions): Promise<GoalResult> {
-  const sessionId = randomUUID();
+  const sessionId = o.resumeSession ?? randomUUID();
   const promiseRe = PROMISE_RE(o.promise);
   const altRe = o.altPromise ? PROMISE_RE(o.altPromise) : null;
   const total = emptyUsage();
@@ -160,7 +161,7 @@ export async function runGoal(o: GoalOptions): Promise<GoalResult> {
   let errors = 0;
   for (let i = 1; i <= o.maxIterations; i++) {
     if (o.signal?.aborted) return { done: false, sessionId, iterations: i - 1, usage: total, costUsd, last, stopReason: 'aborted' };
-    last = await runTurn({ ...o, prompt: i === 1 ? o.prompt : o.continuePrompt, sessionId, resume: i > 1 });
+    last = await runTurn({ ...o, prompt: i === 1 ? o.prompt : o.continuePrompt, sessionId, resume: i > 1 || !!o.resumeSession });
     for (const k of Object.keys(total) as (keyof Usage)[]) total[k] += last.usage[k];
     costUsd += last.costUsd;
     o.onTurn?.(i, sessionId, last);

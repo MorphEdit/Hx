@@ -7,7 +7,7 @@ import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { runTurn, type RateLimit, type TurnOptions } from '../src/agent.ts';
+import { runGoal, runTurn, type RateLimit, type TurnOptions } from '../src/agent.ts';
 import { agentFor, registerAgent, type AgentCli } from '../src/agents/index.ts';
 import { claude } from '../src/agents/claude.ts';
 import { DEFAULTS, saveConfig, type Config } from '../src/config.ts';
@@ -136,4 +136,21 @@ test('src/pool.ts reads no stream-json: no rateLimitOf, no event fields', E2E, (
   const src = readFileSync(path.join(here, '..', 'src', 'pool.ts'), 'utf8');
   assert.doesNotMatch(src, /rateLimitOf/);
   assert.doesNotMatch(src, /ev\.(type|message|result|usage|rate_limit_info)|rate_limit_event|stream-json/);
+});
+
+test('runGoal with resumeSession goes on with that session: every turn, the first too, resumes it; without it a new session is started', E2E, async () => {
+  const resuming: AgentCli = { ...fake, args: (o) => ['--sid', o.sessionId, o.resume ? '--resume' : '--new'] };
+  const goal = (more: object) => {
+    const events: any[] = [];
+    const r = runGoal({ agent: resuming, bin: path.join(here, 'fakes', 'agent.mjs'), cwd: tmp, model: 'm1', extraArgs: [], timeoutMs: 60_000,
+      prompt: 'go on', continuePrompt: '<promise>DONE</promise>', promise: 'DONE', maxIterations: 3, onEvent: (e) => events.push(e), ...more });
+    return r.then((res) => ({ res, args: events.map((e) => e.args) }));
+  };
+  const resumed = await goal({ resumeSession: 'earlier-session' });
+  assert.equal(resumed.res.stopReason, 'promise');
+  assert.equal(resumed.res.sessionId, 'earlier-session');
+  assert.deepEqual(resumed.args, [['--sid', 'earlier-session', '--resume'], ['--sid', 'earlier-session', '--resume']]);
+  const fresh = await goal({});
+  assert.notEqual(fresh.res.sessionId, 'earlier-session');
+  assert.deepEqual(fresh.args, [['--sid', fresh.res.sessionId, '--new'], ['--sid', fresh.res.sessionId, '--resume']]);
 });
