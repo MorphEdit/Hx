@@ -251,3 +251,40 @@ test('no change case passes against a CLI that answers every call with a usage e
   assert.ok(passed.length > 0, 'the usage-error cases pass against it');
   assert.deepEqual(passed.filter((n) => tags[n] === 'change'), []);
 });
+
+// reference-base (#456): the reference built from the brief alone. Its core (tables, parser, types, single-table
+// SELECT, functions, output, CLI and library) passes every `stable` case of the areas below; the cases listed here
+// need what the sibling issues build (grouping, joins, subqueries, writes and scripts), and they remove them.
+const base = path.join(dir, 'reference-base');
+const CORE_AREAS = ['cli', 'syntax', 'types', 'select', 'functions', 'output', 'library'];
+const CORE_PENDING = [
+  'cli.test.mjs > an error creates, changes and deletes no file',
+  'library.test.mjs > query of another statement returns its message and changes the file',
+  'library.test.mjs > run is all or nothing: a failing statement throws and writes nothing',
+  'library.test.mjs > run returns the result of every statement, in order',
+  'output.test.mjs > a statement other than SELECT prints its one line in json',
+  'output.test.mjs > a statement other than SELECT prints its one line in the table format',
+];
+
+test('reference-base: plain Node with no dependencies, laid out like the template', () => {
+  const pkg = JSON.parse(readFileSync(path.join(base, 'package.json'), 'utf8'));
+  assert.equal(pkg.type, 'module');
+  assert.equal(pkg.main, 'src/sift.js');
+  assert.deepEqual(pkg.bin, { sift: 'bin/sift.js' });
+  assert.equal(pkg.dependencies, undefined);
+  assert.equal(pkg.devDependencies, undefined);
+  for (const f of ['bin/sift.js', 'src/sift.js']) assert.ok(existsSync(path.join(base, f)), f);
+  for (const f of readdirSync(path.join(base, 'src'))) {
+    const src = readFileSync(path.join(base, 'src', f), 'utf8');
+    for (const m of src.matchAll(/^\s*import\b[^'"]*['"]([^'"]+)['"]/gm)) assert.match(m[1], /^(node:|\.\/)/, `${f} imports ${m[1]}`);
+  }
+});
+
+test('grading reference-base: every stable case of the core areas passes, but the named cases of the sibling features', E2E, () => {
+  const core = names.filter((n) => tags[n] === 'stable' && CORE_AREAS.some((a) => n.startsWith(`${a}.test.mjs > `)));
+  for (const n of CORE_PENDING) assert.ok(core.includes(n), `${n} is a stable case of the core areas`);
+  const r = grade(base, { hidden, checkoutEnv: manifest.checkoutEnv });
+  const failed = new Set(r.failures);
+  assert.deepEqual(core.filter((n) => failed.has(n) && !CORE_PENDING.includes(n)), []);
+  assert.ok(core.length - CORE_PENDING.length >= 250, `${core.length - CORE_PENDING.length} core cases`);
+});
