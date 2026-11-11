@@ -328,6 +328,17 @@ and the benchmark can run several, of different sizes.
     on both sides counts in both phases. `nudges` per phase is `chat`'s continue prompts sent in it (the turn
     that sends the change is none), `null` for Hx. The phases' `wallMs`, `costUsd`, `tokens` and `nudges`
     add up to the totals.
+  - **How it is graded:** the final product (`main` at the end of the run) is graded, fuzzed and covered like
+    any run: `passed`, `total`, `failures`, `escapedDefects`, fuzz and coverage are all of it. The first
+    version is graded on the `stable` cases of `hidden/tags.json` and recorded as `phase1: { passed, total }`
+    (`total` the number of `stable` cases, `passed` how many of them passed; the `change` cases are not
+    counted). For a run that reached phase 2, a second fresh clone of the run's repo, checked out at
+    `phase1Sha` in its own directory, is run against the whole hidden suite (the suite is never filtered; only
+    the count is), even when `phase1Sha` is the final commit; no fuzz or coverage is run for it. A run that
+    ended in phase 1 (`capped` or `early`) has no second clone: its `phase1` is its final grade counted on the
+    `stable` cases. When that checkout or grade fails (e.g. `phase1Sha` could not be read), the result records
+    `phase1Error` (the message) in place of `phase1`, and the results file is still written. The closing log
+    line shows `phase1 <passed>/<total>`. Single-phase fixtures record no `phase1`.
   - `--config` overrides apply to both phases and are recorded once in the provenance.
 - **Per-fixture caps:** a fixture's `maxHours` / `maxUsd` are its runs' caps when `--max-hours` / `--max-usd`
   are not given; a flag overrides them; with neither, 4 h and $60. `tally` and `ledge` set none. A results

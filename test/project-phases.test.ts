@@ -13,20 +13,25 @@ import { fileURLToPath } from 'node:url';
 // @ts-ignore: a plain .mjs bench module
 import { setupRepo, splitPhases } from '../bench/project-lib.mjs';
 // @ts-ignore: a plain .mjs bench module
-import { chatArm, hxArm, runSet } from '../bench/project.mjs';
+import { chatArm, hxArm, runSet, STEPS } from '../bench/project.mjs';
 // @ts-ignore: a plain .mjs bench module
 import { resolveFixture } from '../bench/project-fixtures.mjs';
+// @ts-ignore: a plain .mjs bench module
+import { stableScore } from '../bench/project-grade.mjs';
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const fakeClaude = path.join(root, 'test', 'fakes', 'claude.mjs');
 const CHANGE = '# Ledge, second edition\n\nRename every command.\n';
 const U = { input: 1, cacheWrite: 2, cacheRead: 3, output: 4 };
+/** The fake fixture's hidden/tags.json: three stable cases, two change cases. */
+const TAGS = { 'a > s1': 'stable', 'a > s2': 'stable', 'b > c1': 'change', 'b > s3': 'stable', 'b > c2': 'change' };
 
 /** A temp dir with a two-phase fixture (ledge's files, a change file), a work dir with .hx/, and a log. */
 function setup() {
   const dir = mkdtempSync(path.join(os.tmpdir(), 'hxp-2p-'));
   const ledge = resolveFixture('ledge');
   writeFileSync(path.join(dir, 'change.md'), CHANGE);
+  writeFileSync(path.join(dir, 'tags.json'), JSON.stringify(TAGS));
   const fixture = { ...ledge, manifest: { ...ledge.manifest, change: 'change.md' }, change: path.join(dir, 'change.md'), tags: path.join(dir, 'tags.json') };
   const work = path.join(dir, 'work');
   mkdirSync(path.join(work, '.hx'), { recursive: true });
@@ -283,6 +288,7 @@ async function chatSet(s: ReturnType<typeof setup>, plan: { turns: number; stop?
     },
     arm: (ctx: any) => chatArm(ctx, { run: fakeRun(plan, s.events).run }),
     remoteMain: (ctx: any) => { const sha = remote[reads.length]; reads.push(ctx.repo); return sha; },
+    phase1Checkout: (ctx: any) => ctx.phase1Clone,
     issues: () => [],
     clone: () => {},
     grade: () => ({ passed: 1, failed: 0, total: 1, failures: [] }),
@@ -310,7 +316,7 @@ test('runSet two-phase: phase1Sha comes from the remote step, not the work direc
     assert.equal(r.phases[0].tokens.total + r.phases[1].tokens.total, r.tokens.total);
     assert.deepEqual(r.phases.map((p: any) => [p.nudges, p.sessions]), [[1, { chat: 1 }], [1, { chat: 1 }]]);
     assert.deepEqual([r.ended, r.nudges, r.sessions], ['done', 2, { chat: 1 }]);
-    assert.equal('phase1' in r, false, 'graded by a sibling issue');
+    assert.deepEqual(r.phase1, { passed: 3, total: 3 }, 'the first version on the stable cases');
   } finally { s.done(); }
 });
 
@@ -347,4 +353,98 @@ test('runSet single-phase (tally, ledge): no phases, phase1Sha or phase1, and no
       assert.equal(reads, 0);
     } finally { s.done(); }
   }
+});
+
+test('stableScore: only the stable cases count; total is their number, passed those not among the failures', () => {
+  const score = { passed: 2, failed: 3, total: 5, failures: ['a > s2', 'b > c1', 'b > c2'] };
+  assert.deepEqual(stableScore(score, TAGS), { passed: 2, total: 3 });
+  assert.deepEqual(stableScore({ ...score, failures: ['b > c1', 'b > c2'] }, TAGS), { passed: 3, total: 3 }, 'change failures never count');
+  assert.deepEqual(stableScore({ ...score, failures: Object.keys(TAGS) }, TAGS), { passed: 0, total: 3 });
+});
+
+/** runSet on the two-phase fixture with a fake arm returning `armed`; grade fails `failuresOf(dir, ctx)` in each
+ *  directory. Records every step's directory (and the sha phase1Checkout receives) in order, and the log. */
+async function gradedSet(s: ReturnType<typeof setup>, armed: any, failuresOf: (dir: string, ctx: any) => string[] = () => [], over: any = {}) {
+  const calls: string[] = [], lines: string[] = [];
+  let run: any;
+  const steps = {
+    setup: (ctx: any) => { run = ctx; mkdirSync(path.join(ctx.work, '.hx'), { recursive: true }); },
+    arm: () => armed,
+    remoteMain: () => 'remote-at-stop',
+    issues: () => [],
+    clone: (ctx: any) => { calls.push(`clone ${ctx.clone}`); },
+    phase1Checkout: (ctx: any, sha: string) => { calls.push(`phase1Checkout ${sha}`); return ctx.phase1Clone; },
+    grade: (dir: string) => {
+      calls.push(`grade ${dir}`);
+      const f = failuresOf(dir, run);
+      return { passed: 5 - f.length, failed: f.length, total: 5, failures: f };
+    },
+    fuzz: (dir: string) => { calls.push(`fuzz ${dir}`); return { divergences: 0, classes: {} }; },
+    coverage: (dir: string) => { calls.push(`coverage ${dir}`); return { tests: 'none', lines: 'n/a', branches: 'n/a' }; },
+    ...over,
+  };
+  const out = await runSet({ arm: 'chat', owner: 'me', stamp: '202611110900', fixture: s.fixture, resultsDir: path.join(s.dir, 'out'), tmp: s.dir,
+    commit: 'abc', claudeBin: fakeClaude, steps, print: (l: string) => lines.push(l) });
+  assert.deepEqual(out.failed, []);
+  return { r: JSON.parse(readFileSync(out.files[0], 'utf8')), calls, lines, ctx: run };
+}
+
+const reachedPhase2 = (phase1Sha: string) => ({ usage: [], ended: 'done', t0: 0, t1: 10, boundary: 5, phase1Sha, nudges: 0, phaseNudges: [0, 0] });
+
+test('runSet two-phase: a run that reached phase 2 grades a checkout at phase1Sha besides the final clone; phase1 counts its stable cases; fuzz and coverage only on the final clone', E2E, async () => {
+  const s = setup();
+  try {
+    const sha = '1'.repeat(40);
+    const { r, calls, lines, ctx } = await gradedSet(s, reachedPhase2(sha),
+      (dir, c) => (dir === c.phase1Clone ? ['a > s1', 'b > c1', 'b > c2'] : ['b > c2']));
+    assert.notEqual(ctx.clone, ctx.phase1Clone);
+    assert.deepEqual(calls, [`clone ${ctx.clone}`, `grade ${ctx.clone}`, `phase1Checkout ${sha}`, `grade ${ctx.phase1Clone}`,
+      `fuzz ${ctx.clone}`, `coverage ${ctx.clone}`]);
+    assert.deepEqual([r.passed, r.total, r.failures], [4, 5, ['b > c2']], 'the final product is graded as today');
+    assert.deepEqual(r.phase1, { passed: 2, total: 3 }, 'only the stable cases of the phase-1 grade');
+    assert.equal(r.phase1Sha, sha);
+    assert.match(lines.at(-1)!, /hidden 4\/5 · phase1 2\/3 · done/);
+  } finally { s.done(); }
+});
+
+test('runSet two-phase: when phase1Sha equals the final commit both gradings still run', E2E, async () => {
+  const s = setup();
+  try {
+    const { r, calls, ctx } = await gradedSet(s, reachedPhase2('remote-at-stop'));
+    assert.deepEqual(calls.filter((c) => c.startsWith('grade ') || c.startsWith('phase1Checkout')),
+      [`grade ${ctx.clone}`, 'phase1Checkout remote-at-stop', `grade ${ctx.phase1Clone}`]);
+    assert.deepEqual(r.phase1, { passed: 3, total: 3 });
+  } finally { s.done(); }
+});
+
+test('runSet two-phase: a run capped, or ended early, in phase 1 records phase1 from its final grade on the stable cases, with no second checkout', E2E, async () => {
+  for (const ended of ['capped', 'early']) {
+    const s = setup();
+    try {
+      const { r, calls, ctx } = await gradedSet(s, { usage: [], ended, t0: 0, t1: 10, boundary: null, nudges: 0, phaseNudges: [0] },
+        () => ['a > s2', 'b > s3', 'b > c1']);
+      assert.deepEqual(calls, [`clone ${ctx.clone}`, `grade ${ctx.clone}`, `fuzz ${ctx.clone}`, `coverage ${ctx.clone}`], ended);
+      assert.deepEqual([r.ended, r.passed, r.total], [ended, 2, 5]);
+      assert.deepEqual(r.phase1, { passed: 1, total: 3 }, ended);
+      assert.deepEqual(r.phases.map((p: any) => p.name), ['brief']);
+    } finally { s.done(); }
+  }
+});
+
+test('runSet two-phase: a phase-1 checkout that throws is recorded as phase1Error and the results file is still written', E2E, async () => {
+  const s = setup();
+  try {
+    const { r, calls, lines } = await gradedSet(s, reachedPhase2('2'.repeat(40)), undefined,
+      { phase1Checkout: () => { throw new Error('clone failed: no such commit'); } });
+    assert.equal('phase1' in r, false);
+    assert.equal(r.phase1Error, 'clone failed: no such commit');
+    assert.deepEqual([r.passed, r.total], [5, 5], 'the final grade stands');
+    assert.ok(calls.some((c) => c.startsWith('fuzz ')) && calls.some((c) => c.startsWith('coverage ')));
+    assert.ok(lines.some((l) => /phase 1 grade failed: clone failed/.test(l)));
+    assert.match(lines.at(-1)!, /hidden 5\/5 · phase1 error · done/);
+  } finally { s.done(); }
+});
+
+test('the real phase1Checkout step refuses a run with no phase1Sha (the remote read failed)', () => {
+  assert.throws(() => STEPS.phase1Checkout({ phase1Clone: 'x', repo: 'o/r' }, null), /no phase1Sha/);
 });

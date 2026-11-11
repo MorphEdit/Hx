@@ -35,6 +35,19 @@ export function grade(checkout, { hidden = HIDDEN, checkoutEnv = 'TALLY_CHECKOUT
   return { passed: expected.length - failures.length, failed: failures.length, total: expected.length, failures };
 }
 
+/** A two-phase fixture's hidden/tags.json: each case name of cases.json → "stable" or "change". */
+export const readTags = (file) => JSON.parse(readFileSync(file, 'utf8'));
+
+/**
+ * A grade counted on the `stable` cases of `tags` only (a two-phase run's `phase1`): `total` is the number of `stable`
+ * cases, `passed` how many of them are not among the grade's failures. The suite itself always runs whole.
+ */
+export function stableScore(score, tags) {
+  const failed = new Set(score.failures);
+  const stable = Object.keys(tags).filter((name) => tags[name] === 'stable');
+  return { passed: stable.filter((name) => !failed.has(name)).length, total: stable.length };
+}
+
 /** grade's options for a resolved fixture: its hidden suite and the variable it reads the checkout from. */
 export const gradeOptions = (fixture) => ({ hidden: fixture.hidden, checkoutEnv: fixture.manifest.checkoutEnv });
 
