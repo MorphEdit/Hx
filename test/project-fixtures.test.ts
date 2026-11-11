@@ -34,9 +34,9 @@ function benchDir(names: string[] = [], omit: Record<string, string> = {}) {
   return dir;
 }
 
-test('the fixtures: tally first, then bench/fixtures/<name> by name; the repo has tally and ledge', () => {
+test('the fixtures: tally first, then bench/fixtures/<name> by name; the repo has tally, ledge and sift', () => {
   assert.deepEqual(fx.fixtureNames(benchDir(['zeta', 'alpha'])), ['tally', 'alpha', 'zeta']);
-  assert.deepEqual(fx.fixtureNames(), ['tally', 'ledge']);
+  assert.deepEqual(fx.fixtureNames(), ['tally', 'ledge', 'sift']);
 });
 
 test('tally resolves to bench/project and bench/project-fuzz-gen.mjs, its manifest the tally values', () => {

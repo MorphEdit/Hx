@@ -1,0 +1,12 @@
+{
+  "name": "sift",
+  "version": "0.0.1",
+  "description": "SQL queries over a folder of CSV files, from the command line and from Node",
+  "type": "module",
+  "main": "src/sift.js",
+  "bin": { "sift": "bin/sift.js" },
+  "scripts": {
+    "test": "node --test"
+  },
+  "license": "MIT"
+}

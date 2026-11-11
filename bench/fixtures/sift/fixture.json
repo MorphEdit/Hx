@@ -1,0 +1,11 @@
+{
+  "bin": "sift",
+  "checkoutEnv": "SIFT_CHECKOUT",
+  "coverageClearEnv": ["SIFT_DB", "SIFT_TODAY"],
+  "fuzzFile": "db",
+  "fuzzFileEnv": "SIFT_DB",
+  "fuzzNowEnv": "SIFT_TODAY",
+  "change": "change.md",
+  "maxHours": 10,
+  "maxUsd": 200
+}
