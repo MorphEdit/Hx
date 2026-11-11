@@ -10,7 +10,9 @@
 // Fixtures (PRD #439): --fixture defaults to tally. --all reads that fixture's results only and skips the old single
 // files (bench/results/project-<arm>.json), listing them. Two files: each file's fixture is its `fixture` field (tally
 // when absent); two files of different fixtures, or of a fixture other than --fixture, are a usage error (exit 2)
-// before any clone or judge session. The judges get that fixture's brief.md.
+// before any clone or judge session. The judges get that fixture's brief.md; for a two-phase fixture (PRD #446: its
+// manifest names `change`), its brief.md trimmed at the end, a blank line, then its change file. The review is of the
+// final product (the repo's default branch), never of the first version (`phase1Sha`).
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
@@ -294,18 +296,27 @@ export function pairFixture(fileA, fileB, fixture = DEFAULT_FIXTURE) {
 
 export const USAGE = 'usage: node bench/project-review.mjs <results-a> <results-b> [--fixture <name>] | --all [--fixture <name>]';
 
+/** The text the judges get as the brief: a fixture's brief.md; for a two-phase fixture, brief.md trimmed at the end,
+ *  a blank line, then its change file. */
+export function fixtureBrief(fixture) {
+  const brief = readFileSync(fixture.brief, 'utf8');
+  return fixture.change === undefined ? brief : `${brief.trimEnd()}
+
+${readFileSync(fixture.change, 'utf8')}`;
+}
+
 /**
  * The CLI's plan: { todo: [[fileA, fileB]], brief, skipped: [name], unmatched: [run] }. Throws a FixtureError (exit 2)
  * for an unknown fixture, a missing required file or files of the wrong fixture; returns null for the usage line.
  */
-export function plan(argv, { resultsDir } = {}) {
+export function plan(argv, { resultsDir, benchDir } = {}) {
   const { fixture: name, rest } = takeFixtureArg(argv);
   if (name === null) return null;
   const all = rest.length === 1 && rest[0] === '--all';
   const two = rest.length === 2 && !rest.some((a) => a.startsWith('--'));
   if (!all && !two) return null;
-  const fixture = resolveFixture(name);
-  const brief = readFileSync(fixture.brief, 'utf8');
+  const fixture = resolveFixture(name, benchDir === undefined ? {} : { benchDir });
+  const brief = fixtureBrief(fixture);
   if (two) {
     pairFixture(rest[0], rest[1], fixture.name);
     return { todo: [rest], brief, skipped: [], unmatched: [] };

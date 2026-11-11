@@ -442,3 +442,59 @@ test('the judges are given the brief they are passed; hx1 is a name hidden from 
   assert.equal(seen.length, calls.length);
   for (const notes of seen) assert.equal(notes, '// built by [redacted]\n');
 });
+
+// PRD #446 (#451): a two-phase fixture's judges get its brief, a blank line, then its change
+/** A bench dir with one two-phase fixture `demo` (brief.md ends in blank lines and spaces) beside a complete tally. */
+function twoPhaseBench() {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'hx-rvf-'));
+  const files = (fdir: string, gen: string, extra: Record<string, string>) => write(fdir, {
+    'brief.md': '# demo\n', 'hidden/a.test.mjs': '', 'reference/src/x.js': 'a\n', 'reference/package.json': '{}\n', 'template/package.json': '{}\n',
+    [gen]: 'export const DEFAULT_SEED = 1, DEFAULT_COUNT = 1;\nexport function generate() { return []; }\n', ...extra,
+  });
+  const manifest = { bin: 'demo', checkoutEnv: 'DEMO_CHECKOUT', coverageClearEnv: ['DEMO_FILE'], fuzzFile: 'demo.txt', fuzzFileEnv: 'DEMO_FILE', fuzzNowEnv: null };
+  files(path.join(dir, 'project'), '../project-fuzz-gen.mjs', { 'fixture.json': JSON.stringify(manifest) });
+  files(path.join(dir, 'fixtures', 'demo'), 'fuzz-gen.mjs', {
+    'fixture.json': JSON.stringify({ ...manifest, change: 'change.md' }), 'hidden/tags.json': '{}\n',
+    'brief.md': '# demo\nThe brief.\n\n  \n', 'change.md': '# The change\nNow do it twice.\n',
+  });
+  return dir;
+}
+
+test('a two-phase fixture: the brief is brief.md trimmed at the end, a blank line, then the change; each judge gets exactly that and no other file', async () => {
+  const benchDir = twoPhaseBench();
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'hx-rv-'));
+  const fa = path.join(dir, 'chat-202611110900-1.json'), fb = path.join(dir, 'hx3-202611111000-1.json');
+  const a = { fixture: 'demo', arm: 'chat', repo: 'octo-owner/demo-chat-1' }, b = { fixture: 'demo', arm: 'hx3', repo: 'octo-owner/demo-hx3-1' };
+  writeFileSync(fa, JSON.stringify(a)); writeFileSync(fb, JSON.stringify(b));
+  const want = '# demo\nThe brief.\n\n# The change\nNow do it twice.\n';
+  const p = pr.plan([fa, fb, '--fixture', 'demo'], { benchDir });
+  assert.equal(p.brief, want);
+  assert.deepEqual(p.todo, [[fa, fb]]);
+  assert.equal(pr.plan(['--all', '--fixture', 'demo'], { benchDir, resultsDir: dir }).brief, want);
+  // the review run: each judge's brief.md and the prompt's {{BRIEF}} hold that text, and only A, B and brief.md
+  const src: Record<string, string> = { [a.repo]: checkout('X'), [b.repo]: checkout('Y') };
+  const clone = (repo: string, dest: string) => cpSync(src[repo], dest, { recursive: true });
+  const briefs: string[] = [];
+  const { judge: inner, calls } = fakeJudge();
+  const judge = async (o: any) => { briefs.push(readFileSync(path.join(o.cwd, 'brief.md'), 'utf8')); return inner(o); };
+  const { reviewed } = await pr.reviewPairs(p.todo, { judge, clone, brief: p.brief, version: 'v9' });
+  assert.equal(reviewed, 1);
+  assert.equal(calls.length, 6);
+  assert.deepEqual(briefs, Array(6).fill(want));
+  const template = readFileSync(path.join(root, 'bench', 'project', 'review-prompt.md'), 'utf8');
+  for (const c of calls) {
+    assert.deepEqual(c.files.filter((f) => !f.startsWith('A/') && !f.startsWith('B/')), ['brief.md']);
+    assert.equal(c.prompt, template.replace('{{BRIEF}}', () => want.trimEnd()));
+  }
+});
+
+test('the brief: a single-phase fixture\'s brief.md byte for byte (tally, ledge)', () => {
+  for (const [name, file] of [['tally', path.join(root, 'bench', 'project', 'brief.md')], ['ledge', path.join(root, 'bench', 'fixtures', 'ledge', 'brief.md')]]) {
+    assert.equal(pr.plan(['--all', '--fixture', name], { resultsDir: mkdtempSync(path.join(os.tmpdir(), 'hx-rv-')) }).brief, readFileSync(file, 'utf8'));
+  }
+});
+
+test('docs/benchmark.md: a two-phase fixture\'s runs are judged against the brief followed by the change', () => {
+  const doc = readFileSync(path.join(root, 'docs', 'benchmark.md'), 'utf8').replace(/\s+/g, ' ');
+  assert.match(doc, /two-phase fixture's runs are judged against its brief followed by its change/);
+});
