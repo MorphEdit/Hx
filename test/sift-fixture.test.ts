@@ -1,11 +1,14 @@
 // The `sift` fixture (bench/fixtures/sift/, PRD #446): the large two-phase fixture of the crossover benchmark. Its
 // brief and change are the spec its hidden suite, generator and references are written from. Until those land,
 // `resolveFixture('sift')` throws for missing files, so this test reads the fixture's files directly.
+import { E2E } from './isolate.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+// @ts-ignore: plain .mjs bench script
+import { cases, grade } from '../bench/project-grade.mjs';
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const dir = path.join(root, 'bench', 'fixtures', 'sift');
@@ -172,4 +175,60 @@ test('the generator is pure: it imports only node: modules, reads no clock and s
   for (const m of imports) assert.match(m, /^node:/);
   assert.doesNotMatch(src, /\bimport\(|require\(/);
   assert.doesNotMatch(src, /Date\.now|new Date\(|performance\.now|Math\.random|child_process|process\.(env|hrtime)/);
+});
+
+// The hidden suite (#453): one file per area, written from the brief and the change; tags.json splits its cases into
+// `stable` (the same with or without the change) and `change` (added or altered by it), as each file marks them.
+const hidden = path.join(dir, 'hidden');
+const AREAS = ['cli', 'syntax', 'types', 'select', 'aggregates', 'joins', 'subqueries', 'functions', 'output', 'writes', 'script', 'library'];
+// areas of the change's new features that have no home among the brief's
+const CHANGE_AREAS = ['union'];
+const names: string[] = cases(hidden);
+const tags: Record<string, string> = JSON.parse(readFileSync(path.join(hidden, 'tags.json'), 'utf8'));
+const suiteFiles = readdirSync(hidden).filter((f: string) => f.endsWith('.test.mjs')).sort();
+
+test('the hidden suite: one file per area, and every area file has cases', () => {
+  assert.deepEqual(suiteFiles, [...AREAS, ...CHANGE_AREAS].map((a) => `${a}.test.mjs`).sort());
+  for (const f of suiteFiles) assert.ok(names.some((n) => n.startsWith(`${f} > `)), `no case in ${f}`);
+});
+
+test('cases.json: at least 400 unique names, each "<area file> > <test>"', () => {
+  assert.ok(names.length >= 400, `${names.length} cases`);
+  assert.equal(new Set(names).size, names.length, 'no duplicate names');
+  for (const n of names) assert.ok(suiteFiles.some((f) => n.startsWith(`${f} > `) && n.length > f.length + 3), n);
+});
+
+test('tags.json: its keys are exactly the case names, each stable or change, at least 80 change', () => {
+  assert.deepEqual(Object.keys(tags).sort(), [...names].sort());
+  for (const [n, tag] of Object.entries(tags)) assert.ok(tag === 'stable' || tag === 'change', `${n}: ${tag}`);
+  const change = Object.values(tags).filter((t) => t === 'change').length;
+  assert.ok(change >= 80, `${change} change cases`);
+  for (const a of CHANGE_AREAS) assert.ok(names.filter((n) => n.startsWith(`${a}.test.mjs > `)).every((n) => tags[n] === 'change'), `every ${a} case is a change case`);
+});
+
+test('tags.json agrees with the files: a case written change(…) is change, one written test(…) stable', () => {
+  const marked: Record<string, string> = {};
+  for (const f of suiteFiles) {
+    for (const m of readFileSync(path.join(hidden, f), 'utf8').matchAll(/^\s*(test|change)\((['"])((?:\\.|(?!\2)[^\\])*)\2,/gm)) {
+      marked[`${f} > ${m[3].replace(/\\(.)/g, '$1')}`] = m[1] === 'change' ? 'change' : 'stable';
+    }
+  }
+  assert.deepEqual(marked, tags);
+});
+
+test('the suite reads the checkout only from SIFT_CHECKOUT, with no fallback', () => {
+  const helpers = readFileSync(path.join(hidden, 'helpers.mjs'), 'utf8');
+  assert.match(helpers, /process\.env\.SIFT_CHECKOUT;/);
+  for (const f of readdirSync(hidden).filter((x: string) => x.endsWith('.mjs'))) {
+    const text = readFileSync(path.join(hidden, f), 'utf8');
+    for (const m of text.matchAll(/\b[A-Z]+_CHECKOUT\b/g)) assert.equal(m[0], manifest.checkoutEnv, `${f} names ${m[0]}`);
+    if (f !== 'helpers.mjs') assert.doesNotMatch(text, /_CHECKOUT|package\.json/, `${f} finds the checkout through helpers.mjs only`);
+  }
+});
+
+test('grading the empty template fails every hidden case', E2E, () => {
+  const r = grade(path.join(dir, 'template'), { hidden, checkoutEnv: manifest.checkoutEnv });
+  assert.equal(r.total, names.length);
+  assert.equal(r.passed, 0);
+  assert.equal(r.failed, r.total);
 });
