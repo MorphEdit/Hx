@@ -10,6 +10,9 @@ the old rule, which no longer holds.
 - `/` with two integers now gives a decimal: the exact quotient rounded to 6 digits after the point, a half going away
   from zero, like decimal `/`. `7 / 2` is `3.5`, `-7 / 2` is `-3.5`, `6 / 3` is `2.0`, `1 / 3` is `0.333333`,
   `2 / 3` is `0.666667`, `-2 / 3` is `-0.666667`.
+- Both integers become decimals first, as the integer side does when the other side is a decimal, so an integer of
+  10^18 or more in size is a run-time error (exit 6) here too: `9223372036854775807 / 10` is an error, though its
+  quotient would fit.
 - Its type is `decimal`, before anything runs too: so `CASE WHEN … THEN 7 / 2 ELSE 'x' END` is still a type error,
   `CAST(7 / 2 AS INTEGER)` is `3`, `7 / 2 % 2` is a type error (`%` takes integers), and `SUM(a / b)` of integers is
   a decimal. `INSERT`ing `7 / 2` into an `integer` column is a type error (exit 5).

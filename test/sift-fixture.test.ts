@@ -382,6 +382,16 @@ test('the sweep: the brief and the change state each behaviour the suite or the 
   for (const n of sweep) assert.equal(tags[n], 'stable', n);
 });
 
+// The fuzz's boundaries (`SELECT i / 10 FROM bounds` with i = 9223372036854775807, exit 6) and the reference make each
+// integer a decimal before it divides; an exact quotient would fit, so the brief and the change state the range check.
+test('the sweep: an integer of 10^18 or more becoming a decimal is a run-time error, stated in the brief and the change', () => {
+  const flat = (s: string) => s.replace(/\s+/g, ' ');
+  assert.match(flat(brief), /An integer of 10\^18 or more in size cannot become a decimal: that is a run-time error \(exit 6\) even when the result would fit \(`9223372036854775807 \/ 10\.0`/);
+  assert.match(flat(change), /Both integers become decimals first, .* an integer of 10\^18 or more in size is a run-time error \(exit 6\) here too: `9223372036854775807 \/ 10` is an error/);
+  assert.equal(tags['types.test.mjs > an integer of 10^18 or more cannot become a decimal, even when the result would fit'], 'stable');
+  assert.equal(tags['types.test.mjs > two integers become decimals before they divide: an integer of 10^18 or more is a run-time error'], 'change');
+});
+
 // A failing statement or script leaves the data directory byte for byte as it was: every name, every file's bytes.
 const baseLib = await import(pathToFileURL(path.join(base, 'src', 'sift.js')).href);
 const snapshot = (root: string): Record<string, string> => {

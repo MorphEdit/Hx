@@ -161,7 +161,9 @@ whatever the data holds.
 
 ### Operators
 - `+`, `-`, `*`, `/`, `%` take numbers. Two integers give an integer; when either side is a decimal, the integer side
-  becomes a decimal and the result is a decimal.
+  becomes a decimal and the result is a decimal. An integer of 10^18 or more in size cannot become a decimal: that is
+  a run-time error (exit 6) even when the result would fit (`9223372036854775807 / 10.0` and
+  `9223372036854775807 * 0.0` are errors), as it is wherever an integer becomes a decimal.
   - Integer `/` divides and drops the remainder (rounds toward zero): `7 / 2` is `3`, `-7 / 2` is `-3`.
   - `%` takes integers only (a decimal is a type error). Its result has the sign of the left side: `7 % 3` is `1`,
     `-7 % 3` is `-1`, `7 % -3` is `1`.

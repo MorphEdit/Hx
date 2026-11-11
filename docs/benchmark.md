@@ -371,8 +371,8 @@ and the benchmark can run several, of different sizes.
   five behaviours the brief states (integer division, division by zero, where NULLs sort, `LIKE` and case,
   number alignment in the table format) and adds three features (`UNION`, `IF [NOT] EXISTS`, a Markdown
   format). Its `reference/` builds both, about 2,200 lines; `reference-base/` builds the brief alone, passes
-  every `stable` test and fails every `change` test. The hidden suite has 597 tests in 13 area files, 98 of
-  them tagged `change` and the other 499 `stable` in `hidden/tags.json`. Its fuzz cases are directory cases:
+  every `stable` test and fails every `change` test. The hidden suite has 599 tests in 13 area files, 99 of
+  them tagged `change` and the other 500 `stable` in `hidden/tags.json`. Its fuzz cases are directory cases:
   each writes a data directory of tables (and a script for `sift run`) and compares the data directory after
   the run; the generator has 39 features at the same defaults as the others (seed 1107, 1000 cases), and the
   reference fuzzed against itself shows 0 divergences. Its manifest sets the caps to 10 hours and $200.

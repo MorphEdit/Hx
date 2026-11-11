@@ -164,6 +164,13 @@ describe('operators', { concurrency: true }, () => {
     ok(await csv('SELECT -9223372036854775807 - 1'), 'col1', '-9223372036854775808');
   });
 
+  test('an integer of 10^18 or more cannot become a decimal, even when the result would fit', async () => {
+    fails(await query('SELECT 9223372036854775807 / 10.0'), 6);
+    fails(await query('SELECT 9223372036854775807 * 0.0'), 6);
+    fails(await query('SELECT i - 0.5 FROM t', one(lines('i:integer', '1000000000000000000'))), 6);
+    ok(await csv('SELECT 999999999999999999 * 0.0'), 'col1', '0.0');
+  });
+
   test('a decimal result of 10^18 or more is a run-time error', async () => {
     fails(await query('SELECT 999999999999999999.0 + 1'), 6);
     fails(await query('SELECT 999999999999999999.0 * 2'), 6);
@@ -334,6 +341,12 @@ describe('operators', { concurrency: true }, () => {
 
   change('a division by zero in WHERE drops the row instead of failing', async () => {
     ok(await csv('SELECT a FROM t WHERE 10 / (a - 2) > 1', one(lines('a:integer', '1', '2', '3'))), 'a', '3');
+  });
+
+  change('two integers become decimals before they divide: an integer of 10^18 or more is a run-time error', async () => {
+    fails(await query('SELECT 9223372036854775807 / 10'), 6);
+    fails(await query('SELECT i / 10 FROM t', one(lines('i:integer', '-9223372036854775808'))), 6);
+    ok(await csv('SELECT 999999999999999999 / 10'), 'col1', '99999999999999999.9');
   });
 
   test('the other run-time errors are unchanged by the change: overflow is still exit 6', async () => {
