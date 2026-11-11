@@ -300,6 +300,35 @@ and the benchmark can run several, of different sizes.
   usage error (exit 2) before any repo is created. `hidden/tags.json` is a JSON object whose keys are exactly the
   names in `hidden/cases.json` (which stays a flat array of names) and whose values are `"stable"` (a test the
   change does not touch) or `"change"`. `tally` and `ledge` have no `change` and run as before.
+- **A two-phase run** has two phases:
+  - **Phase 1** is the brief, run as any fixture's: it ends when `chat` outputs its promise, or when the Hx
+    arm's PRD closes.
+  - **The boundary:** when phase 1 ends done, the runner records `phase1Sha`, the commit `main` of the run's
+    GitHub repo points at then. It is read from GitHub (`gh api repos/<repo>/commits/main`), never from the
+    work directory's local `main`: Hx never moves that branch, and a `chat` session may hold commits there it
+    has not pushed. Only what is pushed counts.
+  - **Phase 2** is the change. `chat`: the same session is resumed (same session id) and sent "Change this
+    project as follows:", the change file, the same push rule and promise; it goes on until it outputs the
+    promise again, and its continue prompts name the change, not the brief. `hx1` / `hx3`: the change file is
+    filed with `hx prd <change file> --title "PRD: <its first # heading>"`, and the same runner goes on until
+    that PRD closes. The run ends `done` then.
+  - **Ending in phase 1:** phase 2 starts only when phase 1 ends done. A run capped in phase 1 (`capped`), or
+    one that ends early (`early`: `chat` stops without the promise, the Hx runner exits before the PRD
+    closes), never gets the change. The caps (`--max-hours`, `--max-usd`, the fixture's) count both phases
+    together: one start time, one cost; a cap reached in phase 2 ends the run `capped`.
+  - **The result** records `phase1Sha` and `phases`: `[{ name: "brief", wallMs, costUsd, tokens, sessions,
+    nudges }, { name: "change", … }]`. The top-level `wallMs`, `costUsd`, `tokens`, `sessions` and `nudges`
+    stay the run's totals. A run that never reached phase 2 has one phase, `brief`, over the whole run, and
+    its `phase1Sha` is `main` on GitHub when the run stopped. Single-phase fixtures record neither field.
+  - **How usage is split:** by time. `brief` runs from the start to the boundary, `change` from the boundary
+    to the end; each phase's `wallMs` is its share. Every usage record (`chat`'s turns, Hx's
+    `.hx/usage.jsonl`) goes to the phase its `ts` falls in, whatever PRD or issue it belongs to: a phase-1
+    issue still worked after the boundary counts in `change`. A phase's `costUsd` and `tokens` are its
+    records' totals and its `sessions` the distinct session ids per role among them, so a session with turns
+    on both sides counts in both phases. `nudges` per phase is `chat`'s continue prompts sent in it (the turn
+    that sends the change is none), `null` for Hx. The phases' `wallMs`, `costUsd`, `tokens` and `nudges`
+    add up to the totals.
+  - `--config` overrides apply to both phases and are recorded once in the provenance.
 - **Per-fixture caps:** a fixture's `maxHours` / `maxUsd` are its runs' caps when `--max-hours` / `--max-usd`
   are not given; a flag overrides them; with neither, 4 h and $60. `tally` and `ledge` set none. A results
   file's `maxHours` and `maxUsd` are the caps the run used.

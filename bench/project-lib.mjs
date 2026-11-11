@@ -67,6 +67,26 @@ export function usageTotals(records) {
   return { tokens, costUsd: records.reduce((a, r) => a + (r.costUsd ?? 0), 0) };
 }
 
+/**
+ * A two-phase run's `phases`: `brief` from `t0` to `boundary` (the end of phase 1), `change` from `boundary` to `t1`;
+ * one `brief` phase over the whole run when `boundary` is null (phase 2 never started). Each usage record goes to the
+ * phase its `ts` falls in (a record after the boundary to `change`; one at it or with no readable `ts` to `brief`). A
+ * phase's `costUsd` and `tokens` are its records' totals, `sessions` its distinct session ids per role, `nudges` the
+ * phase's entry of `nudges` (one per phase), or null when `nudges` is null (an Hx arm).
+ */
+export function splitPhases({ usage, t0, t1, boundary = null, nudges = null }) {
+  const spans = boundary == null ? [['brief', t0, t1]] : [['brief', t0, boundary], ['change', boundary, t1]];
+  const phaseOf = (r) => {
+    const ts = Date.parse(r.ts);
+    return boundary != null && Number.isFinite(ts) && ts > boundary ? 1 : 0;
+  };
+  return spans.map(([name, from, to], k) => {
+    const records = usage.filter((r) => phaseOf(r) === k);
+    const totals = usageTotals(records);
+    return { name, wallMs: to - from, costUsd: totals.costUsd, tokens: totals.tokens, sessions: sessionsByRole(records), nudges: nudges ? nudges[k] ?? 0 : null };
+  });
+}
+
 /** The `audit FAIL ✗` lines of run.log, counted as the dashboard counts them. */
 export function auditFails(runLog) {
   return parseOutcomes(runLog.split(/\r?\n/)).audit.fail;

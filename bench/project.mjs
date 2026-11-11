@@ -4,6 +4,9 @@
 //   chat — one Claude session gets the brief and works until it says it is done; `nudges` counts the continue prompts
 //   hx1  — the brief filed with `hx prd`, then `hx run --watch --workers 1` with autoWorkers false until the PRD closes
 //   hx3  — the brief filed with `hx prd`, then `hx run --watch --workers 3` until the PRD closes
+// A two-phase fixture (its manifest names `change`) adds phase 2 once the brief is done: chat's same session is resumed
+// with the change, the Hx arms file the change with `hx prd` to the same runner. The result then records `phases` (split
+// at the end of phase 1 by time) and `phase1Sha`, main on GitHub at that moment.
 // Both run with Hx's lean flags: the chat session gets `workerArgs` of the default config, and `hx run` gives every
 // session `workerArgs` of the arm's config. Each run stops at --max-hours or --max-usd, whichever comes first. Then a
 // fresh clone of the default branch is graded by the hidden suite (bench/project-grade.mjs), then fuzzed against the
@@ -35,7 +38,7 @@ import { fuzz } from './project-fuzz.mjs';
 import { grade, gradeOptions } from './project-grade.mjs';
 import {
   USAGE, armConfig, auditFails, capCheck, chatSession, countNudges, escapedDefects, gateReds, hxRunArgs, parseArgs, parseJsonl,
-  provenanceRoles, sessionsByRole, setupRepo, usageTotals,
+  provenanceRoles, sessionsByRole, setupRepo, splitPhases, usageTotals,
 } from './project-lib.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -79,9 +82,29 @@ function setup(ctx) {
   writeFileSync(cfgFile, JSON.stringify(cfg, null, 2));
 }
 
-// 2. run the arm until it is done, capped or ends early: { usage, ended, t0, t1 } (chat: and nudges)
+// 2. run the arm until it is done, capped or ends early: { usage, ended, t0, t1 } (chat: and nudges). A two-phase
+// fixture's arm also returns `boundary` (the end of phase 1, null when phase 2 never started) and, when phase 2 started,
+// `phase1Sha`; chat also returns `phaseNudges` (each phase's nudges).
+/** The commit `main` of the run's GitHub repo points at, from the remote step (`ctx.remoteMain`), never the work
+ *  directory's local `main`; null (logged) when it cannot be read. */
+async function remoteSha(ctx) {
+  try { return (await ctx.remoteMain()) || null; } catch (e) {
+    ctx.log(`reading main of ${ctx.repo} failed: ${String(e?.message ?? e).split('\n')[0]}`);
+    return null;
+  }
+}
+
+/** The end of phase 1: now, once the clock is past it, so every record of phase 2 is stamped after it. */
+async function boundaryNow() {
+  const b = Date.now();
+  while (Date.now() <= b) await sleep(1);
+  return b;
+}
+
 /** The `chat` arm: one session (chatSession's model, effort and lean flags) on the brief, resumed until it says done.
- *  `nudges` is how many turns after the first it was sent: 0 when it says done on its first turn. */
+ *  `nudges` is how many turns after the first it was sent: 0 when it says done on its first turn. A two-phase fixture's
+ *  session, once done, is resumed (same session id) with the change and goes on until it says done again; the turn that
+ *  sends the change is no nudge. Caps count both phases. */
 export async function chatArm(ctx, { run = runGoal, bin = 'claude', session = chatSession() } = {}) {
   const { log, maxHours, maxUsd } = ctx;
   const brief = readFileSync(briefOf(ctx), 'utf8');
@@ -93,72 +116,122 @@ export async function chatArm(ctx, { run = runGoal, bin = 'claude', session = ch
     + `When it is finished and pushed, output exactly:\n<promise>${PROMISE}</promise>`;
   const eventLog = path.join(ctx.work, '.hx', 'chat.jsonl');
   const usage = [];
-  const turns = [];
+  const turns = [[]];
   const ac = new AbortController();
-  let costUsd = 0, capped = false, t1;
+  let costUsd = 0, capped = false, t1, sessionId;
   const check = () => {
     if (ac.signal.aborted || capCheck({ elapsedMs: Date.now() - t0, costUsd, maxHours, maxUsd }) === 'continue') return;
     capped = true; t1 = Date.now();
     log(`cap reached ($${costUsd.toFixed(2)}, ${Math.round((t1 - t0) / 60_000)} min): stopping`);
     ac.abort();
   };
+  const goal = (o) => run({
+    bin, cwd: ctx.work, model: session.model, effort: session.effort, extraArgs: session.extraArgs,
+    timeoutMs: 90 * 60_000, stallMs: DEFAULTS.stallMinutes * 60_000,
+    promise: PROMISE, maxIterations: 1000, signal: ac.signal, ...o,
+    onEvent: (ev) => appendFileSync(eventLog, JSON.stringify(ev) + '\n'),
+    onTurn: (i, sid, t) => {
+      sessionId = sid;
+      turns.at(-1).push(i);
+      usage.push({ ts: new Date().toISOString(), issue: 0, role: 'chat', sessionId: sid, iteration: i, durationMs: t.durationMs, usage: t.usage, costUsd: t.costUsd, ok: t.ok });
+      costUsd += t.costUsd ?? 0;
+      log(`turn ${i}: ${t.ok ? 'ok' : 'error ' + t.error} · ${Math.round(t.durationMs / 1000)}s · $${costUsd.toFixed(2)}`);
+      check();
+    },
+  });
+  const two = ctx.fixture?.change !== undefined;
+  let boundary = null, phase1Sha;
   const t0 = Date.now();
   const timer = setInterval(check, TICK);
   let r;
   try {
-    r = await run({
-      bin, cwd: ctx.work, model: session.model, effort: session.effort, extraArgs: session.extraArgs,
-      timeoutMs: 90 * 60_000, stallMs: DEFAULTS.stallMinutes * 60_000,
-      prompt, promise: PROMISE, continuePrompt, maxIterations: 1000, signal: ac.signal,
-      onEvent: (ev) => appendFileSync(eventLog, JSON.stringify(ev) + '\n'),
-      onTurn: (i, sessionId, t) => {
-        turns.push(i);
-        usage.push({ ts: new Date().toISOString(), issue: 0, role: 'chat', sessionId, iteration: i, durationMs: t.durationMs, usage: t.usage, costUsd: t.costUsd, ok: t.ok });
-        costUsd += t.costUsd ?? 0;
-        log(`turn ${i}: ${t.ok ? 'ok' : 'error ' + t.error} · ${Math.round(t.durationMs / 1000)}s · $${costUsd.toFixed(2)}`);
-        check();
-      },
-    });
+    r = await goal({ prompt, continuePrompt });
+    log(`session ended: ${r.stopReason} after ${r.iterations} turn(s)`);
+    // phase 1 is done: the change goes to the same session, unless a cap already ends the run
+    if (two && r.stopReason === 'promise') check();
+    if (two && r.stopReason === 'promise' && !capped) {
+      boundary = await boundaryNow();
+      phase1Sha = await remoteSha(ctx);
+      const change = readFileSync(ctx.fixture.change, 'utf8');
+      log(`brief done at ${phase1Sha ?? '(unread)'}: sending the change to session ${r.sessionId ?? sessionId}`);
+      turns.push([]);
+      r = await goal({
+        resumeSession: r.sessionId ?? sessionId,
+        prompt: `Change this project as follows:\n\n${change.trimEnd()}\n\n---\nWork in the current directory, a git repo whose default branch is \`main\` `
+          + `(remote: ${ctx.repo}). Commit and push to \`main\` as you go: only what is pushed counts. `
+          + `When it is finished and pushed, output exactly:\n<promise>${PROMISE}</promise>\n`,
+        continuePrompt: `Continue making the change to the project. Commit and push to \`main\` as you go. `
+          + `When it is finished and pushed, output exactly:\n<promise>${PROMISE}</promise>`,
+      });
+      log(`session ended: ${r.stopReason} after ${r.iterations} turn(s) of the change`);
+    }
   } finally {
     clearInterval(timer);
   }
   t1 ??= Date.now();
-  log(`session ended: ${r.stopReason} after ${r.iterations} turn(s)`);
-  return { usage, ended: r.stopReason === 'promise' ? 'done' : capped ? 'capped' : 'early', t0, t1, nudges: countNudges(turns) };
+  const ended = r.stopReason === 'promise' && !capped ? 'done' : capped ? 'capped' : 'early';
+  const out = { usage, ended, t0, t1, nudges: countNudges(turns.flat()) };
+  if (!two) return out;
+  return { ...out, boundary, ...(boundary !== null ? { phase1Sha } : {}), phaseNudges: turns.map(countNudges) };
 }
 
-/** An Hx arm (`hx1`, `hx3`): the brief filed with `hx prd`, then `hx run --watch --workers <n>` until the PRD closes. */
-async function hxArm(ctx) {
-  const { log, repo, work, maxHours, maxUsd } = ctx;
+/** An Hx arm (`hx1`, `hx3`): the brief filed with `hx prd`, then `hx run --watch --workers <n>` until the PRD closes. A
+ *  two-phase fixture's change is filed with `hx prd` (titled `PRD: <its first # heading>`) when that PRD closes, and the
+ *  same runner goes on until the change's PRD closes. Caps count both phases. `hx`, `prdState` (a PRD's GitHub state),
+ *  `runner` (spawns the runner: anything with `on('close')`) and `tick` (the poll interval) are injectable for tests. */
+export async function hxArm(ctx, {
+  hx: hxCall = hx,
+  prdState = (prd) => json('gh', ['issue', 'view', String(prd), '-R', ctx.repo, '--json', 'state']).state,
+  runner = () => spawn(process.execPath, ['--disable-warning=ExperimentalWarning', HX, ...hxRunArgs(ctx.arm)], { cwd: ctx.work, stdio: 'inherit' }),
+  tick = TICK,
+} = {}) {
+  const { log, work, maxHours, maxUsd } = ctx;
+  const heading = (text) => /^#\s+(.+)$/m.exec(text)?.[1]?.trim();
   const briefFile = briefOf(ctx);
-  const brief = readFileSync(briefFile, 'utf8');
-  const title = /^#\s+(.+)$/m.exec(brief)?.[1]?.trim() ?? ctx.fixture?.manifest.bin ?? 'tally';
-  const out = hx(['prd', briefFile, '--title', `PRD: ${title}`], { cwd: work });
-  const prd = Number(/\/issues\/(\d+)/.exec(out)?.[1]);
-  if (!prd) throw new Error(`hx prd printed no issue url:\n${out}`);
-  log(`filed PRD #${prd}`);
+  const title = heading(readFileSync(briefFile, 'utf8')) ?? ctx.fixture?.manifest.bin ?? 'tally';
+  const file = (f, t) => {
+    const out = hxCall(['prd', f, '--title', `PRD: ${t}`], { cwd: work });
+    const n = Number(/\/issues\/(\d+)/.exec(out)?.[1]);
+    if (!n) throw new Error(`hx prd printed no issue url:\n${out}`);
+    log(`filed PRD #${n}`);
+    return n;
+  };
+  let prd = file(briefFile, title);
   const usageFile = path.join(work, '.hx', 'usage.jsonl');
   const readUsage = () => (existsSync(usageFile) ? parseJsonl(readFileSync(usageFile, 'utf8')) : []);
+  const capped = () => capCheck({ elapsedMs: Date.now() - t0, costUsd: usageTotals(readUsage()).costUsd, maxHours, maxUsd }) === 'stop';
+  const two = ctx.fixture?.change !== undefined;
+  let boundary = null, phase1Sha;
   const t0 = Date.now();
-  const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', HX, ...hxRunArgs(ctx.arm)], { cwd: work, stdio: 'inherit' });
+  const child = runner();
   let exited = false, ended;
   const exit = new Promise((resolve) => child.on('close', () => { exited = true; resolve(); }));
   for (;;) {
-    await Promise.race([sleep(TICK), exit]);
+    await Promise.race([sleep(tick), exit]);
     let state = null;
-    try { state = json('gh', ['issue', 'view', String(prd), '-R', repo, '--json', 'state']).state; } catch (e) { log(`gh issue view failed: ${e.message.split('\n')[0]}`); }
-    if (state === 'CLOSED') { ended = 'done'; break; }
+    try { state = await prdState(prd); } catch (e) { log(`gh issue view failed: ${e.message.split('\n')[0]}`); }
+    if (state === 'CLOSED' && (!two || boundary !== null)) { ended = 'done'; break; }
+    if (state === 'CLOSED') {
+      // phase 1 is done: the change goes to the same runner, unless a cap already ends the run
+      if (capped()) { ended = 'capped'; break; }
+      boundary = await boundaryNow();
+      phase1Sha = await remoteSha(ctx);
+      log(`brief done at ${phase1Sha ?? '(unread)'}: filing the change`);
+      const changeFile = ctx.fixture.change;
+      prd = file(changeFile, heading(readFileSync(changeFile, 'utf8')) ?? `${ctx.fixture.manifest.bin} change`);
+      continue;
+    }
     if (exited) { ended = 'early'; break; }
-    const costUsd = usageTotals(readUsage()).costUsd;
-    if (capCheck({ elapsedMs: Date.now() - t0, costUsd, maxHours, maxUsd }) === 'stop') { ended = 'capped'; break; }
+    if (capped()) { ended = 'capped'; break; }
   }
   const t1 = Date.now();
   log(`ended ${ended}`);
   if (!exited) {
-    try { hx(['pause', '--now'], { cwd: work }); } catch (e) { log(`hx pause --now failed: ${e.message.split('\n')[0]}`); }
+    try { hxCall(['pause', '--now'], { cwd: work }); } catch (e) { log(`hx pause --now failed: ${e.message.split('\n')[0]}`); }
     await exit;
   }
-  return { usage: readUsage(), ended, t0, t1 };
+  const out = { usage: readUsage(), ended, t0, t1 };
+  return two ? { ...out, boundary, ...(boundary !== null ? { phase1Sha } : {}) } : out;
 }
 
 // 3. what GitHub says
@@ -170,8 +243,12 @@ function clone(ctx) {
   sh('gh', ['repo', 'clone', ctx.repo, ctx.clone, '--', '-q']);
 }
 
-/** The real per-run steps; a test passes its own. `fuzz` and `coverage` take (dir, options). */
-export const STEPS = { setup, arm: (ctx) => (ctx.arm === 'chat' ? chatArm(ctx) : hxArm(ctx)), issues, clone, grade, fuzz, coverage };
+/** The commit `main` of the run's GitHub repo points at, read from GitHub (a two-phase run's `phase1Sha`). */
+const remoteMain = (ctx) => sh('gh', ['api', `repos/${ctx.repo}/commits/main`, '-q', '.sha']).trim();
+
+/** The real per-run steps; a test passes its own. `fuzz` and `coverage` take (dir, options); `remoteMain` (ctx) is
+ *  the commit of `main` on the run's GitHub repo. */
+export const STEPS = { setup, arm: (ctx) => (ctx.arm === 'chat' ? chatArm(ctx) : hxArm(ctx)), issues, clone, grade, fuzz, coverage, remoteMain };
 
 /** `step(dir, options)` as { value } or, when it throws, { error } (the message): it never blocks the results file. */
 async function guarded(step, dir, options, what, log) {
@@ -220,13 +297,22 @@ export async function runSet({
     const ctx = {
       arm, i, stamp, repo: `${owner}/hx-project-${unique}`, maxHours, maxUsd, log, config, fixture,
       work: path.join(tmp, 'hxp', unique), worktreeRoot: path.join(tmp, 'hxp-wt', unique), clone: path.join(tmp, 'hxp-grade', unique),
+      remoteMain: () => steps.remoteMain(ctx),
     };
     try {
       await steps.setup(ctx);
       const roles = provenanceRoles(arm, arm !== 'chat' ? { config: loadProject(ctx.work).config } : {});
       const provenance = { claudeVersion: claudeVersion(claudeBin), hxCommit: commit, roles, ...(config ? { configOverrides: config } : {}) };
-      const { usage, ended, t0, t1, nudges } = await steps.arm(ctx);
+      const armed = await steps.arm(ctx);
+      const { usage, ended, t0, t1, nudges } = armed;
       log(`finished in ${Math.round((t1 - t0) / 1000)}s`);
+      // a two-phase fixture's phases, split at the end of phase 1; phase1Sha is main on GitHub then, or now when the
+      // run never reached phase 2
+      const two = fixture.change !== undefined ? {
+        phases: splitPhases({ usage, t0, t1, boundary: armed.boundary ?? null,
+          nudges: arm === 'chat' ? armed.phaseNudges ?? [nudges ?? 0] : null }),
+        phase1Sha: armed.phase1Sha !== undefined ? armed.phase1Sha : await remoteSha(ctx),
+      } : {};
       const ghIssues = await steps.issues(ctx);
       await steps.clone(ctx);
       const score = await steps.grade(ctx.clone, per.grade);
@@ -246,6 +332,7 @@ export async function runSet({
         wallMs: t1 - t0, tokens: totals.tokens, costUsd: totals.costUsd,
         sessions: sessionsByRole(usage),
         nudges: arm === 'chat' ? nudges ?? null : null,
+        ...two,
         issuesFiled: ghIssues.length, issuesClosed: ghIssues.filter((x) => x.state === 'CLOSED').length,
         auditFails: arm === 'chat' ? null : auditFails(readState('run.log')),
         gateReds: arm === 'chat' ? null : gateReds(readState('gate-runs.jsonl')),
