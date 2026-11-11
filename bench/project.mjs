@@ -9,7 +9,7 @@
 // fresh clone of the default branch is graded by the hidden suite (bench/project-grade.mjs), then fuzzed against the
 // reference (bench/project-fuzz.mjs) and its own tests run under coverage (bench/project-coverage.mjs), in that order.
 //
-//   node bench/project.mjs <chat|hx1|hx3> [--fixture <name>] [--runs N] [--max-hours 4] [--max-usd 60] [--config key=value ...]
+//   node bench/project.mjs <chat|hx1|hx3> [--fixture <name>] [--runs N] [--max-hours H] [--max-usd USD] [--config key=value ...]
 // --fixture picks the fixture (bench/project-fixtures.mjs, default tally): its brief, template, hidden suite, reference
 // and fuzz generator. An unknown name, or a fixture missing a required file, is a usage error (exit 2) before any repo
 // is created.
@@ -30,7 +30,7 @@ import { runGoal } from '../src/agent.ts';
 import { DEFAULTS, loadProject } from '../src/config.ts';
 import { resolveCmd } from '../src/exec.ts';
 import { coverage } from './project-coverage.mjs';
-import { DEFAULT_FIXTURE, FixtureError, resolveFixture, resultsDirOf } from './project-fixtures.mjs';
+import { DEFAULT_FIXTURE, FixtureError, resolveFixture, resultsDirOf, runCaps } from './project-fixtures.mjs';
 import { fuzz } from './project-fuzz.mjs';
 import { grade, gradeOptions } from './project-grade.mjs';
 import {
@@ -199,15 +199,17 @@ function fixtureOptions(fixture) {
   return { grade: gradeOptions(fixture), fuzz: { fixture }, coverage: { clearEnv: fixture.manifest.coverageClearEnv } };
 }
 
-/** Runs `arm` `runs` times in a row under one stamp, each run on its own repo, directories and caps, and writes each
+/** Runs `arm` `runs` times in a row under one stamp, each run on its own repo, directories and caps (`maxHours` /
+ *  `maxUsd` when given, else the fixture's, else 4 h and $60: runCaps), and writes each
  *  run's result to `<resultsDir>/<arm>-<stamp>-<i>.json` (by default the fixture's results directory). A run that
  *  throws is logged and the next one starts. Returns `{ stamp, files, failed }` (`failed`: the i of each run that threw). */
 export async function runSet({
-  arm, runs = 1, maxHours = 4, maxUsd = 60, config, owner, stamp = makeStamp(), fixture = resolveFixture(DEFAULT_FIXTURE),
+  arm, runs = 1, maxHours: hoursFlag, maxUsd: usdFlag, config, owner, stamp = makeStamp(), fixture = resolveFixture(DEFAULT_FIXTURE),
   resultsDir = resultsDirOf(fixture.name, RESULTS_ROOT), tmp = os.tmpdir(),
   claudeBin = 'claude', commit = hxCommit(), steps = STEPS, print = console.log, fuzzOptions = {}, coverageOptions = {},
 }) {
   const files = [], failed = [];
+  const { maxHours, maxUsd } = runCaps(fixture, { maxHours: hoursFlag, maxUsd: usdFlag });
   const per = fixtureOptions(fixture);
   mkdirSync(resultsDir, { recursive: true });
   for (let i = 1; i <= runs; i++) {

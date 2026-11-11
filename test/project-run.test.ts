@@ -119,22 +119,25 @@ const PER_SESSION = ['-p', '--output-format', '--verbose', '--permission-mode', 
 const LEAN = ['--strict-mcp-config', '--disable-slash-commands', '--setting-sources', 'project,local', '--tools', ...DEFAULTS.workerTools];
 const cfg = (over: Partial<Config> = {}): Config => ({ ...DEFAULTS, repo: 'o/r', defaultBranch: 'main', worktreeRoot: 'wt', ...over } as Config);
 
-test('parseArgs: --runs defaults to 1 and must be a positive integer; the caps as before', E2E, () => {
-  assert.deepEqual(parseArgs(['chat']), { arm: 'chat', runs: 1, maxHours: 4, maxUsd: 60 });
+test('parseArgs: --runs defaults to 1 and must be a positive integer; a cap is given only by its flag', E2E, () => {
+  // a cap not given is left unset: the fixture's, or 4 h and $60, applied once the fixture is resolved (runCaps)
+  assert.deepEqual(parseArgs(['chat']), { arm: 'chat', runs: 1 });
+  assert.deepEqual(parseArgs(['chat', '--max-hours', '6']), { arm: 'chat', runs: 1, maxHours: 6 });
+  assert.deepEqual(parseArgs(['chat', '--max-usd', '90']), { arm: 'chat', runs: 1, maxUsd: 90 });
   assert.deepEqual(parseArgs(['hx3', '--runs', '5', '--max-hours', '0.5', '--max-usd', '10']), { arm: 'hx3', runs: 5, maxHours: 0.5, maxUsd: 10 });
   for (const bad of [['--runs', '0'], ['--runs', '-1'], ['--runs', '1.5'], ['--runs'], ['--runs', ''], ['--runs', 'x'], ['--runs', '--max-hours', '4'], ['--max-hours', '0'], ['--max-usd']])
     assert.equal(parseArgs(['chat', ...bad]), null, bad.join(' '));
   // hx1 is an arm (PRD #439); any other name is not
-  assert.deepEqual(parseArgs(['hx1']), { arm: 'hx1', runs: 1, maxHours: 4, maxUsd: 60 });
+  assert.deepEqual(parseArgs(['hx1']), { arm: 'hx1', runs: 1 });
   assert.equal(parseArgs(['hx2']), null);
   assert.equal(parseArgs([]), null);
   assert.match(USAGE, /<chat\|hx1\|hx3> \[--fixture <name>\] \[--runs N\]/);
 });
 
 test('parseArgs: --fixture <name> is passed on as given (checked by the caller); twice or with no value is the usage line', E2E, () => {
-  assert.deepEqual(parseArgs(['hx1', '--fixture', 'ledge', '--runs', '5']), { arm: 'hx1', runs: 5, maxHours: 4, maxUsd: 60, fixture: 'ledge' });
-  assert.deepEqual(parseArgs(['chat', '--runs', '2', '--fixture', 'nope']), { arm: 'chat', runs: 2, maxHours: 4, maxUsd: 60, fixture: 'nope' });
-  assert.deepEqual(parseArgs(['hx3', '--fixture', 'ledge', '--config', 'x=1']), { arm: 'hx3', runs: 1, maxHours: 4, maxUsd: 60, config: { x: 1 }, fixture: 'ledge' });
+  assert.deepEqual(parseArgs(['hx1', '--fixture', 'ledge', '--runs', '5']), { arm: 'hx1', runs: 5, fixture: 'ledge' });
+  assert.deepEqual(parseArgs(['chat', '--runs', '2', '--fixture', 'nope']), { arm: 'chat', runs: 2, fixture: 'nope' });
+  assert.deepEqual(parseArgs(['hx3', '--fixture', 'ledge', '--config', 'x=1']), { arm: 'hx3', runs: 1, config: { x: 1 }, fixture: 'ledge' });
   for (const bad of [['--fixture'], ['--fixture', '--runs', '2'], ['--fixture', 'a', '--fixture', 'b']]) assert.equal(parseArgs(['chat', ...bad]), null, bad.join(' '));
 });
 
@@ -202,7 +205,7 @@ test('chatArm gives the session the fixture\'s brief', E2E, async () => {
 
 test('parseArgs: --config key=value is repeatable, JSON when it parses, and a bad pair is the usage line', E2E, () => {
   assert.deepEqual(parseArgs(['hx3', '--config', 'singleChildMaxCriteria=30', '--config', 'model=opus', '--runs', '2']),
-    { arm: 'hx3', runs: 2, maxHours: 4, maxUsd: 60, config: { singleChildMaxCriteria: 30, model: 'opus' } });
+    { arm: 'hx3', runs: 2, config: { singleChildMaxCriteria: 30, model: 'opus' } });
   for (const bad of [['--config'], ['--config', 'noequals'], ['--config', '=1']])
     assert.equal(parseArgs(['hx3', ...bad]), null, bad.join(' '));
   assert.match(USAGE, /--config key=value/);
@@ -550,6 +553,36 @@ test('setupRepo of another fixture: its template, its name in the commit', E2E, 
     assert.equal(git('log', '--format=%s'), 'ledge: empty project');
     assert.deepEqual(git('ls-files').split('\n').sort(), ['README.md', 'package.json']);
     assert.equal(JSON.parse(readFileSync(path.join(dir, 'package.json'), 'utf8')).name, 'ledge');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("runSet's caps (#447): the fixture's maxHours / maxUsd with no flag, a flag over them, 4 h and $60 for tally and ledge; the result records them", E2E, async () => {
+  const ledge = resolveFixture('ledge');
+  const big = { ...ledge, manifest: { ...ledge.manifest, maxHours: 10, maxUsd: 250 } };
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'hxp-cap-'));
+  try {
+    let k = 0;
+    const caps = async (o: object) => {
+      const calls: any[] = [];
+      const out = await runSet({ arm: 'chat', owner: 'me', stamp: '202611110900', resultsDir: path.join(dir, `out${++k}`), tmp: path.join(dir, `t${k}`), commit: 'abc',
+        claudeBin: path.join(root, 'test', 'fakes', 'claude.mjs'), steps: fakeSteps(calls), print: () => {}, ...o });
+      const ctx = calls.find((c) => c.step === 'setup').ctx;
+      const r = JSON.parse(readFileSync(out.files[0], 'utf8'));
+      assert.deepEqual([r.maxHours, r.maxUsd], [ctx.maxHours, ctx.maxUsd]);
+      return [ctx.maxHours, ctx.maxUsd];
+    };
+    assert.deepEqual(await caps({ fixture: big }), [10, 250]);
+    assert.deepEqual(await caps({ fixture: big, maxHours: 1 }), [1, 250]);
+    assert.deepEqual(await caps({ fixture: big, maxUsd: 20 }), [10, 20]);
+    assert.deepEqual(await caps({ fixture: big, maxHours: 2, maxUsd: 30 }), [2, 30]);
+    assert.deepEqual(await caps({}), [4, 60]);
+    assert.deepEqual(await caps({ fixture: ledge }), [4, 60]);
+    assert.deepEqual(await caps({ fixture: ledge, maxHours: 0.5, maxUsd: 10 }), [0.5, 10]);
+    // the CLI's parsed arguments leave an absent cap unset, so the fixture's applies
+    assert.deepEqual(await caps({ ...parseArgs(['chat']), fixture: big }), [10, 250]);
+    assert.deepEqual(await caps({ ...parseArgs(['chat', '--max-usd', '45']), fixture: big }), [10, 45]);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

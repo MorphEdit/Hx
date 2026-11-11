@@ -108,7 +108,7 @@ baseline. The brief is `tally`: a time-tracking library and CLI with `start` / `
 the log with line-numbered errors. Each run is graded by 80+ hidden tests the agents never see.
 
 Run it. Each run of an arm creates a private repo on your GitHub account and spends real usage, up to
-the caps (`--max-hours` and `--max-usd`, 4 h and $60 per run by default):
+the caps (`--max-hours` and `--max-usd`, 4 h and $60 per run by default, or the fixture's own caps below):
 
 ```bash
 node bench/project.mjs chat --runs 5    # 5 runs of the single session, each up to the caps
@@ -279,6 +279,17 @@ and the benchmark can run several, of different sizes.
   coverage run clears (`coverageClearEnv`), and the data file and the two variables each fuzz case sets
   (`fuzzFile`, `fuzzFileEnv`, `fuzzNowEnv`, the last null for a product with no clock). A fixture missing one
   of these is a usage error (exit 2) before any repo is created.
+- **Optional manifest keys:** `change` (a file name in the fixture's directory, e.g. `"change.md"`), and
+  `maxHours` and `maxUsd` (positive numbers). Any other key, an empty or non-string `change`, or a cap that is
+  zero, negative or not a number makes a bad manifest (exit 2).
+- **A two-phase fixture** is one whose manifest names a `change` file: a change of requirements given once the
+  brief is built. It needs, besides the files above, that change file and `hidden/tags.json`; a missing one is a
+  usage error (exit 2) before any repo is created. `hidden/tags.json` is a JSON object whose keys are exactly the
+  names in `hidden/cases.json` (which stays a flat array of names) and whose values are `"stable"` (a test the
+  change does not touch) or `"change"`. `tally` and `ledge` have no `change` and run as before.
+- **Per-fixture caps:** a fixture's `maxHours` / `maxUsd` are its runs' caps when `--max-hours` / `--max-usd`
+  are not given; a flag overrides them; with neither, 4 h and $60. `tally` and `ledge` set none. A results
+  file's `maxHours` and `maxUsd` are the caps the run used.
 - **`tally`** is the fixture at `bench/project/`, its generator `bench/project-fuzz-gen.mjs`; its files, results
   and table are as they were. Every other fixture is `bench/fixtures/<name>/` with its generator
   `fuzz-gen.mjs`, and its results go to `bench/results/fixtures/<name>/project/`. Every new results file

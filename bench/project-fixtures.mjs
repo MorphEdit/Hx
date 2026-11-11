@@ -5,7 +5,9 @@
 // - `tally` is the fixture at bench/project/ with bench/project-fuzz-gen.mjs as its generator; its files never move.
 // - Every other fixture is bench/fixtures/<name>/, its generator <name>/fuzz-gen.mjs; the name is the directory name.
 // - The required files: fixture.json (the manifest), brief.md, hidden/, reference/, template/ and the generator.
-// - The manifest: { bin, checkoutEnv, coverageClearEnv, fuzzFile, fuzzFileEnv, fuzzNowEnv } (fuzzNowEnv may be null).
+// - The manifest: { bin, checkoutEnv, coverageClearEnv, fuzzFile, fuzzFileEnv, fuzzNowEnv } (fuzzNowEnv may be null), and
+//   optionally { change, maxHours, maxUsd } (PRD #446). A manifest naming `change` makes the fixture two-phase: the change
+//   file and hidden/tags.json are then required too. maxHours / maxUsd are the fixture's caps (4 h and $60 without them).
 // - Results: tally's in <results>/project/ (and the old <results>/project-<arm>.json files); any other fixture's in
 //   <results>/fixtures/<name>/project/. A results file's fixture is its `fixture` field, `tally` when absent.
 // Pure apart from reading files.
@@ -37,6 +39,9 @@ export function isTestFile(rel) {
 
 export const DEFAULT_FIXTURE = 'tally';
 export const MANIFEST_KEYS = ['bin', 'checkoutEnv', 'coverageClearEnv', 'fuzzFile', 'fuzzFileEnv', 'fuzzNowEnv'];
+export const OPTIONAL_MANIFEST_KEYS = ['change', 'maxHours', 'maxUsd'];
+/** A run's caps when neither the fixture's manifest nor a flag sets them. */
+export const DEFAULT_CAPS = { maxHours: 4, maxUsd: 60 };
 
 /** A usage error: the scripts print its message and exit 2, before any repo is created or any usage is spent. */
 export class FixtureError extends Error {
@@ -78,16 +83,26 @@ const isKind = (p, kind) => {
   try { const s = statSync(p); return kind === 'dir' ? s.isDirectory() : s.isFile(); } catch { return false; }
 };
 
-/** The manifest's own problem, or null: exactly the keys of MANIFEST_KEYS, each of its type. */
+/** The manifest's own problem, or null: every key of MANIFEST_KEYS, any of OPTIONAL_MANIFEST_KEYS, no other, each of its type. */
 export function manifestProblem(m) {
   if (!m || typeof m !== 'object' || Array.isArray(m)) return 'not a JSON object';
-  const keys = Object.keys(m).sort();
-  const want = [...MANIFEST_KEYS].sort();
-  if (keys.join() !== want.join()) return `keys must be exactly ${MANIFEST_KEYS.join(', ')}`;
+  const keys = Object.keys(m);
+  if (!MANIFEST_KEYS.every((k) => keys.includes(k)) || !keys.every((k) => MANIFEST_KEYS.includes(k) || OPTIONAL_MANIFEST_KEYS.includes(k)))
+    return `keys must be exactly ${MANIFEST_KEYS.join(', ')}, and optionally ${OPTIONAL_MANIFEST_KEYS.join(', ')}`;
   for (const k of ['bin', 'checkoutEnv', 'fuzzFile', 'fuzzFileEnv']) if (typeof m[k] !== 'string' || !m[k]) return `${k} must be a non-empty string`;
   if (!Array.isArray(m.coverageClearEnv) || !m.coverageClearEnv.every((v) => typeof v === 'string' && v)) return 'coverageClearEnv must be an array of strings';
   if (m.fuzzNowEnv !== null && (typeof m.fuzzNowEnv !== 'string' || !m.fuzzNowEnv)) return 'fuzzNowEnv must be a string or null';
+  if ('change' in m && (typeof m.change !== 'string' || !m.change)) return 'change must be a non-empty string';
+  for (const k of ['maxHours', 'maxUsd']) if (k in m && !isCap(m[k])) return `${k} must be a positive number`;
   return null;
+}
+
+const isCap = (v) => typeof v === 'number' && Number.isFinite(v) && v > 0;
+
+/** A run's caps: each flag when given, else the fixture manifest's, else DEFAULT_CAPS. */
+export function runCaps(fixture, { maxHours, maxUsd } = {}) {
+  const m = fixture?.manifest ?? {};
+  return { maxHours: maxHours ?? m.maxHours ?? DEFAULT_CAPS.maxHours, maxUsd: maxUsd ?? m.maxUsd ?? DEFAULT_CAPS.maxUsd };
 }
 
 /** `name` when it names a fixture (the default when undefined); a FixtureError listing the fixtures otherwise. The check
@@ -99,8 +114,10 @@ export function checkFixtureName(name = DEFAULT_FIXTURE, { benchDir = here } = {
 }
 
 /**
- * The fixture `name` resolved: { name, ...fixturePaths, manifest }. Throws a FixtureError for an unknown name
- * (listing the fixtures), a missing required file (naming the fixture and the file) or a bad manifest.
+ * The fixture `name` resolved: { name, ...fixturePaths, manifest }, and for a two-phase fixture (its manifest names
+ * `change`) `change` (the change file's path) and `tags` (hidden/tags.json's). Throws a FixtureError for an unknown
+ * name (listing the fixtures), a missing required file (naming the fixture and the file) or a bad manifest. Only the
+ * change file's and tags.json's existence is checked here.
  */
 export function resolveFixture(name = DEFAULT_FIXTURE, { benchDir = here } = {}) {
   checkFixtureName(name, { benchDir });
@@ -117,7 +134,11 @@ export function resolveFixture(name = DEFAULT_FIXTURE, { benchDir = here } = {})
   }
   const bad = manifestProblem(manifest);
   if (bad) throw new FixtureError(`fixture ${name}: fixture.json: ${bad}`);
-  return { name, ...p, manifest };
+  if (manifest.change === undefined) return { name, ...p, manifest };
+  const two = { change: path.join(p.dir, manifest.change), tags: path.join(p.hidden, 'tags.json') };
+  for (const [label, file] of [[manifest.change, two.change], ['hidden/tags.json', two.tags]])
+    if (!isKind(file, 'file')) throw new FixtureError(`fixture ${name}: missing ${label} (${file})`);
+  return { name, ...p, manifest, ...two };
 }
 
 /** A results object's fixture: its `fixture` field, `tally` when absent. */
