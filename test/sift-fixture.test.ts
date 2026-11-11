@@ -254,9 +254,14 @@ test('no change case passes against a CLI that answers every call with a usage e
 
 // reference-base (#456): the reference built from the brief alone. Its core (tables, parser, types, single-table
 // SELECT, functions, output, CLI and library) passes every `stable` case of the areas below; the cases listed here
-// need what the sibling issues build (grouping, joins, subqueries, writes and scripts), and they remove them.
+// need what the sibling issues build (writes and scripts), and they remove them. Grouping, joins and subqueries
+// (#457) pass every `stable` case of their own areas.
 const base = path.join(dir, 'reference-base');
 const CORE_AREAS = ['cli', 'syntax', 'types', 'select', 'functions', 'output', 'library'];
+const QUERY_AREAS = ['aggregates', 'joins', 'subqueries'];
+// one grade of reference-base, shared by the tests below
+let baseGrade: { failures: string[] } | undefined;
+const gradeBase = () => (baseGrade ??= grade(base, { hidden, checkoutEnv: manifest.checkoutEnv }));
 const CORE_PENDING = [
   'cli.test.mjs > an error creates, changes and deletes no file',
   'library.test.mjs > query of another statement returns its message and changes the file',
@@ -283,8 +288,14 @@ test('reference-base: plain Node with no dependencies, laid out like the templat
 test('grading reference-base: every stable case of the core areas passes, but the named cases of the sibling features', E2E, () => {
   const core = names.filter((n) => tags[n] === 'stable' && CORE_AREAS.some((a) => n.startsWith(`${a}.test.mjs > `)));
   for (const n of CORE_PENDING) assert.ok(core.includes(n), `${n} is a stable case of the core areas`);
-  const r = grade(base, { hidden, checkoutEnv: manifest.checkoutEnv });
-  const failed = new Set(r.failures);
+  const failed = new Set(gradeBase().failures);
   assert.deepEqual(core.filter((n) => failed.has(n) && !CORE_PENDING.includes(n)), []);
   assert.ok(core.length - CORE_PENDING.length >= 250, `${core.length - CORE_PENDING.length} core cases`);
+});
+
+test('grading reference-base: every stable case of aggregates, joins and subqueries passes', E2E, () => {
+  const stable = names.filter((n) => tags[n] === 'stable' && QUERY_AREAS.some((a) => n.startsWith(`${a}.test.mjs > `)));
+  assert.ok(stable.length >= 80, `${stable.length} stable cases of grouping, joins and subqueries`);
+  const failed = new Set(gradeBase().failures);
+  assert.deepEqual(stable.filter((n) => failed.has(n)), []);
 });
