@@ -141,6 +141,19 @@ export const fuzzParams = (result) => (result?.fuzz
   ? { seed: result.fuzz.seed ?? null, count: result.fuzz.count ?? null, genHash: result.fuzz.genHash ?? null }
   : null);
 
+/** A two-phase run's first version (PRD #446): { passed, total } on the `stable` tests; null for a single-phase run. */
+export function phase1Score(result) {
+  const p = result?.phase1;
+  return p && typeof p === 'object' && has(p.passed) && has(p.total) ? { passed: p.passed, total: p.total } : null;
+}
+
+/** A two-phase run's change phase: its `phases` entry named `change`; null when the run never reached it or has no
+ *  `phases` (a single-phase run). */
+export function changePhase(result) {
+  const phases = Array.isArray(result?.phases) ? result.phases : [];
+  return phases.find((ph) => ph?.name === 'change') ?? null;
+}
+
 /** covered / total × 100 for 'lines' or 'branches'; null for n/a, no coverage, or a total of 0. */
 export function coveragePct(result, kind) {
   const c = result?.coverage?.[kind];

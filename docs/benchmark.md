@@ -362,6 +362,14 @@ arm, the number of runs, and the median hidden tests passed out of the total, me
 blind-review mean, median escaped defects, median wall time, median cost with review halves, median
 sessions, and median nudges for `chat`. An arm with fewer than 5 runs is marked `(n<5)`.
 
+A two-phase fixture's rows have two more columns. `phase1 <passed>/<total>` is the first version's score: the
+median `stable` tests passed out of the median total, over every run of the set that has a `phase1`.
+`change <time>, <cost>` is the median wall time and the median cost of the change phase (the `phases` entry
+named `change`), over the runs that reached it; a set where no run did shows `–` for each. A results file with
+no `phases` or `phase1` (every single-phase run, and every file from before two-phase fixtures) reads as a
+single-phase run, and a single-phase fixture's rows are as before. The comparison and crossover lines below use
+the final product only, for every fixture.
+
 After each fixture's rows, one line per Hx arm compares it with `chat` on that fixture: the ship rule's
 checks 2, 3, 5 and 6 with `chat` as the baseline, each verdict shown, whether it is no worse on quality, and
 its time and cost as ratios to `chat` (e.g. `time ×0.8, cost ×3.1`). A `chat` run reviewed against both

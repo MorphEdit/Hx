@@ -132,6 +132,18 @@ test('the fuzz accessors read fuzz and give null without it', () => {
   for (const f of [pr.fuzzDivergences, pr.fuzzClassCount, pr.fuzzKeys, pr.fuzzParams]) assert.equal(f({}), null);
 });
 
+test('phase1Score and changePhase read a two-phase run; null for a single-phase or old results file (PRD #446)', () => {
+  const brief = { name: 'brief', wallMs: 1, costUsd: 1 };
+  const change = { name: 'change', wallMs: 2, costUsd: 3 };
+  assert.deepEqual(pr.phase1Score({ phase1: { passed: 7, total: 9 }, extra: 1 }), { passed: 7, total: 9 });
+  assert.deepEqual(pr.changePhase({ phases: [brief, change] }), change);
+  assert.equal(pr.changePhase({ phases: [brief] }), null, 'a run that never reached phase 2');
+  for (const r of [{}, null, { passed: 1, total: 2 }, { phase1: {} }, { phase1: { passed: 1 } }, { phases: 'x' }]) {
+    assert.equal(pr.phase1Score(r), null);
+    assert.equal(pr.changePhase(r), null);
+  }
+});
+
 test('coveragePct gives covered / total × 100, null for n/a, no coverage or a 0 total', () => {
   const result = { coverage: { tests: 'passed', lines: { covered: 3, total: 4 }, branches: 'n/a' } };
   assert.equal(pr.coveragePct(result, 'lines'), 75);

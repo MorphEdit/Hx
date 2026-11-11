@@ -13,14 +13,19 @@ const cx = await import(pathToFileURL(path.join(root, 'bench', 'crossover.mjs'))
 
 const FUZZ = { seed: 1107, count: 1000, genHash: 'g' };
 
-/** A bench dir with a fixture per name, its reference `size` non-blank lines of code (tally at project/). */
-function benchDir(sizes: Record<string, number>) {
+/** A bench dir with a fixture per name, its reference `size` non-blank lines of code (tally at project/); the fixtures
+ *  named in `twoPhase` name a `change` file in their manifest and have it and hidden/tags.json. */
+function benchDir(sizes: Record<string, number>, twoPhase: string[] = []) {
   const dir = mkdtempSync(path.join(os.tmpdir(), 'hx-cx-'));
   const manifest = { bin: 'x', checkoutEnv: 'X', coverageClearEnv: [], fuzzFile: 'f', fuzzFileEnv: 'F', fuzzNowEnv: null };
   for (const [name, size] of Object.entries(sizes)) {
     const fdir = name === 'tally' ? path.join(dir, 'project') : path.join(dir, 'fixtures', name);
     for (const sub of ['hidden', 'reference/src', 'template']) mkdirSync(path.join(fdir, sub), { recursive: true });
-    writeFileSync(path.join(fdir, 'fixture.json'), JSON.stringify(manifest));
+    writeFileSync(path.join(fdir, 'fixture.json'), JSON.stringify(twoPhase.includes(name) ? { ...manifest, change: 'change.md' } : manifest));
+    if (twoPhase.includes(name)) {
+      writeFileSync(path.join(fdir, 'change.md'), '# change\n');
+      writeFileSync(path.join(fdir, 'hidden', 'tags.json'), '{}');
+    }
     writeFileSync(path.join(fdir, 'brief.md'), `# ${name}\n`);
     writeFileSync(path.join(fdir, 'reference', 'src', 'x.js'), Array.from({ length: size }, (_, i) => `line ${i}\n\n`).join(''));
     writeFileSync(name === 'tally' ? path.join(dir, 'project-fuzz-gen.mjs') : path.join(fdir, 'fuzz-gen.mjs'), 'export const DEFAULT_SEED = 1;\n');
@@ -30,14 +35,14 @@ function benchDir(sizes: Record<string, number>) {
 
 type Run = Record<string, unknown>;
 /** A results object: 100/100 hidden, 2 fuzz classes, escaped 0, `min` minutes, $`usd`, 4 sessions; `score` per review. */
-function result(o: { arm: string; min?: number; usd?: number; passed?: number; classes?: number; reviews?: [string, number][]; nudges?: number | null; fixture?: string }) {
+function result(o: { arm: string; min?: number; usd?: number; passed?: number; classes?: number; reviews?: [string, number][]; nudges?: number | null; fixture?: string; extra?: Run }) {
   const classes = Object.fromEntries(Array.from({ length: o.classes ?? 2 }, (_, i) => [`f${i} / stdout`, 1]));
   return {
     ...(o.fixture ? { fixture: o.fixture } : {}), arm: o.arm, passed: o.passed ?? 100, failed: 100 - (o.passed ?? 100), total: 100,
     escapedDefects: 0, wallMs: (o.min ?? 10) * 60_000, costUsd: o.usd ?? 1, sessions: o.arm === 'chat' ? { chat: 1 } : { impl: 3, review: 1 },
     nudges: o.arm === 'chat' ? (o.nudges ?? 2) : null, fuzz: { ...FUZZ, divergences: o.classes ?? 2, classes },
     reviews: (o.reviews ?? []).map(([other, score]) => ({ other, score, verdicts: [{ value: score }], costUsd: 0.5 })),
-    startedAt: '2026-11-10T00:00:00Z',
+    startedAt: '2026-11-10T00:00:00Z', ...o.extra,
   };
 }
 
@@ -197,4 +202,62 @@ test('the CLI: an unknown fixture or a bad flag is exit 2; the real fixtures pri
   assert.equal(ok.status, 0, ok.stderr);
   assert.match(ok.stdout, /^tally 237 lines · /m);
   assert.match(ok.stdout, /^crossover: /m);
+});
+
+/** A two-phase run's fields: the first version's stable score; `change` [minutes, usd] of the change phase, or none. */
+function twoPhaseFields(p1: [number, number] | null, change?: [number, number]): Run {
+  const brief = { name: 'brief', wallMs: 60_000, costUsd: 1, tokens: 1, sessions: 1, nudges: 0 };
+  return {
+    ...(p1 ? { phase1: { passed: p1[0], total: p1[1] } } : {}), phase1Sha: 'abc',
+    phases: change ? [brief, { name: 'change', wallMs: change[0] * 60_000, costUsd: change[1], tokens: 1, sessions: 1, nudges: 0 }] : [brief],
+  };
+}
+
+test('a two-phase fixture: phase1 median over every run, the change phase\'s medians over the runs that reached it', () => {
+  const bench = benchDir({ tally: 5, big: 40 }, ['big']);
+  const results = mkdtempSync(path.join(os.tmpdir(), 'hx-cxr-'));
+  // chat: 5 runs, phase1 300, 310, 320, 330, 340 of 400; only runs 2 and 4 reached the change (8 min $2, 12 min $4)
+  const chatChange: Record<number, [number, number]> = { 2: [8, 2], 4: [12, 4] };
+  put(results, 'big', 'chat', 5, (i) => ({ extra: twoPhaseFields([290 + i * 10, 400], chatChange[i]) }));
+  // hx3: 3 runs, every one capped in phase 1 (phases has only `brief`); the third without a phase1 at all
+  put(results, 'big', 'hx3', 3, (i) => ({ extra: twoPhaseFields(i < 3 ? [380 + i, 400] : null) }));
+  put(results, 'tally', 'chat', 5, () => ({}));
+  const out = cx.main([], { benchDir: bench, resultsDir: results });
+  assert.equal(out.code, 0, out.lines.join('\n'));
+  const L: string[] = out.lines;
+  assert.equal(L.find((l) => l.startsWith('big 40 lines · chat')),
+    'big 40 lines · chat · n=5 · hidden 100/100 · fuzz classes 2 · review – · escaped 0 · 10.0 min · $1.00 · 1 sessions · nudges 2 · phase1 320/400 · change 10.0 min, $3.00');
+  // no run of the set reached phase 2: – for the change phase's time and cost; phase1 over the runs that have one
+  assert.equal(L.find((l) => l.startsWith('big 40 lines · hx3')),
+    'big 40 lines · hx3 · n=3 (n<5) · hidden 100/100 · fuzz classes 2 · review – · escaped 0 · 10.0 min · $1.00 · 4 sessions · nudges – · phase1 381.5/400 · change –, –');
+  // the single-phase fixture beside it has no new column
+  assert.equal(L.find((l) => l.startsWith('tally 5 lines · chat')),
+    'tally 5 lines · chat · n=5 · hidden 100/100 · fuzz classes 2 · review – · escaped 0 · 10.0 min · $1.00 · 1 sessions · nudges 2');
+});
+
+test('the comparison and crossover lines of a two-phase fixture use the final product, as for a single-phase one', () => {
+  const S = '202611100000';
+  const make = (twoPhase: boolean) => {
+    const bench = benchDir({ tally: 5, big: 40 }, twoPhase ? ['big'] : []);
+    const results = mkdtempSync(path.join(os.tmpdir(), 'hx-cxr-'));
+    // the change phases make hx3 look slow and costly and its first version poor: none of it counts
+    put(results, 'big', 'chat', 5, (i) => ({ min: 40, usd: 2, reviews: [[`hx3-${S}-${i}.json`, 7]], extra: twoPhase ? twoPhaseFields([400, 400], [1, 0.1]) : {} }));
+    put(results, 'big', 'hx3', 5, (i) => ({ min: 20, usd: 4, reviews: [[`chat-${S}-${i}.json`, 7]], extra: twoPhase ? twoPhaseFields([10, 400], [100, 50]) : {} }));
+    const out = cx.main([], { benchDir: bench, resultsDir: results });
+    assert.equal(out.code, 0, out.lines.join('\n'));
+    const L: string[] = out.lines;
+    return L.filter((l) => l.startsWith('  ') || l.startsWith('crossover:'));
+  };
+  const two = make(true);
+  assert.deepEqual(two, make(false));
+  assert.equal(two.at(-1), 'crossover: big (40 lines): hx3 no worse on quality and faster than chat');
+});
+
+test('crossoverLines without twoPhase, or results with no phases / phase1: rows as for a single-phase fixture', () => {
+  const runs = [1, 2].map((i) => ({ name: `chat-s-${i}.json`, arm: 'chat', stamp: 's', i, result: result({ arm: 'chat' }) }));
+  const plain = cx.crossoverLines([{ name: 'tally', size: 5, runs }]);
+  assert.equal(plain[0], 'tally 5 lines · chat · n=2 (n<5) · hidden 100/100 · fuzz classes 2 · review – · escaped 0 · 10.0 min · $1.00 · 1 sessions · nudges 2');
+  // an old results file in a two-phase fixture's set: no phase1, no change phase
+  const two = cx.crossoverLines([{ name: 'big', size: 5, runs, twoPhase: true }]);
+  assert.equal(two[0], 'big 5 lines · chat · n=2 (n<5) · hidden 100/100 · fuzz classes 2 · review – · escaped 0 · 10.0 min · $1.00 · 1 sessions · nudges 2 · phase1 –/– · change –, –');
 });
