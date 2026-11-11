@@ -370,7 +370,7 @@ and the benchmark can run several, of different sizes.
   nothing, and table, CSV and JSON output. Phase 1 builds `brief.md`; phase 2 builds `change.md`, which alters
   five behaviours the brief states (integer division, division by zero, where NULLs sort, `LIKE` and case,
   number alignment in the table format) and adds three features (`UNION`, `IF [NOT] EXISTS`, a Markdown
-  format). Its `reference/` builds both, about 2,170 lines; `reference-base/` builds the brief alone, passes
+  format). Its `reference/` builds both, about 2,200 lines; `reference-base/` builds the brief alone, passes
   every `stable` test and fails every `change` test. The hidden suite has 597 tests in 13 area files, 98 of
   them tagged `change` and the other 499 `stable` in `hidden/tags.json`. Its fuzz cases are directory cases:
   each writes a data directory of tables (and a script for `sift run`) and compares the data directory after

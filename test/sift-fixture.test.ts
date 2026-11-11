@@ -34,10 +34,11 @@ test('the manifest: sift\'s names, its change file and its caps of 10 hours and 
   assert.deepEqual(runCaps(fixture, { maxHours: 2 }), { maxHours: 2, maxUsd: 200 });
 });
 
-// One size for the reference, by the count every project script uses.
-const REFERENCE_SIZE = [5000, 7000];
+// One size for the reference, by the count every project script uses: what the brief and change need, about
+// 2,200 lines (the owner's choice on #459: no padding to the planned 5,000).
+const REFERENCE_SIZE = [1800, 3000];
 
-test('the reference: 5,000 to 7,000 lines by the reference-size count', { todo: 'reference/ is about 2,200 lines: the owner decides on #459 whether sift grows or the range changes' }, () => {
+test('the reference: 1,800 to 3,000 lines by the reference-size count', () => {
   const size = referenceSize(fixture.reference);
   assert.ok(size >= REFERENCE_SIZE[0] && size <= REFERENCE_SIZE[1], `${size} lines`);
 });
