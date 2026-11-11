@@ -215,6 +215,12 @@ describe('UPDATE and DELETE', { concurrency: true }, () => {
     assert.equal(file(r), body);
   });
 
+  test('UPDATE works out the new values only of the rows WHERE keeps', async () => {
+    const r = await query("UPDATE t SET a = CAST(s AS INTEGER) WHERE s <> 'x'", { tables: { t: lines('a:integer,s:text', '1,5', '2,x') } });
+    ok(r, 'updated 1');
+    assert.equal(file(r), lines('a:integer,s:text', '5,5', '2,x'));
+  });
+
   test('DELETE removes the rows WHERE keeps; the others keep their order', async () => {
     const r = await query("DELETE FROM customers WHERE city = 'Oslo'", cust);
     ok(r, 'deleted 2');

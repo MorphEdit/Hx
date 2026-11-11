@@ -179,7 +179,9 @@ whatever the data holds.
 - `||` joins two texts. A side that is not a text is turned into text first, as `CAST(… AS TEXT)` does.
 - Comparisons (`=`, `<>`, `<`, `<=`, `>`, `>=`, `BETWEEN`, `IN`) compare two values of the same type, or two numbers
   (an integer and a decimal compare by their value), or a text and a date: the text is turned into a date first, and a
-  text that is not a date is a run-time error (exit 6). Any other pair is a type error. `a BETWEEN b AND c` is
+  text that is not a date is a run-time error (exit 6). When either side is NULL, the comparison is NULL and nothing is
+  turned into a date (`CAST(NULL AS DATE) = 'soon'` is NULL, not an error). Any other pair is a type error.
+  `a BETWEEN b AND c` is
   `a >= b AND a <= c`; `a IN (x, y)` compares `a` with each item.
 - `LIKE` takes two texts. In the pattern, `%` stands for any run of characters (none included) and `_` for exactly
   one; every other character stands for itself, and case matters. The pattern must match the whole text. There is no
@@ -207,7 +209,8 @@ compares strings), so `B` comes before `a` and `ab` before `b`; `false` before `
   `NULLS LAST` put the NULLs first or last whatever the direction.
 
 ### Casts
-`CAST(<expression> AS <type>)` turns a value into another type. NULL becomes NULL of that type. Turning a value into
+`CAST(<expression> AS <type>)` turns a value into another type; the type is one of the five type names, in any case.
+NULL becomes NULL of that type. Turning a value into
 its own type keeps it. The others:
 - to `text`: any value, as sift prints it (below).
 - to `integer`: a decimal loses its digits after the point (rounds toward zero: `-2.7` is `-2`); `true` is 1 and
@@ -311,17 +314,23 @@ This decides which run-time error is met first, and whether one is met at all:
 - Then, in this order: the joins (each `ON` for each pair, in the join order above); `WHERE` for each row, in order;
   the `GROUP BY` items for each row; the aggregates; `HAVING` for each group, in group order; the `SELECT` items for
   each row (or group) in order, left to right, then that row's `ORDER BY` items, left to right; then `DISTINCT`,
-  `ORDER BY` and `LIMIT`. A row that `WHERE` drops never has its `SELECT` items worked out. `LIMIT` cuts rows only
-  after they are all worked out, so an error in a row that `LIMIT` would drop is still an error.
+  `ORDER BY` and `LIMIT`. A row that `WHERE` drops never has its `SELECT` items worked out, and a group that
+  `HAVING` drops never has its `SELECT` items or `ORDER BY` items worked out. `LIMIT` cuts rows only after they are
+  all worked out, so an error in a row that `LIMIT` would drop is still an error.
 - Inside an expression, operands and function arguments are worked out left to right. `AND` stops after its left
-  side when that is `FALSE`, `OR` when that is `TRUE`. `CASE` works out its conditions in order and only the result
-  it picks. `COALESCE` stops at its first argument that is not NULL.
+  side when that is `FALSE`, `OR` when that is `TRUE`. `CASE` works out its conditions in order, stops at the first
+  that is `TRUE` (or, for `CASE <value>`, at the first `<v>` equal to the value), and works out only the result it
+  picks. `COALESCE` stops at its first argument that is not NULL. `a IN (x, y, …)` works out `a` and then every
+  item, left to right, before it compares.
 - `UPDATE` and `DELETE` work through the table's rows in file order; `INSERT … VALUES` through its rows in order,
-  each left to right.
+  each left to right. `UPDATE` works out a row's new values only when its `WHERE` keeps the row.
 
 ## Functions and CASE
 Function names are not case-sensitive. An unknown function, a wrong number of arguments or an argument of a type the
-function does not take is exit 5. Unless it says otherwise, a function gives NULL when any argument is NULL.
+function does not take is exit 5. Below, `t`, `s`, `from` and `to` stand for texts, `n` for a number and `d` for a date
+(but `ROUND`'s `d` is an integer), and `start` and `length` are integers; a function takes only those types and turns
+nothing into them (`LENGTH(123)`, `ABS('1')` and `YEAR('2024-01-01')` are type errors). Unless it says otherwise, a
+function gives NULL when any argument is NULL.
 
 Text:
 - `LENGTH(t)`: the number of characters (UTF-16 code units, as JavaScript counts them), an integer.
@@ -394,7 +403,8 @@ Others:
   statement fails, nothing at all is written and nothing is printed but the error. A script with no statement prints
   nothing and succeeds. The output is each statement's output in order, exactly as `sift query` would print it, with
   nothing between them.
-- `sift tables` prints the table names, sorted, one per line, without reading the files. No tables: no output.
+- `sift tables` prints the table names, sorted by their character codes (so `a_b` comes before `ab`), one per line,
+  without reading the files. No tables: no output.
 - `sift schema <table>` reads the table's file and prints one line `<column> <type>` per column, in order, the type in
   small letters. The table is given as an identifier (any case); something else is a usage error.
 - `--format` (`table` by default) decides how a `SELECT`'s rows are printed. Other statements print their one line

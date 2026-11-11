@@ -1,28 +1,61 @@
-// The `sift` fixture (bench/fixtures/sift/, PRD #446): the large two-phase fixture of the crossover benchmark. Its
-// brief and change are the spec its hidden suite, generator and references are written from. Until those land,
-// `resolveFixture('sift')` throws for missing files, so this test reads the fixture's files directly.
+// The `sift` fixture (bench/fixtures/sift/, PRD #446): the large two-phase fixture of the crossover benchmark, resolved
+// as any fixture is. Its brief and change are the spec its hidden suite, generator and references are written from;
+// `reference/` builds both and passes every hidden case, `reference-base/` builds the brief alone; the reference fuzzed
+// against itself shows 0 divergences; the sweep's rules are in the brief and the change.
 import { E2E } from './isolate.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
-// @ts-ignore: plain .mjs bench script
-import { cases, grade } from '../bench/project-grade.mjs';
+import { pathToFileURL } from 'node:url';
+// @ts-ignore: plain .mjs bench scripts
+import { referenceSize, resolveFixture, runCaps } from '../bench/project-fixtures.mjs';
+// @ts-ignore
+import { cases, grade, gradeOptions, readTags, stableScore } from '../bench/project-grade.mjs';
+// @ts-ignore
+import { fuzz, genHash } from '../bench/project-fuzz.mjs';
 
-const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
-const dir = path.join(root, 'bench', 'fixtures', 'sift');
+const fixture = resolveFixture('sift');
+const dir = fixture.dir;
 const read = (rel: string) => readFileSync(path.join(dir, rel), 'utf8');
-const manifest = JSON.parse(read('fixture.json'));
-const brief = read('brief.md');
-const change = read(manifest.change);
+const manifest = fixture.manifest;
+const brief = readFileSync(fixture.brief, 'utf8');
+const change = readFileSync(fixture.change, 'utf8');
 const AC = /^##\s+acceptance criteria\b/im;
 
 test('the manifest: sift\'s names, its change file and its caps of 10 hours and $200', () => {
   assert.deepEqual(manifest, { bin: 'sift', checkoutEnv: 'SIFT_CHECKOUT', coverageClearEnv: ['SIFT_DB', 'SIFT_TODAY'], fuzzFile: 'db',
     fuzzFileEnv: 'SIFT_DB', fuzzNowEnv: 'SIFT_TODAY', change: 'change.md', maxHours: 10, maxUsd: 200 });
-  assert.ok(existsSync(path.join(dir, manifest.change)), 'the change file exists');
+  assert.equal(fixture.change, path.join(dir, 'change.md'));
+  assert.equal(fixture.tags, path.join(dir, 'hidden', 'tags.json'));
+  for (const p of [fixture.change, fixture.tags, fixture.generator]) assert.ok(existsSync(p), p);
+  assert.deepEqual(runCaps(fixture), { maxHours: 10, maxUsd: 200 });
+  assert.deepEqual(runCaps(fixture, { maxHours: 2 }), { maxHours: 2, maxUsd: 200 });
+});
+
+// One size for the reference, by the count every project script uses.
+const REFERENCE_SIZE = [5000, 7000];
+
+test('the reference: 5,000 to 7,000 lines by the reference-size count', { todo: 'reference/ is about 2,200 lines: the owner decides on #459 whether sift grows or the range changes' }, () => {
+  const size = referenceSize(fixture.reference);
+  assert.ok(size >= REFERENCE_SIZE[0] && size <= REFERENCE_SIZE[1], `${size} lines`);
+});
+
+test('both references are plain Node with no dependencies, laid out like the template', () => {
+  for (const ref of [fixture.reference, path.join(dir, 'reference-base')]) {
+    const pkg = JSON.parse(readFileSync(path.join(ref, 'package.json'), 'utf8'));
+    assert.equal(pkg.type, 'module');
+    assert.equal(pkg.main, 'src/sift.js');
+    assert.deepEqual(pkg.bin, { sift: 'bin/sift.js' });
+    assert.equal(pkg.dependencies, undefined);
+    assert.equal(pkg.devDependencies, undefined);
+    for (const f of ['bin/sift.js', 'src/sift.js']) assert.ok(existsSync(path.join(ref, f)), f);
+    for (const f of readdirSync(path.join(ref, 'src'))) {
+      const src = readFileSync(path.join(ref, 'src', f), 'utf8');
+      for (const m of src.matchAll(/^\s*import\b[^'"]*['"]([^'"]+)['"]/gm)) assert.match(m[1], /^(node:|\.\/)/, `${f} imports ${m[1]}`);
+    }
+  }
 });
 
 test('brief and change start with a # heading and have no ## Acceptance criteria section', () => {
@@ -91,7 +124,7 @@ test('the template: an empty sift package with bin/sift.js, node --test and no d
 
 // --- the fuzz generator (#454): directory cases written from the brief and the change only ---------------------------
 
-const genFile = path.join(dir, 'fuzz-gen.mjs');
+const genFile = fixture.generator;
 const gen = await import(pathToFileURL(genFile).href);
 type DirCase = { id: number; feature: string; args: string[]; files: Record<string, Buffer> | null; now: string };
 const all: DirCase[] = gen.generate();
@@ -180,12 +213,12 @@ test('the generator is pure: it imports only node: modules, reads no clock and s
 
 // The hidden suite (#453): one file per area, written from the brief and the change; tags.json splits its cases into
 // `stable` (the same with or without the change) and `change` (added or altered by it), as each file marks them.
-const hidden = path.join(dir, 'hidden');
+const hidden = fixture.hidden;
 const AREAS = ['cli', 'syntax', 'types', 'select', 'aggregates', 'joins', 'subqueries', 'functions', 'output', 'writes', 'script', 'library'];
 // areas of the change's new features that have no home among the brief's
 const CHANGE_AREAS = ['union'];
 const names: string[] = cases(hidden);
-const tags: Record<string, string> = JSON.parse(readFileSync(path.join(hidden, 'tags.json'), 'utf8'));
+const tags: Record<string, string> = readTags(fixture.tags);
 const suiteFiles = readdirSync(hidden).filter((f: string) => f.endsWith('.test.mjs')).sort();
 
 test('the hidden suite: one file per area, and every area file has cases', () => {
@@ -252,57 +285,100 @@ test('no change case passes against a CLI that answers every call with a usage e
   assert.deepEqual(passed.filter((n) => tags[n] === 'change'), []);
 });
 
-// reference-base (#456, #457, #458): the reference built from the brief alone. It passes every `stable` case of every
-// area of the brief: the core (tables, parser, types, single-table SELECT, functions, output, CLI and library),
-// grouping, joins and subqueries (#457), and writes and `sift run` scripts (#458).
+// The references: `reference/` builds the brief and the change and passes every case; `reference-base/` (#456, #457,
+// #458) builds the brief alone, so it passes every `stable` case of every area and fails (almost) every `change` one.
+// #456's list of named exceptions is empty now: no area is left out.
 const base = path.join(dir, 'reference-base');
-const CORE_AREAS = ['cli', 'syntax', 'types', 'select', 'functions', 'output', 'library'];
-const QUERY_AREAS = ['aggregates', 'joins', 'subqueries'];
-const WRITE_AREAS = ['writes', 'script'];
-// one grade of reference-base, shared by the tests below
+// one grade of each reference, shared by the tests below
+let refGrade: { passed: number; total: number; failures: string[] } | undefined;
 let baseGrade: { failures: string[] } | undefined;
-const gradeBase = () => (baseGrade ??= grade(base, { hidden, checkoutEnv: manifest.checkoutEnv }));
+const gradeRef = () => (refGrade ??= grade(fixture.reference, gradeOptions(fixture)));
+const gradeBase = () => (baseGrade ??= grade(base, gradeOptions(fixture)));
 
-test('reference-base: plain Node with no dependencies, laid out like the template', () => {
-  const pkg = JSON.parse(readFileSync(path.join(base, 'package.json'), 'utf8'));
-  assert.equal(pkg.type, 'module');
-  assert.equal(pkg.main, 'src/sift.js');
-  assert.deepEqual(pkg.bin, { sift: 'bin/sift.js' });
-  assert.equal(pkg.dependencies, undefined);
-  assert.equal(pkg.devDependencies, undefined);
-  for (const f of ['bin/sift.js', 'src/sift.js']) assert.ok(existsSync(path.join(base, f)), f);
-  for (const f of readdirSync(path.join(base, 'src'))) {
-    const src = readFileSync(path.join(base, 'src', f), 'utf8');
-    for (const m of src.matchAll(/^\s*import\b[^'"]*['"]([^'"]+)['"]/gm)) assert.match(m[1], /^(node:|\.\/)/, `${f} imports ${m[1]}`);
+test('grading the reference: every one of at least 400 hidden cases passes, stable and change alike', E2E, () => {
+  const r = gradeRef();
+  assert.ok(names.length >= 400, `${names.length} hidden cases`);
+  assert.equal(new Set(names).size, names.length, 'no duplicate names');
+  assert.deepEqual(r.failures, []);
+  assert.equal(r.total, names.length);
+  assert.equal(r.passed, r.total);
+});
+
+test('grading reference-base: every stable case of every area passes, and at least 90% of the change cases fail', E2E, () => {
+  const failed = new Set(gradeBase().failures);
+  for (const area of AREAS) {
+    const stable = names.filter((n) => tags[n] === 'stable' && n.startsWith(`${area}.test.mjs > `));
+    assert.ok(stable.length > 0, `stable cases of ${area}`);
+    assert.deepEqual(stable.filter((n) => failed.has(n)), [], `${area}: every stable case passes`);
   }
-});
-
-test('grading reference-base: every stable case of the core areas passes', E2E, () => {
-  const core = names.filter((n) => tags[n] === 'stable' && CORE_AREAS.some((a) => n.startsWith(`${a}.test.mjs > `)));
-  assert.ok(core.length >= 250, `${core.length} core cases`);
-  const failed = new Set(gradeBase().failures);
-  assert.deepEqual(core.filter((n) => failed.has(n)), []);
-});
-
-test('grading reference-base: every stable case of aggregates, joins and subqueries passes', E2E, () => {
-  const stable = names.filter((n) => tags[n] === 'stable' && QUERY_AREAS.some((a) => n.startsWith(`${a}.test.mjs > `)));
-  assert.ok(stable.length >= 80, `${stable.length} stable cases of grouping, joins and subqueries`);
-  const failed = new Set(gradeBase().failures);
-  assert.deepEqual(stable.filter((n) => failed.has(n)), []);
-});
-
-test('grading reference-base: every stable case of writes and script passes', E2E, () => {
-  const stable = names.filter((n) => tags[n] === 'stable' && WRITE_AREAS.some((a) => n.startsWith(`${a}.test.mjs > `)));
-  assert.ok(stable.length >= 60, `${stable.length} stable cases of writes and scripts`);
-  const failed = new Set(gradeBase().failures);
-  assert.deepEqual(stable.filter((n) => failed.has(n)), []);
-});
-
-test('grading reference-base: every stable case passes, and almost every change case fails', E2E, () => {
-  const failed = new Set(gradeBase().failures);
   assert.deepEqual(names.filter((n) => tags[n] === 'stable' && failed.has(n)), []);
   const change = names.filter((n) => tags[n] === 'change');
   assert.ok(change.filter((n) => failed.has(n)).length >= 0.9 * change.length, 'reference-base fails at least 90% of the change cases');
+  // the first version's score a two-phase run records: every stable case of the stable total
+  const stable = stableScore(gradeBase(), tags);
+  assert.equal(stable.passed, stable.total);
+  assert.equal(stable.total, names.length - change.length);
+});
+
+// The fuzz: the first block of the generator (88 cases) reaches every feature; the reference against itself agrees
+// on every case and none is excluded.
+const BLOCK = 88;
+
+test('the first block of cases reaches every feature', () => {
+  assert.deepEqual(new Set(all.slice(0, BLOCK).map((c) => c.feature)), new Set([...gen.FEATURES, 'plain']));
+});
+
+test('the reference fuzzed against itself: 0 divergences, nothing excluded, the generator\'s hash recorded', E2E, async () => {
+  const r = await fuzz(fixture.reference, { fixture, count: BLOCK, timeLimitMs: 120_000 });
+  assert.equal(r.divergences, 0, JSON.stringify(r.classes));
+  assert.deepEqual(r.classes, {});
+  assert.deepEqual(r.excluded, { count: 0, examples: [] });
+  assert.deepEqual([r.seed, r.count, r.genHash], [1107, BLOCK, genHash(fixture.generator)]);
+});
+
+test('a reference with one rule of the change undone diverges: NULLs sorted first again', E2E, async (t) => {
+  const broken = mkdtempSync(path.join(os.tmpdir(), 'sift-broken-'));
+  t.after(() => rmSync(broken, { recursive: true, force: true }));
+  cpSync(fixture.reference, broken, { recursive: true });
+  const file = path.join(broken, 'src', 'select.js');
+  const src = readFileSync(file, 'utf8');
+  const undone = src.replace("nulls === 'first' || (nulls === null && desc)", "nulls === 'first' || (nulls === null && !desc)");
+  assert.notEqual(undone, src);
+  writeFileSync(file, undone);
+  const r = await fuzz(broken, { fixture, count: BLOCK, timeLimitMs: 120_000 });
+  assert.ok(r.divergences > 0);
+  // only the rows' order differs: what is printed, never the exit status or the files
+  assert.ok(Object.keys(r.classes).every((k) => k.endsWith(' / stdout')), Object.keys(r.classes).join(', '));
+});
+
+// The sweep (#459): every hidden case and every fuzz feature was read against the brief and the change together;
+// each behaviour they relied on that neither stated is stated now, and each new rule has a hidden case.
+test('the sweep: the brief and the change state each behaviour the suite or the fuzz grades', () => {
+  const flat = (s: string) => s.replace(/\s+/g, ' ');
+  const b = flat(brief);
+  for (const rule of [
+    // CAST AS integer / Text (types.test.mjs, the fuzz's typeName and lexing)
+    /`CAST\(<expression> AS <type>\)` turns a value into another type; the type is one of the five type names, in any case/,
+    // LENGTH(123), YEAR('2024-01-01'), ROUND(1.5, 1.0) are exit 5 (functions.test.mjs, the fuzz's type-errors)
+    /a function takes only those types and turns nothing into them \(`LENGTH\(123\)`, `ABS\('1'\)` and `YEAR\('2024-01-01'\)` are type errors\)/,
+    // a NULL date compared with a text that is no date (the fuzz's comparisons of text columns with dates)
+    /When either side is NULL, the comparison is NULL and nothing is turned into a date/,
+    // sift tables, a_b before ab
+    /sorted by their character codes \(so `a_b` comes before `ab`\)/,
+    // what is worked out: HAVING, CASE, IN, UPDATE … WHERE
+    /a group that `HAVING` drops never has its `SELECT` items or `ORDER BY` items worked out/,
+    /`CASE` works out its conditions in order, stops at the first that is `TRUE`/,
+    /`a IN \(x, y, …\)` works out `a` and then every item, left to right, before it compares/,
+    /`UPDATE` works out a row's new values only when its `WHERE` keeps the row/,
+  ]) assert.match(b, rule);
+  // INSTR('Hello', 'h') is 0 and REPLACE is exact after the change too
+  assert.match(flat(change), /`=`, `<>`, the ordering of texts, `DISTINCT`, `GROUP BY`, `UNION`, `INSTR` and `REPLACE` still compare texts exactly, case included/);
+  const sweep = ['types.test.mjs > a NULL compared with a text that is not a date is NULL, not an error', 'types.test.mjs > IN works out every item before it compares',
+    'functions.test.mjs > INSTR and REPLACE compare case exactly', 'functions.test.mjs > CASE stops at the first TRUE condition, or the first equal value',
+    'aggregates.test.mjs > a group that HAVING drops never has its items or ORDER BY items worked out',
+    'writes.test.mjs > UPDATE works out the new values only of the rows WHERE keeps',
+    'cli.test.mjs > tables sorts the names by their character codes: digits, then _, then letters'];
+  for (const n of sweep) assert.equal(tags[n], 'stable', n);
 });
 
 // A failing statement or script leaves the data directory byte for byte as it was: every name, every file's bytes.
@@ -349,4 +425,22 @@ test('reference-base: a failing statement or script leaves the data directory by
   assert.deepEqual(readdirSync(db).sort(), ['notes.txt', 't.csv', 'v.csv', 'w.csv']);
   assert.equal(readFileSync(path.join(db, 't.csv'), 'utf8'), 'a:integer,b:text\n1,x\n2,y\n3,z\n');
   assert.equal(readFileSync(path.join(db, 'w.csv'), 'utf8'), 'c:date\n');
+});
+
+test('docs/benchmark.md documents sift: two phases, its size, its test counts, its tags, its fuzz and its caps', () => {
+  const doc = readFileSync(path.join(path.dirname(dir), '..', '..', 'docs', 'benchmark.md'), 'utf8');
+  assert.match(doc, /<!-- project-bench:sift:start -->\r?\n<!-- project-bench:sift:end -->/);
+  const at = doc.indexOf('- **`sift`**');
+  assert.ok(at > 0, 'a sift bullet under the fixtures');
+  const bullet = doc.slice(at, doc.indexOf('\n- **', at + 1)).replace(/\s+/g, ' ');
+  const changeCount = names.filter((n) => tags[n] === 'change').length;
+  for (const fact of ['the first two-phase one', '`brief.md`', '`change.md`', '`reference-base/`', '`hidden/tags.json`', 'directory cases',
+    `${gen.FEATURES.length} features`, 'seed 1107, 1000 cases', '0 divergences', '10 hours and $200',
+    `${names.length} tests in ${suiteFiles.length} area files, ${changeCount} of them tagged \`change\` and the other ${names.length - changeCount} \`stable\``]) {
+    assert.ok(bullet.includes(fact), `the sift bullet states: ${fact}`);
+  }
+  const size = referenceSize(fixture.reference);
+  const stated = /`reference\/` builds both, about ([\d,]+) lines/.exec(bullet);
+  assert.ok(stated, 'the reference size');
+  assert.ok(Math.abs(Number(stated[1].replace(/,/g, '')) - size) <= 50, `about ${stated[1]} lines against ${size}`);
 });

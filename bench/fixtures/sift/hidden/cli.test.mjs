@@ -188,6 +188,10 @@ describe('the command line', { concurrency: true }, () => {
     ok(await sift(['tables'], { tables: { broken: '"never closed\n', empty: '' } }), 'broken', 'empty');
   });
 
+  test('tables sorts the names by their character codes: digits, then _, then letters', async () => {
+    ok(await sift(['tables'], { tables: { ab: lines('a:integer'), a_b: lines('a:integer'), a1: lines('a:integer'), aa: lines('a:integer') } }), 'a1', 'a_b', 'aa', 'ab');
+  });
+
   test('tables with no tables prints nothing', async () => {
     ok(await sift(['tables'], { files: { 'db/notes.txt': 'x' } }));
   });

@@ -220,6 +220,13 @@ describe('operators', { concurrency: true }, () => {
     fails(await query("SELECT CAST('2024-01-05' AS DATE) = 'soon'"), 6);
   });
 
+  test('a NULL compared with a text that is not a date is NULL, not an error', async () => {
+    ok(await csv("SELECT CAST(NULL AS DATE) = 'soon', 'soon' < CAST(NULL AS DATE)"), 'col1,col2', ',');
+    ok(await csv("SELECT d = s FROM t", one(lines('d:date,s:text', ',soon', '2024-01-05,'))), 'col1', '', '');
+  });
+
+  test('IN works out every item before it compares', async () => fails(await query("SELECT 1 IN (1, CAST('x' AS INTEGER))"), 6));
+
   test('comparing other pairs of types is a type error', async () => {
     for (const sql of ["SELECT 1 = '1'", 'SELECT TRUE = 1', "SELECT CAST('2024-01-01' AS DATE) < 5", "SELECT 1 IN ('a')", "SELECT 'a' BETWEEN 1 AND 2"]) {
       fails(await query(sql), 5);

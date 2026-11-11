@@ -363,6 +363,19 @@ and the benchmark can run several, of different sizes.
   `tally`'s. Its fuzz covers the journal and the queries over one journal file; what needs a second file
   (`include`, the budget file, CSV import) is graded by the hidden suite. Its brief states one list of which
   error wins, every exit code, every output order, rounding, and stdout versus stderr.
+- **`sift`** (`bench/fixtures/sift/`) is the large fixture and the first two-phase one: a CLI and library that
+  runs a subset of SQL over a directory of CSV files (`SIFT_DB`), one typed table per file: a lexer and parser
+  with line-and-column syntax errors, typed values with NULL and three-valued logic, `SELECT` with joins,
+  grouping, `ORDER BY` and subqueries, functions and `CASE`, writes that are atomic, `sift run` scripts all or
+  nothing, and table, CSV and JSON output. Phase 1 builds `brief.md`; phase 2 builds `change.md`, which alters
+  five behaviours the brief states (integer division, division by zero, where NULLs sort, `LIKE` and case,
+  number alignment in the table format) and adds three features (`UNION`, `IF [NOT] EXISTS`, a Markdown
+  format). Its `reference/` builds both, about 2,170 lines; `reference-base/` builds the brief alone, passes
+  every `stable` test and fails every `change` test. The hidden suite has 597 tests in 13 area files, 98 of
+  them tagged `change` and the other 499 `stable` in `hidden/tags.json`. Its fuzz cases are directory cases:
+  each writes a data directory of tables (and a script for `sift run`) and compares the data directory after
+  the run; the generator has 39 features at the same defaults as the others (seed 1107, 1000 cases), and the
+  reference fuzzed against itself shows 0 divergences. Its manifest sets the caps to 10 hours and $200.
 - **`tally`'s brief has a gap**, left as it is so its five-run baseline stays comparable: it does not say which
   error wins when a usage error and a log error both apply (the `plain / exit status` class of the
   one-child experiment above). `ledge`'s brief closes that kind of gap with its precedence list.
@@ -399,6 +412,11 @@ and draws no SVG (the six-issue figures belong to no fixture).
 
 <!-- project-bench:ledge:start -->
 <!-- project-bench:ledge:end -->
+
+**`sift`** (no runs yet):
+
+<!-- project-bench:sift:start -->
+<!-- project-bench:sift:end -->
 
 **First run, 2026-11-06** (`claude-opus-5-5`, medium effort, both arms):
 - **Correctness:** both arms passed all 149 hidden tests, and neither had an escaped defect.

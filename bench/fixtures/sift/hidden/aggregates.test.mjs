@@ -98,6 +98,11 @@ describe('aggregates', { concurrency: true }, () => {
     ok(await csv('SELECT COUNT(*) FROM sales HAVING COUNT(*) > 1', sales), 'col1', '6');
   });
 
+  test('a group that HAVING drops never has its items or ORDER BY items worked out', async () => {
+    const tables = { t: lines('g:text', '5', 'x', '7') };
+    ok(await csv("SELECT CAST(g AS INTEGER) FROM t GROUP BY g HAVING g <> 'x' ORDER BY CAST(g AS INTEGER) DESC", { tables }), 'col1', '7', '5');
+  });
+
   test('an aggregate in ORDER BY makes the query grouped', async () => {
     ok(await csv('SELECT 1 FROM sales ORDER BY COUNT(*)', sales), 'col1', '1');
   });

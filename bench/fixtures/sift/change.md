@@ -34,7 +34,8 @@ the old rule, which no longer holds.
   `'APPLE' LIKE '%pp%'` is `TRUE`. Every other character still stands for itself exactly, and `%` and `_` keep their
   meaning.
 - Was: case mattered (`'Apple' LIKE 'a%'` was `FALSE`).
-- `=`, `<>`, the ordering of texts, `DISTINCT` and `GROUP BY` still compare texts exactly, case included.
+- `=`, `<>`, the ordering of texts, `DISTINCT`, `GROUP BY`, `UNION`, `INSTR` and `REPLACE` still compare texts exactly,
+  case included.
 
 ### Numbers are right-aligned in the table format
 - In the `table` format, a column whose type is `integer` or `decimal` is now padded on the left instead of the
