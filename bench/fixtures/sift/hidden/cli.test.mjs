@@ -233,12 +233,12 @@ describe('the command line', { concurrency: true }, () => {
     ok(await sift(['run', 'q.sql', '--format', 'markdown'], { files: { 'q.sql': "SELECT 'x' AS b" } }), '| b |', '| --- |', '| x |');
   });
 
-  change('--format markdown given twice is still a usage error', async () => {
+  test('--format markdown given twice is still a usage error', async () => {
     fails(await sift(['query', 'SELECT 1', '--format', 'markdown', '--format', 'markdown']), 1);
     fails(await sift(['query', 'SELECT 1', '--format', 'md']), 1);
   });
 
-  change('tables still takes no option, markdown included', async () => {
+  test('tables still takes no option, markdown included', async () => {
     fails(await sift(['tables', '--format', 'markdown']), 1);
   });
 });

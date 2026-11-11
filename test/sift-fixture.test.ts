@@ -4,7 +4,8 @@
 import { E2E } from './isolate.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 // @ts-ignore: plain .mjs bench script
@@ -231,4 +232,22 @@ test('grading the empty template fails every hidden case', E2E, () => {
   assert.equal(r.total, names.length);
   assert.equal(r.passed, 0);
   assert.equal(r.failed, r.total);
+});
+
+// A `change` case is one a brief-only build fails (#453). Every input outside the brief (a new format, a new option)
+// is a usage error to a brief-only build; a checkout whose CLI answers every call with one passes exactly the cases
+// that expect a usage error, and none of those may be a change case.
+test('no change case passes against a CLI that answers every call with a usage error', E2E, (t) => {
+  const stub = mkdtempSync(path.join(os.tmpdir(), 'sift-usage-'));
+  t.after(() => rmSync(stub, { recursive: true, force: true }));
+  mkdirSync(path.join(stub, 'bin'));
+  mkdirSync(path.join(stub, 'src'));
+  writeFileSync(path.join(stub, 'package.json'), JSON.stringify({ name: 'sift', type: 'module', main: 'src/sift.js', bin: { sift: 'bin/sift.js' } }));
+  writeFileSync(path.join(stub, 'bin', 'sift.js'), "process.stderr.write('error: usage\\n');\nprocess.exitCode = 1;\n");
+  writeFileSync(path.join(stub, 'src', 'sift.js'), 'export {};\n');
+  const r = grade(stub, { hidden, checkoutEnv: manifest.checkoutEnv });
+  const failed = new Set(r.failures);
+  const passed = names.filter((n) => !failed.has(n));
+  assert.ok(passed.length > 0, 'the usage-error cases pass against it');
+  assert.deepEqual(passed.filter((n) => tags[n] === 'change'), []);
 });
