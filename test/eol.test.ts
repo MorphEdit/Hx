@@ -104,7 +104,7 @@ test('hx doctor: no .gitattributes and core.autocrlf=true → a – line endings
   const dir = path.join(tmp, 'doc');
   mkdirSync(path.join(dir, '.hx'), { recursive: true });
   git(dir, 'init', '-q', '-b', 'main');
-  writeFileSync(path.join(dir, '.hx', 'config.json'), JSON.stringify({ repo: 'me/app', claudeBin: FAKE_CLAUDE, gateCommand: 'npm test' }));
+  writeFileSync(path.join(dir, '.hx', 'config.json'), JSON.stringify({ repo: 'me/app', defaultBranch: 'main', claudeBin: FAKE_CLAUDE, gateCommand: 'npm test' }));
   const r = hx(dir, 'doctor');
   assert.equal(r.status, 0, r.stdout + r.stderr);
   assert.match(r.stdout, /^– line endings — no \.gitattributes, core\.autocrlf is true\n {4}fix: add {2}\* text=auto eol=lf/m);

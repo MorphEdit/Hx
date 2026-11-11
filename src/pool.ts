@@ -17,7 +17,7 @@ import { fmt, recordUsage, totalTokens } from './usage.ts';
 import { testMatcher, turnTiming, type TurnTiming } from './timing.ts';
 import { actionBudget, budgetFilter, newSkipLines, readBudget, readBudgetWindows, readingOf, recordReading, type Budget } from './budget.ts';
 import { healthPass, renderResult } from './health.ts';
-import { appendGateRun, gateIssueBody, gateIssueTitle, readGate, readGateRuns, remoteSha, remoteTree, runGate, slowGateWarning, treeOf, writeGate, type GateResult } from './gate.ts';
+import { appendGateRun, fmtDuration, gateIssueBody, gateIssueTitle, readGate, readGateRuns, remoteSha, remoteTree, runGate, slowGateWarning, treeOf, writeGate, type GateResult } from './gate.ts';
 import { run as runCmd } from './exec.ts';
 import { dueRelease, release, releaseGate } from './release.ts';
 import { acquireSlot, DEFAULT_FLEET_WORKERS, readGithubHold, readHold, releaseSlot, writeGithubHold, writeHold } from './fleet.ts';
@@ -118,6 +118,17 @@ const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
 export function engineRetryMs(env: NodeJS.ProcessEnv = process.env): number {
   const v = env.HX_ENGINE_RETRY_MS, n = Number(v);
   return v !== undefined && v !== '' && Number.isFinite(n) && n >= 0 ? n : 2000;
+}
+
+/** How many crashes in a row (a session that throws before it runs, e.g. its worktree cannot be made) label an issue
+ *  agent-blocked; each one before that keeps it unclaimed for crashBackoffMs (#442). */
+export const CRASH_BLOCK_AFTER = 3;
+
+/** The wait after the `count`th crash in a row: 1, 2, 4… min, or HX_CRASH_BACKOFF_MS doubled (the tests). */
+export function crashBackoffMs(count: number, env: NodeJS.ProcessEnv = process.env): number {
+  const v = env.HX_CRASH_BACKOFF_MS, n = Number(v);
+  const base = v !== undefined && v !== '' && Number.isFinite(n) && n >= 0 ? n : 60_000;
+  return base * 2 ** (count - 1);
 }
 
 // the colour and description of each label hx adds, set by ensureBoardLabels (a label relabel creates)
@@ -407,6 +418,28 @@ async function pool(p: Project, o: PoolOptions): Promise<number> {
   const filedChild = new Set<number>();
   const oneChild = (a: Action) => (a.kind === 'decompose' ? singleChild(a.body, c.singleChildMaxCriteria, o.workers, auto) : null);
   const isEngine = (a: Action) => a.kind === 'close-prd' || a.kind === 'label-ready' || (a.kind === 'decompose' && (filedChild.has(a.prd) || oneChild(a) !== null));
+  // a session that crashes on every try (an empty defaultBranch, #442): backed off, then labelled agent-blocked
+  const crashes = new Map<string, { count: number; until: number }>();
+  const crashWaiting = (a: Action) => a.kind !== 'close-prd' && a.kind !== 'label-ready' && (crashes.get(keyOf(a))?.until ?? 0) > Date.now();
+  const crashed = async (a: SessionAction, key: string, error: string) => {
+    const n = target(a), count = (crashes.get(key)?.count ?? 0) + 1;
+    if (count < CRASH_BLOCK_AFTER) {
+      const ms = crashBackoffMs(count);
+      crashes.set(key, { count, until: Date.now() + ms });
+      log(`crashed ${count} time(s) in a row — not claimed again for ${fmtDuration(ms)}`, n);
+      return;
+    }
+    crashes.delete(key);
+    await gh.comment(c.repo, n, `**hx:** the ${a.kind} session crashed ${count} times in a row before it could start, the same way each time:
+
+\`\`\`
+${error.slice(0, 1500)}
+\`\`\`
+
+A human needs to look: fix the cause, then remove the \`${c.labels.blocked}\` label to let hx pick it up again.`).catch(() => {});
+    await relabel(c.repo, n, [c.labels.blocked], [c.labels.working]);
+    log(`crashed ${count} times in a row — labelled ${c.labels.blocked}`, n);
+  };
   const decideWorkers = () => {
     const now = loadClock();
     const r = o.loadReader ? o.loadReader() : loadReading(snapshots, now);
@@ -907,7 +940,7 @@ async function pool(p: Project, o: PoolOptions): Promise<number> {
           // merge moves the base too, and it re-tests once the session hands back (green only after its DONE)
           const fixing = gs.fixIssue !== undefined && inFlight.has(issueKey(gs.fixIssue));
           if (gateRed() && !gateRunning && !fixing && gs.last && (await remoteSha(p.root, c.defaultBranch)) !== gs.last.sha) void gateCheck();
-          actions = claimable(pl.actions, { only: o.only, gateRed: gateRed(), fixIssue: gs.fixIssue });
+          actions = claimable(pl.actions, { only: o.only, gateRed: gateRed(), fixIssue: gs.fixIssue }).filter((a) => !crashWaiting(a));
           if (c.budgetGate) {
             // the files are read once per pass; a skipped action is looked at again next pass
             const g = budgetFilter(actions.filter((a) => !isEngine(a)), readBudget(p.stateDir, c, new Date()));
@@ -944,8 +977,12 @@ async function pool(p: Project, o: PoolOptions): Promise<number> {
           } else if (r?.stopReason === 'fatal') {
             fatal = r.last?.error ?? 'unknown setup error';
           } else if (r && !r.done && r.stopReason !== 'aborted' && r.promiseSeen !== 'alt') failures++; // a question is no failure
+          crashes.delete(key);
           watchReport({ session: sessionOutcome(r) });
-        }).catch((e) => { failures++; log(`crashed: ${e.message}`, target(a)); watchReport({ session: 'error' }); })
+        }).catch(async (e) => {
+          failures++; log(`crashed: ${e.message}`, target(a)); watchReport({ session: 'error' });
+          if (!stop.signal.aborted) await crashed(a, key, String(e?.message ?? e)).catch((x) => log(`crash backoff failed: ${x.message}`, target(a)));
+        })
           .finally(() => { if (fleetDir && slot !== null) releaseSlot(fleetDir, slot); inFlight.delete(key); live.sessions = live.sessions.filter((s) => s.key !== key); save(); finished++; });
         inFlight.set(key, task);
       }

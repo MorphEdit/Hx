@@ -281,12 +281,27 @@ ${render(checks.filter((c) => c.mark !== '✓'))}`); return false; }
   return true;
 }
 
+/** The base branch when GitHub names none: origin's HEAD, else the checked-out branch, whichever origin has; '' when neither. */
+async function originBranch(root: string): Promise<string> {
+  const head = (await run('git', ['-C', root, 'symbolic-ref', '--short', 'refs/remotes/origin/HEAD'])).stdout.trim().replace(/^origin\//, '');
+  const local = (await run('git', ['-C', root, 'symbolic-ref', '--short', 'HEAD'])).stdout.trim();
+  for (const b of [head, local].filter(Boolean))
+    if ((await run('git', ['-C', root, 'ls-remote', '--exit-code', '--heads', 'origin', b])).code === 0) return b;
+  return '';
+}
+
 async function init(args: string[]): Promise<number> {
   const root = (await runOk('git', ['rev-parse', '--show-toplevel'])).trim().replace(/\//g, path.sep);
   const existing = findProjectRoot(root) === root;
   const repo = await gh.repoSlug(root);
   const config: Config = existing ? loadProject(root).config
-    : { ...DEFAULTS, repo, defaultBranch: await gh.defaultBranch(repo), worktreeRoot: defaultWorktreeRoot(root, repo) };
+    : { ...DEFAULTS, repo, defaultBranch: '', worktreeRoot: defaultWorktreeRoot(root, repo) };
+  // GitHub names no default branch for a repo with no commits: an empty one makes hx run build the ref origin/ (#442)
+  if (!config.defaultBranch?.trim()) config.defaultBranch = await gh.defaultBranch(config.repo) || await originBranch(root);
+  if (!config.defaultBranch) {
+    console.error('hx init: GitHub names no default branch for this repo: the repo has no commits yet; push a first commit, then run hx init again');
+    return 1;
+  }
   // a key absent from the file is "not set": detect it; a present key ('' and [] included) is left alone
   const raw = existing ? readRawConfig(root) : {};
   const notes: string[] = [];

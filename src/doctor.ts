@@ -108,6 +108,14 @@ export function checkLabels(missing: string[] | null): Check {
   return { mark: '–', label, detail: `missing: ${missing.join(', ')}`, fix: '`hx run` creates it', required: false };
 }
 
+/** The base branch hx builds from (origin/<it>): empty when hx init ran on a GitHub repo with no commits yet (#442). */
+export function checkDefaultBranch(defaultBranch: string | undefined): Check {
+  const label = 'defaultBranch';
+  const b = (defaultBranch ?? '').trim();
+  return b ? { mark: '✓', label, detail: b, required: true }
+    : { mark: '✗', label, detail: 'empty', fix: 'set "defaultBranch": "main" in .hx/config.json (or push a first commit and run hx init again)', required: true };
+}
+
 export function checkGate(gateCommand: string): Check {
   const label = 'gate command';
   return gateCommand.trim() ? { mark: '✓', label, detail: gateCommand, required: false }
@@ -222,7 +230,7 @@ export async function doctor(opts: DoctorOptions = {}): Promise<{ checks: Check[
     const originCheck = checkOrigin(origin);
     checks.push(originCheck, checkConfig(raw !== null, opts.configOptional));
     if (!opts.skipLabels && originCheck.mark === '✓') checks.push(checkLabels(await missingLabels(GH, originCheck.detail!, config.labels, root, t)));
-    if (raw !== null) checks.push(checkGate(config.gateCommand ?? ''));
+    if (raw !== null) checks.push(checkDefaultBranch(config.defaultBranch), checkGate(config.gateCommand ?? ''));
     if (raw !== null && !opts.skipAutoStart) {
       const enabled = config.autoStart === true;
       const task = platform !== 'win32' ? undefined : enabled ? await taskState(taskName(serviceId(config.repo ?? '', root)), root) : 'missing';
