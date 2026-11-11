@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const dir = path.join(root, 'bench', 'fixtures', 'sift');
@@ -83,4 +83,93 @@ test('the template: an empty sift package with bin/sift.js, node --test and no d
   const readme = read('template/README.md');
   assert.match(readme, /^# sift: \S.*\n$/);
   assert.equal(readme.trim().split('\n').length, 1);
+});
+
+// --- the fuzz generator (#454): directory cases written from the brief and the change only ---------------------------
+
+const genFile = path.join(dir, 'fuzz-gen.mjs');
+const gen = await import(pathToFileURL(genFile).href);
+type DirCase = { id: number; feature: string; args: string[]; files: Record<string, Buffer> | null; now: string };
+const all: DirCase[] = gen.generate();
+
+test('the generator: seed 1107 and 1000 cases by default; the same seed gives the same cases, file bytes included', () => {
+  assert.equal(gen.DEFAULT_SEED, 1107);
+  assert.equal(gen.DEFAULT_COUNT, 1000);
+  assert.equal(all.length, 1000);
+  const a: DirCase[] = gen.generate({ count: 300 });
+  const b: DirCase[] = gen.generate({ count: 300 });
+  assert.deepEqual(a, b);
+  const bytes = (cs: DirCase[]) => cs.map((c) => Object.entries(c.files ?? {}).map(([k, v]) => `${k}=${v.toString('hex')}`).join(';')).join('\n');
+  assert.equal(bytes(a), bytes(b), 'the same file bytes');
+  assert.deepEqual(gen.generate({ seed: 1107, count: 300 }), a, 'the default seed is 1107');
+  assert.notDeepEqual(gen.generate({ seed: 7, count: 300 }), a, 'another seed differs');
+  assert.deepEqual(gen.generate({ count: 150 }), a.slice(0, 150), 'case i depends only on the seed and i');
+  assert.deepEqual(all.slice(0, 300), a);
+});
+
+// a path relative to the case directory with forward slashes only: no backslash, no leading `/`, no drive, no `.` or `..` segment, no trailing `/`
+const BAD_REL_PATH = /\\|^\/|^[A-Za-z]:|(^|\/)\.\.?(\/|$)|\/$/;
+
+test('the relative-path check rejects a backslash, a leading slash, a drive, a dot segment and a trailing slash', () => {
+  for (const ok of ['db/select.csv', 'db/2019.csv', 'notes.txt', 'a/b/c.sql', 'db/.hidden.csv', 'db/x..csv']) assert.doesNotMatch(ok, BAD_REL_PATH, ok);
+  for (const bad of ['db\\select.csv', '\\x.csv', '/db/2019.csv', '/abs', 'C:/x', 'c:x', 'db/../notes.txt', './x', 'db/./x', '..', 'db/']) assert.match(bad, BAD_REL_PATH, bad);
+});
+
+test('every case is a directory case: exactly five keys, files null or forward-slash relative paths to Buffers', () => {
+  for (const [i, c] of all.entries()) {
+    assert.deepEqual(Object.keys(c).sort(), ['args', 'feature', 'files', 'id', 'now'], `case ${i}`);
+    assert.equal(c.id, i);
+    assert.ok(Array.isArray(c.args) && c.args.every((x) => typeof x === 'string'), `case ${i} args`);
+    assert.equal(typeof c.now, 'string', `case ${i} now`);
+    assert.ok(c.feature === 'plain' || gen.FEATURES.includes(c.feature), c.feature);
+    if (c.files === null) continue;
+    assert.equal(Object.getPrototypeOf(c.files), Object.prototype, `case ${i} files is a plain object`);
+    for (const [rel, b] of Object.entries(c.files)) {
+      assert.ok(Buffer.isBuffer(b), `case ${i} ${rel} is a Buffer`);
+      assert.doesNotMatch(rel, BAD_REL_PATH, `case ${i}: ${rel} is a forward-slash path relative to the case`);
+    }
+  }
+  // tables live under the data directory the manifest names; a script for `sift run` lives outside it
+  const paths = all.flatMap((c) => Object.keys(c.files ?? {}));
+  assert.ok(paths.some((p) => new RegExp(`^${manifest.fuzzFile}/[a-z_][a-z0-9_]*\.csv$`).test(p)));
+  assert.ok(all.some((c) => c.args[0] === 'run' && Object.hasOwn(c.files ?? {}, c.args.find((a, i) => i > 0 && !a.startsWith('--') && !['table', 'csv', 'json', 'markdown'].includes(a)) ?? '')));
+  assert.ok(all.some((c) => c.files === null), 'some cases have no files at all');
+});
+
+test('every feature of FEATURES appears in the default cases, and the features name every subsystem', () => {
+  assert.deepEqual(new Set(all.map((c) => c.feature)), new Set([...gen.FEATURES, 'plain']));
+  for (const f of ['expressions', 'casts', 'coercion', 'three-valued', 'distinct', 'where', 'order-by', 'limit', 'aggregates', 'grouping', 'joins',
+    'subqueries', 'text-functions', 'number-functions', 'date-functions', 'case', 'union', 'insert', 'update', 'delete', 'create-drop', 'scripts',
+    'formats', 'csv-reading', 'table-errors', 'boundaries', 'syntax', 'type-errors', 'names', 'usage', 'environment', 'precedence']) {
+    assert.ok(gen.FEATURES.includes(f), `a feature ${f}`);
+  }
+});
+
+test('the cases reach NULLs, empty texts, quoting, line endings and boundary numbers and dates, every command and format', () => {
+  const tables = all.flatMap((c) => Object.entries(c.files ?? {}).filter(([k]) => k.startsWith('db/') && k.endsWith('.csv')).map(([, b]) => b.toString('utf8')));
+  const some = (re: RegExp, what: string) => assert.ok(tables.some((t) => re.test(t)), what);
+  some(/,,|,\r?\n|^[^\n]*\n\r?\n/m, 'a NULL (an empty field)');
+  some(/(^|,)""(,|\r?\n|$)/m, 'an empty text');
+  some(/"[^"\n]*,[^"\n]*"/, 'a quoted field holding a comma');
+  some(/"[^"]*""[^"]*"/, 'a doubled quote');
+  some(/"[^"]*\n[^"]*"/, 'a line break inside quotes');
+  some(/\r\n/, 'CRLF');
+  some(/^\uFEFF/, 'a byte-order mark');
+  for (const edge of ['9223372036854775807', '-9223372036854775808', '999999999999999999.999999', '0001-01-01', '9999-12-31', '2024-02-29']) some(new RegExp(edge.replace('.', '\.')), edge);
+  const sql = all.flatMap((c) => [...c.args, ...Object.entries(c.files ?? {}).filter(([k]) => k.endsWith('.sql')).map(([, b]) => b.toString('utf8'))]).join('\n');
+  for (const word of ['UNION', 'LEFT JOIN', 'GROUP BY', 'HAVING', 'DISTINCT', 'NULLS FIRST', 'NULLS LAST', 'LIMIT', 'OFFSET', 'IN (SELECT', 'CASE', 'COALESCE',
+    'NULLIF', 'CAST(', 'LIKE', 'BETWEEN', 'IS NULL', 'INSERT INTO', 'UPDATE', 'DELETE FROM', 'CREATE TABLE', 'IF NOT EXISTS', 'DROP TABLE', 'IF EXISTS', 'TODAY()',
+    'ADD_MONTHS', 'SUBSTR', 'ROUND', 'WEEKDAY', 'AVG(', 'COUNT(*)']) assert.ok(sql.includes(word), `the SQL uses ${word}`);
+  for (const cmd of ['query', 'run', 'tables', 'schema']) assert.ok(all.some((c) => c.args[0] === cmd), `a ${cmd} command`);
+  for (const f of ['table', 'csv', 'json', 'markdown']) assert.ok(all.some((c) => c.args.join(' ').includes(`--format ${f}`)), `--format ${f}`);
+  assert.ok(all.some((c) => !/^\d{4}-\d{2}-\d{2}$/.test(c.now)), 'a SIFT_TODAY that is not a date');
+});
+
+test('the generator is pure: it imports only node: modules, reads no clock and spawns nothing', () => {
+  const src = readFileSync(genFile, 'utf8');
+  const imports = [...src.matchAll(/^\s*import\b[^'"]*['"]([^'"]+)['"]/gm)].map((m) => m[1]);
+  assert.ok(imports.length > 0);
+  for (const m of imports) assert.match(m, /^node:/);
+  assert.doesNotMatch(src, /\bimport\(|require\(/);
+  assert.doesNotMatch(src, /Date\.now|new Date\(|performance\.now|Math\.random|child_process|process\.(env|hrtime)/);
 });
