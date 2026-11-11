@@ -252,24 +252,16 @@ test('no change case passes against a CLI that answers every call with a usage e
   assert.deepEqual(passed.filter((n) => tags[n] === 'change'), []);
 });
 
-// reference-base (#456): the reference built from the brief alone. Its core (tables, parser, types, single-table
-// SELECT, functions, output, CLI and library) passes every `stable` case of the areas below; the cases listed here
-// need what the sibling issues build (writes and scripts), and they remove them. Grouping, joins and subqueries
-// (#457) pass every `stable` case of their own areas.
+// reference-base (#456, #457, #458): the reference built from the brief alone. It passes every `stable` case of every
+// area of the brief: the core (tables, parser, types, single-table SELECT, functions, output, CLI and library),
+// grouping, joins and subqueries (#457), and writes and `sift run` scripts (#458).
 const base = path.join(dir, 'reference-base');
 const CORE_AREAS = ['cli', 'syntax', 'types', 'select', 'functions', 'output', 'library'];
 const QUERY_AREAS = ['aggregates', 'joins', 'subqueries'];
+const WRITE_AREAS = ['writes', 'script'];
 // one grade of reference-base, shared by the tests below
 let baseGrade: { failures: string[] } | undefined;
 const gradeBase = () => (baseGrade ??= grade(base, { hidden, checkoutEnv: manifest.checkoutEnv }));
-const CORE_PENDING = [
-  'cli.test.mjs > an error creates, changes and deletes no file',
-  'library.test.mjs > query of another statement returns its message and changes the file',
-  'library.test.mjs > run is all or nothing: a failing statement throws and writes nothing',
-  'library.test.mjs > run returns the result of every statement, in order',
-  'output.test.mjs > a statement other than SELECT prints its one line in json',
-  'output.test.mjs > a statement other than SELECT prints its one line in the table format',
-];
 
 test('reference-base: plain Node with no dependencies, laid out like the template', () => {
   const pkg = JSON.parse(readFileSync(path.join(base, 'package.json'), 'utf8'));
@@ -285,12 +277,11 @@ test('reference-base: plain Node with no dependencies, laid out like the templat
   }
 });
 
-test('grading reference-base: every stable case of the core areas passes, but the named cases of the sibling features', E2E, () => {
+test('grading reference-base: every stable case of the core areas passes', E2E, () => {
   const core = names.filter((n) => tags[n] === 'stable' && CORE_AREAS.some((a) => n.startsWith(`${a}.test.mjs > `)));
-  for (const n of CORE_PENDING) assert.ok(core.includes(n), `${n} is a stable case of the core areas`);
+  assert.ok(core.length >= 250, `${core.length} core cases`);
   const failed = new Set(gradeBase().failures);
-  assert.deepEqual(core.filter((n) => failed.has(n) && !CORE_PENDING.includes(n)), []);
-  assert.ok(core.length - CORE_PENDING.length >= 250, `${core.length - CORE_PENDING.length} core cases`);
+  assert.deepEqual(core.filter((n) => failed.has(n)), []);
 });
 
 test('grading reference-base: every stable case of aggregates, joins and subqueries passes', E2E, () => {
@@ -298,4 +289,64 @@ test('grading reference-base: every stable case of aggregates, joins and subquer
   assert.ok(stable.length >= 80, `${stable.length} stable cases of grouping, joins and subqueries`);
   const failed = new Set(gradeBase().failures);
   assert.deepEqual(stable.filter((n) => failed.has(n)), []);
+});
+
+test('grading reference-base: every stable case of writes and script passes', E2E, () => {
+  const stable = names.filter((n) => tags[n] === 'stable' && WRITE_AREAS.some((a) => n.startsWith(`${a}.test.mjs > `)));
+  assert.ok(stable.length >= 60, `${stable.length} stable cases of writes and scripts`);
+  const failed = new Set(gradeBase().failures);
+  assert.deepEqual(stable.filter((n) => failed.has(n)), []);
+});
+
+test('grading reference-base: every stable case passes, and almost every change case fails', E2E, () => {
+  const failed = new Set(gradeBase().failures);
+  assert.deepEqual(names.filter((n) => tags[n] === 'stable' && failed.has(n)), []);
+  const change = names.filter((n) => tags[n] === 'change');
+  assert.ok(change.filter((n) => failed.has(n)).length >= 0.9 * change.length, 'reference-base fails at least 90% of the change cases');
+});
+
+// A failing statement or script leaves the data directory byte for byte as it was: every name, every file's bytes.
+const baseLib = await import(pathToFileURL(path.join(base, 'src', 'sift.js')).href);
+const snapshot = (root: string): Record<string, string> => {
+  const out: Record<string, string> = {};
+  const walk = (rel: string) => {
+    for (const e of readdirSync(path.join(root, rel), { withFileTypes: true })) {
+      const r = rel ? `${rel}/${e.name}` : e.name;
+      if (e.isDirectory()) { out[`${r}/`] = ''; walk(r); } else out[r] = readFileSync(path.join(root, r)).toString('hex');
+    }
+  };
+  walk('');
+  return out;
+};
+
+test('reference-base: a failing statement or script leaves the data directory byte for byte as it was', (t) => {
+  const db = mkdtempSync(path.join(os.tmpdir(), 'sift-atomic-'));
+  t.after(() => rmSync(db, { recursive: true, force: true }));
+  // tables in a form sift would not write, a file that is not a table, a folder named like a table
+  writeFileSync(path.join(db, 't.csv'), 'A:INTEGER,B:Text\r\n"1",x\r\n2,y');
+  writeFileSync(path.join(db, 'u.csv'), '﻿a:integer\n1\n');
+  writeFileSync(path.join(db, 'notes.txt'), 'keep\n');
+  mkdirSync(path.join(db, 'v.csv'));
+  const before = snapshot(db);
+  const opts = { db, today: '2024-03-15' };
+  const fails = (f: () => unknown, exitCode: number) => {
+    assert.throws(f, (e: any) => e instanceof baseLib.SiftError && e.exitCode === exitCode);
+    assert.deepEqual(snapshot(db), before);
+  };
+  // one statement: a run-time error in its last row
+  fails(() => baseLib.query("INSERT INTO t VALUES (3, 'z'), (CAST('q' AS INTEGER), 'w')", opts), 6);
+  fails(() => baseLib.query("UPDATE t SET a = CAST(b AS INTEGER) WHERE a = 2", opts), 6);
+  // a script that changes, creates and drops tables, then fails: nothing is written, created or deleted
+  fails(() => baseLib.run("INSERT INTO t VALUES (3, 'z'); UPDATE u SET a = 9; CREATE TABLE w (c DATE); DROP TABLE u; DELETE FROM t; SELECT 1 / 0", opts), 6);
+  fails(() => baseLib.run('DELETE FROM t; SELECT nope FROM u', opts), 5);
+  fails(() => baseLib.run('DROP TABLE u; SELECT * FROM u', opts), 4);
+  // a script whose every statement succeeds but whose write cannot be made (a folder is where v.csv would go):
+  // the tables it changed before are not written either
+  fails(() => baseLib.run("INSERT INTO t VALUES (3, 'z'); DROP TABLE u; CREATE TABLE v (a INTEGER)", opts), 4);
+  // and a script that succeeds writes every table it changed, in sift's form, with no temporary file left
+  assert.deepEqual(baseLib.run("INSERT INTO t VALUES (3, 'z'); DROP TABLE u; CREATE TABLE w (c DATE)", opts),
+    [{ message: 'inserted 1' }, { message: 'dropped u' }, { message: 'created w' }]);
+  assert.deepEqual(readdirSync(db).sort(), ['notes.txt', 't.csv', 'v.csv', 'w.csv']);
+  assert.equal(readFileSync(path.join(db, 't.csv'), 'utf8'), 'a:integer,b:text\n1,x\n2,y\n3,z\n');
+  assert.equal(readFileSync(path.join(db, 'w.csv'), 'utf8'), 'c:date\n');
 });
