@@ -14,7 +14,8 @@ Every implementation issue of this PRD is closed:
 
 1. `git fetch origin && git reset --hard origin/{{BASE}}` so you review what is actually merged.
 2. Read the PRD: `node "{{ISSUE_SCRIPT}}" --repo {{REPO}} --issue {{PRD}}` (earlier review rounds are in the comments).
-3. Install dependencies if needed and run the full test suite.
+3. Install dependencies if needed and run the full test suite. Give it a shell `timeout` of 3000000 ms (50 min): a shell command
+   without its own timeout is stopped after 2 minutes.
 4. Check every requirement and acceptance criterion of the PRD against the code and the tests.
    A gap is something the PRD asks for that is missing, broken, or untested. Style preferences
    and nice-to-haves are not gaps.

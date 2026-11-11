@@ -30,23 +30,33 @@ export function mainModel(modelUsage: unknown): string | undefined {
 
 /** ship.mjs's default --test-timeout (minutes): one shell command of a worker must be able to run that long. */
 export const SHIP_TEST_MINUTES = 45;
-const SHELL_VARS = ['BASH_MAX_TIMEOUT_MS', 'BASH_DEFAULT_TIMEOUT_MS'];
+/** Claude Code's own timeout for a shell command that passes none (BASH_DEFAULT_TIMEOUT_MS unset). */
+export const SHELL_DEFAULT_MS = 120_000;
+/** Claude Code's own cap on one shell command's timeout (BASH_MAX_TIMEOUT_MS unset). */
+const SHELL_CAP_MS = 600_000;
 
 /**
- * BASH_MAX_TIMEOUT_MS and BASH_DEFAULT_TIMEOUT_MS for a session: ship's test timeout + 5 min, kept a minute
- * below the turn timeout (Claude Code caps one command at 10 min otherwise). A higher value in `env` is kept.
+ * The shell timeouts for a session. BASH_MAX_TIMEOUT_MS: ship's test timeout + 5 min, kept a minute below the turn
+ * timeout (Claude Code caps one command at 10 min otherwise), so ship.mjs and the full suite can run when the worker
+ * passes a long `timeout`. BASH_DEFAULT_TIMEOUT_MS is not raised (#443): a command without its own timeout ends at
+ * Claude Code's 2 min, so a hung one costs minutes. A higher value already in `env` is kept for either.
  */
 export function shellEnv(turnTimeoutMs: number, env: NodeJS.ProcessEnv = process.env): Record<string, string> {
   const want = Math.min((SHIP_TEST_MINUTES + 5) * 60_000, turnTimeoutMs - 60_000);
   if (!(want > 0)) return {};
-  return Object.fromEntries(SHELL_VARS.map((k) => [k, String(Math.max(want, Number(env[k]) || 0))]));
+  const out: Record<string, string> = { BASH_MAX_TIMEOUT_MS: String(Math.max(want, Number(env.BASH_MAX_TIMEOUT_MS) || 0)) };
+  if (Number(env.BASH_DEFAULT_TIMEOUT_MS) > SHELL_DEFAULT_MS) out.BASH_DEFAULT_TIMEOUT_MS = String(Number(env.BASH_DEFAULT_TIMEOUT_MS));
+  return out;
 }
 
 function claudeTurn(o: TurnOptions): AgentTurn {
   const texts: string[] = [];
   let final = ''; // the result event's result, else the last text block
-  const pending = new Set<string>(); // tool calls started and not answered yet
-  const shellMs = Number(shellEnv(o.timeoutMs).BASH_MAX_TIMEOUT_MS) || 0;
+  const shell = shellEnv(o.timeoutMs);
+  const maxMs = Number(shell.BASH_MAX_TIMEOUT_MS) || SHELL_CAP_MS;
+  const defaultMs = Math.min(Number(shell.BASH_DEFAULT_TIMEOUT_MS) || SHELL_DEFAULT_MS, maxMs);
+  // tool calls started and not answered yet: the longest each can run (its own `timeout`, else the default)
+  const pending = new Map<string, number>();
   let gotResult = false;
   let rejectedLimit: { resetsAt?: number } | undefined;
   return {
@@ -57,7 +67,7 @@ function claudeTurn(o: TurnOptions): AgentTurn {
       if (ev.type === 'assistant') {
         for (const c of ev.message?.content ?? []) {
           if (c.type === 'text' && c.text) { texts.push(c.text); final = c.text; }
-          else if (c.type === 'tool_use' && c.id) pending.add(c.id);
+          else if (c.type === 'tool_use' && c.id) pending.set(c.id, Math.min(Number(c.input?.timeout) || defaultMs, maxMs));
         }
       } else if (ev.type === 'user') {
         for (const c of Array.isArray(ev.message?.content) ? ev.message.content : []) if (c.type === 'tool_result') pending.delete(c.tool_use_id);
@@ -84,8 +94,8 @@ function claudeTurn(o: TurnOptions): AgentTurn {
       }
       return rl ? { event: ev, rateLimit: rl } : { event: ev };
     },
-    // a shell command prints nothing on stdout until it ends: give it its whole timeout (and a minute) before a stall
-    waitMs: () => (pending.size && shellMs ? shellMs + 60_000 : 0),
+    // a shell command prints nothing on stdout until it ends: give the longest pending call its timeout (and a minute) before a stall
+    waitMs: () => (pending.size ? Math.max(...pending.values()) + 60_000 : 0),
     finish(res, code, stderr) {
       res.text = texts.join('\n');
       res.final = final;
