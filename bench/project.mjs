@@ -11,6 +11,9 @@
 // session `workerArgs` of the arm's config. Each run stops at --max-hours or --max-usd, whichever comes first. Then a
 // fresh clone of the default branch is graded by the hidden suite (bench/project-grade.mjs), then fuzzed against the
 // reference (bench/project-fuzz.mjs) and its own tests run under coverage (bench/project-coverage.mjs), in that order.
+// A two-phase run's first version is graded too, on the hidden suite's `stable` cases (hidden/tags.json) only: a run
+// that reached phase 2 by a second fresh clone checked out at `phase1Sha` (no fuzz, no coverage), any other by its final
+// grade. It is recorded as `phase1: { passed, total }`, or `phase1Error` when that checkout or grade throws.
 //
 //   node bench/project.mjs <chat|hx1|hx3> [--fixture <name>] [--runs N] [--max-hours H] [--max-usd USD] [--config key=value ...]
 // --fixture picks the fixture (bench/project-fixtures.mjs, default tally): its brief, template, hidden suite, reference
@@ -35,7 +38,7 @@ import { resolveCmd } from '../src/exec.ts';
 import { coverage } from './project-coverage.mjs';
 import { DEFAULT_FIXTURE, FixtureError, resolveFixture, resultsDirOf, runCaps } from './project-fixtures.mjs';
 import { fuzz } from './project-fuzz.mjs';
-import { grade, gradeOptions } from './project-grade.mjs';
+import { grade, gradeOptions, readTags, stableScore } from './project-grade.mjs';
 import {
   USAGE, armConfig, auditFails, capCheck, chatSession, countNudges, escapedDefects, gateReds, hxRunArgs, parseArgs, parseJsonl,
   provenanceRoles, sessionsByRole, setupRepo, splitPhases, usageTotals,
@@ -243,12 +246,25 @@ function clone(ctx) {
   sh('gh', ['repo', 'clone', ctx.repo, ctx.clone, '--', '-q']);
 }
 
+/** A two-phase run's first version: a fresh clone of the run's repo in its own directory, checked out at `sha`; the
+ *  directory to grade. */
+function phase1Checkout(ctx, sha) {
+  if (!sha) throw new Error('no phase1Sha to check out');
+  rmSync(ctx.phase1Clone, { recursive: true, force: true });
+  sh('gh', ['repo', 'clone', ctx.repo, ctx.phase1Clone, '--', '-q']);
+  sh('git', ['checkout', '-q', '--detach', sha], { cwd: ctx.phase1Clone });
+  return ctx.phase1Clone;
+}
+
 /** The commit `main` of the run's GitHub repo points at, read from GitHub (a two-phase run's `phase1Sha`). */
 const remoteMain = (ctx) => sh('gh', ['api', `repos/${ctx.repo}/commits/main`, '-q', '.sha']).trim();
 
 /** The real per-run steps; a test passes its own. `fuzz` and `coverage` take (dir, options); `remoteMain` (ctx) is
- *  the commit of `main` on the run's GitHub repo. */
-export const STEPS = { setup, arm: (ctx) => (ctx.arm === 'chat' ? chatArm(ctx) : hxArm(ctx)), issues, clone, grade, fuzz, coverage, remoteMain };
+ *  the commit of `main` on the run's GitHub repo; `phase1Checkout` (ctx, sha) checks a two-phase run's first version
+ *  out and returns its directory. */
+export const STEPS = {
+  setup, arm: (ctx) => (ctx.arm === 'chat' ? chatArm(ctx) : hxArm(ctx)), issues, clone, grade, fuzz, coverage, remoteMain, phase1Checkout,
+};
 
 /** `step(dir, options)` as { value } or, when it throws, { error } (the message): it never blocks the results file. */
 async function guarded(step, dir, options, what, log) {
@@ -297,6 +313,7 @@ export async function runSet({
     const ctx = {
       arm, i, stamp, repo: `${owner}/hx-project-${unique}`, maxHours, maxUsd, log, config, fixture,
       work: path.join(tmp, 'hxp', unique), worktreeRoot: path.join(tmp, 'hxp-wt', unique), clone: path.join(tmp, 'hxp-grade', unique),
+      phase1Clone: path.join(tmp, 'hxp-grade1', unique),
       remoteMain: () => steps.remoteMain(ctx),
     };
     try {
@@ -316,6 +333,17 @@ export async function runSet({
       const ghIssues = await steps.issues(ctx);
       await steps.clone(ctx);
       const score = await steps.grade(ctx.clone, per.grade);
+      // a two-phase run's first version on the stable cases: its own checkout at phase1Sha when the run reached phase 2
+      // (graded even when that is the final commit), the final grade when it ended in phase 1
+      let first = {};
+      if (fixture.change !== undefined) {
+        const reached = two.phases.some((p) => p.name === 'change');
+        const p1 = await guarded(async () => {
+          const s = reached ? await steps.grade(await steps.phase1Checkout(ctx, two.phase1Sha), per.grade) : score;
+          return stableScore(s, readTags(fixture.tags));
+        }, null, null, 'phase 1 grade', log);
+        first = p1.error === undefined ? { phase1: p1.value } : { phase1Error: p1.error };
+      }
       // after the hidden tests, fuzz first: the arm's own tests cannot change what is fuzzed
       const fz = await guarded(steps.fuzz, ctx.clone, { ...per.fuzz, ...fuzzOptions }, 'fuzz', log);
       const cov = await guarded(steps.coverage, ctx.clone, { ...per.coverage, ...coverageOptions }, 'coverage', log);
@@ -333,6 +361,7 @@ export async function runSet({
         sessions: sessionsByRole(usage),
         nudges: arm === 'chat' ? nudges ?? null : null,
         ...two,
+        ...first,
         issuesFiled: ghIssues.length, issuesClosed: ghIssues.filter((x) => x.state === 'CLOSED').length,
         auditFails: arm === 'chat' ? null : auditFails(readState('run.log')),
         gateReds: arm === 'chat' ? null : gateReds(readState('gate-runs.jsonl')),
@@ -344,7 +373,8 @@ export async function runSet({
       const file = path.join(resultsDir, `${name}.json`);
       writeFileSync(file, JSON.stringify(result, null, 2) + '\n');
       files.push(file);
-      log(`hidden ${result.passed}/${result.total} · ${result.ended} · ${result.issuesClosed}/${result.issuesFiled} issues closed · $${result.costUsd.toFixed(2)} · ${(result.tokens.total / 1e6).toFixed(2)}M tokens · ${qualityLine(quality)} → ${file}`);
+      const p1 = fixture.change === undefined ? '' : result.phase1 ? ` · phase1 ${result.phase1.passed}/${result.phase1.total}` : ` · phase1 error`;
+      log(`hidden ${result.passed}/${result.total}${p1} · ${result.ended} · ${result.issuesClosed}/${result.issuesFiled} issues closed · $${result.costUsd.toFixed(2)} · ${(result.tokens.total / 1e6).toFixed(2)}M tokens · ${qualityLine(quality)} → ${file}`);
     } catch (e) {
       failed.push(i);
       log(`run ${i} failed: ${e?.message ?? e}`);
