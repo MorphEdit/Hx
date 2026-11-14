@@ -78,7 +78,8 @@ test('SIGBREAK is recorded only where the platform has it', E2E, () => {
   assert.equal(os.constants.signals['SIGBREAK' as keyof typeof os.constants.signals] !== undefined, process.platform === 'win32');
 });
 
-test('a real SIGTERM (not on Windows, where one cannot be sent): recorded, then the runner stops', { ...E2E, skip: process.platform === 'win32' }, async () => {
+test('a real SIGTERM (not on Windows, where one cannot be sent): recorded, then the runner stops', E2E, async (t) => {
+  if (process.platform === 'win32') return t.skip('a signal cannot be sent to a process on Windows');
   const r = await runner('wait', { during: (child) => { child.kill('SIGTERM'); } });
   assert.equal(r.code, 128 + os.constants.signals.SIGTERM, r.err);
   assert.equal(r.record?.reason, 'SIGTERM');
