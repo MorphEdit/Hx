@@ -10,6 +10,9 @@ the old rule, which no longer holds.
 - `/` with two integers now gives a decimal: the exact quotient rounded to 6 digits after the point, a half going away
   from zero, like decimal `/`. `7 / 2` is `3.5`, `-7 / 2` is `-3.5`, `6 / 3` is `2.0`, `1 / 3` is `0.333333`,
   `2 / 3` is `0.666667`, `-2 / 3` is `-0.666667`.
+- Both integers become decimals first, as the integer side does when the other side is a decimal, so an integer of
+  10^18 or more in size is a run-time error (exit 6) here too: `9223372036854775807 / 10` is an error, though its
+  quotient would fit.
 - Its type is `decimal`, before anything runs too: so `CASE WHEN … THEN 7 / 2 ELSE 'x' END` is still a type error,
   `CAST(7 / 2 AS INTEGER)` is `3`, `7 / 2 % 2` is a type error (`%` takes integers), and `SUM(a / b)` of integers is
   a decimal. `INSERT`ing `7 / 2` into an `integer` column is a type error (exit 5).
@@ -34,7 +37,8 @@ the old rule, which no longer holds.
   `'APPLE' LIKE '%pp%'` is `TRUE`. Every other character still stands for itself exactly, and `%` and `_` keep their
   meaning.
 - Was: case mattered (`'Apple' LIKE 'a%'` was `FALSE`).
-- `=`, `<>`, the ordering of texts, `DISTINCT` and `GROUP BY` still compare texts exactly, case included.
+- `=`, `<>`, the ordering of texts, `DISTINCT`, `GROUP BY`, `UNION`, `INSTR` and `REPLACE` still compare texts exactly,
+  case included.
 
 ### Numbers are right-aligned in the table format
 - In the `table` format, a column whose type is `integer` or `decimal` is now padded on the left instead of the

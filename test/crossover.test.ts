@@ -194,13 +194,14 @@ test('the CLI: an unknown fixture or a bad flag is exit 2; the real fixtures pri
   const run = (args: string[]) => spawnSync(process.execPath, [path.join(root, 'bench', 'crossover.mjs'), ...args], { encoding: 'utf8', env });
   const bad = run(['--fixtures', 'nope']);
   assert.equal(bad.status, 2);
-  assert.match(bad.stderr, /unknown fixture "nope"; fixtures: tally, ledge/);
+  assert.match(bad.stderr, /unknown fixture "nope"; fixtures: tally, ledge, sift/);
   assert.equal(run(['--fixtures']).status, 2);
   assert.equal(run(['--other']).status, 2);
-  // sift's hidden suite, references and generator are still to come (PRD #446), so the complete fixtures are named
-  const ok = run(['--fixtures', 'tally,ledge']);
+  // every fixture by default, sift included now that it is complete (PRD #446)
+  const ok = run([]);
   assert.equal(ok.status, 0, ok.stderr);
   assert.match(ok.stdout, /^tally 237 lines · /m);
+  assert.match(ok.stdout, /^sift \d+ lines[: ]/m);
   assert.match(ok.stdout, /^crossover: /m);
 });
 

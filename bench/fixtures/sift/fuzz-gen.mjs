@@ -10,16 +10,15 @@
 // reached; the ones met on the way, and how they are kept out:
 // - error wording (only the exit code, stdout and whether stderr is empty are compared);
 // - a bare NULL inside arithmetic or a function (its type is open): typed NULLs are `CAST(NULL AS <type>)`;
-// - whether the SELECT items of a group that HAVING drops, or the SET values of a row that WHERE drops, are worked
-//   out: those expressions cannot fail at run time (no `*`, no `/` by a column, no failing cast);
-// - whether IN and BETWEEN stop early, and whether CASE stops at the first true condition: a text compared with a
-//   date there is always a date, and CASE conditions cannot fail;
 // - SUBSTR or ROUND with a NULL and a bad argument together, ROUND of an integer with a bad `d`: never generated;
 // - an UPDATE that sets a row to the values it had (written again or not): an UPDATE's table and every table of a
 //   script that may succeed are in sift's own file form, so writing them again changes no byte;
 // - SUM or AVG past the decimal range, ROUND past it, WEEKDAY or day counts before the Gregorian calendar: none;
-// - text order between `_` and letters in `sift tables`: no two table names differ there;
 // - a non-table file whose name differs from a table's only in case (Windows sees one file): never both.
+// The brief now states what is worked out after a HAVING or an UPDATE's WHERE drops something, that IN works out every
+// item and CASE stops at its first match, and the order of `sift tables`; the cases still keep away from them (those
+// expressions cannot fail at run time, a text compared with a date in IN, BETWEEN or CASE is always a date, and no two
+// table names differ only between `_` and a letter).
 import { Buffer } from 'node:buffer';
 
 export const FEATURES = [

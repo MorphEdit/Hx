@@ -41,6 +41,10 @@ describe('text functions', { concurrency: true }, () => {
     ok(await csv("SELECT INSTR('hello', 'l'), INSTR('hello', 'z'), INSTR('hello', ''), INSTR('hello', 'lo'), INSTR('', 'a')"), 'col1,col2,col3,col4,col5', '3,0,1,4,0');
   });
 
+  test('INSTR and REPLACE compare case exactly', async () => {
+    ok(await csv("SELECT INSTR('Hello', 'h'), INSTR('Hello', 'H'), REPLACE('aAa', 'A', '-')"), 'col1,col2,col3', '0,1,a-a');
+  });
+
   test('text functions take texts', async () => {
     fails(await query('SELECT LENGTH(123)'), 5);
     fails(await query('SELECT UPPER(TRUE)'), 5);
@@ -170,6 +174,11 @@ describe('other functions and CASE', { concurrency: true }, () => {
 
   test('CASE works out only the result it picks', async () => {
     ok(await csv("SELECT CASE WHEN TRUE THEN 1 ELSE CAST('x' AS INTEGER) END, CASE WHEN FALSE THEN CAST('x' AS INTEGER) WHEN TRUE THEN 2 END"), 'col1,col2', '1,2');
+  });
+
+  test('CASE stops at the first TRUE condition, or the first equal value', async () => {
+    ok(await csv("SELECT CASE WHEN TRUE THEN 1 WHEN CAST('x' AS INTEGER) = 1 THEN 2 END, CASE 1 WHEN 1 THEN 'a' WHEN CAST('y' AS INTEGER) THEN 'b' END"),
+      'col1,col2', '1,a');
   });
 
   test('CASE results of integers and decimals are a decimal', async () => {
