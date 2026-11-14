@@ -3,9 +3,11 @@
 //                   run, and its sessions are claims to hand back
 //   .hx/pause     — "drain" (finish running sessions, claim nothing) or "now" (checkpoint and stop)
 //   .hx/wake      — the ISO time a filing command (hx prd, hx bug, hx grill, hx issue) last filed an issue
-//   .hx/exit.json — how the last `hx run --watch` ended: its pid and exit code (hx supervise reads it for a runner it
-//                   is not the parent of, one a self-update started: #316)
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+//   .hx/exit.json — how the last `hx run --watch` ended: its pid, exit code and reason (hx supervise reads it for a
+//                   runner it is not the parent of, one a self-update started: #316; a dead runner with none died
+//                   without a record: #472)
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import type { RateLimit } from './agent.ts';
 import type { BudgetWindow } from './budget.ts';
@@ -88,21 +90,99 @@ export function clearPause(stateDir: string): void {
   rmSync(pauseFile(stateDir), { force: true });
 }
 
-export interface RunExit { pid: number; code: number; at: string }
+// reason: `exit` (it stopped by itself), a signal's name, `uncaught exception: …`, `unhandled rejection: …` or `error: …`
+export interface RunExit { pid: number; code: number; at: string; reason?: string }
 
 const exitFile = (stateDir: string) => path.join(stateDir, 'exit.json');
 
 /** Records how the `hx run --watch` with `pid` ended; never throws. */
-export function writeExit(stateDir: string, code: number, pid = process.pid): void {
-  try { writeFileSync(exitFile(stateDir), JSON.stringify({ pid, code, at: new Date().toISOString() } satisfies RunExit)); } catch {}
+export function writeExit(stateDir: string, code: number, pid = process.pid, reason?: string): void {
+  try { writeFileSync(exitFile(stateDir), JSON.stringify({ pid, code, at: new Date().toISOString(), ...(reason ? { reason } : {}) } satisfies RunExit)); } catch {}
+}
+
+/** What `pid` recorded as it ended, or null when the record is another runner's (or there is none). */
+export function readExitRecord(stateDir: string, pid: number): RunExit | null {
+  try {
+    const e: RunExit = JSON.parse(readFileSync(exitFile(stateDir), 'utf8'));
+    return e.pid === pid && typeof e.code === 'number' ? e : null;
+  } catch { return null; }
 }
 
 /** The exit code `pid` recorded, or null when the record is another runner's (or there is none). */
 export function readExit(stateDir: string, pid: number): number | null {
+  return readExitRecord(stateDir, pid)?.code ?? null;
+}
+
+let consoleKept = false; // stdout and stderr errors are ignored from the first recordExits on
+
+/** The signals that end a runner and that Node can see: Ctrl+C, a stop request, the console closing, Ctrl+Break (Windows). */
+export const EXIT_SIGNALS = ['SIGINT', 'SIGTERM', 'SIGHUP', 'SIGBREAK'] as const;
+
+/**
+ * Makes this `hx run --watch` record how it ends (#472): exit.json (pid, code, reason) first, then one `log` line.
+ * - an uncaught exception or an unhandled rejection: `crashed: …`, `onStop`, exit 1;
+ * - SIGTERM, SIGHUP, SIGBREAK (those the platform has): `runner pid N stopped by <signal>`, `onStop`, exit 128 + its number;
+ * - SIGINT: recorded only (code 130): the caller's own handler stops the run, and the signal stays in the final record;
+ * - any other end (`end`, or a process.exit somewhere): `runner pid N stopped (exit <code>)`.
+ * A console that went away (an error on stdout or stderr) no longer stops the runner, not even after `end`, whose
+ * own line may be the write that fails. `end` writes the final record and removes the other handlers.
+ */
+export function recordExits(o: { stateDir: string; log: (line: string) => void; onStop?: () => void }): { end: (code: number, reason?: string) => void } {
+  const pid = process.pid;
+  let done = false, signal = '';
+  const say = (line: string) => { try { o.log(line); } catch {} };
+  const off: (() => void)[] = [];
+  const on = (target: NodeJS.EventEmitter, event: string, fn: (...a: any[]) => void) => { target.on(event, fn); off.push(() => target.off(event, fn)); };
+  const stop = (code: number, reason: string, line: string, err?: unknown) => {
+    if (done) return;
+    done = true;
+    writeExit(o.stateDir, code, pid, reason); // before any console write: the console may be what failed
+    say(line);
+    if (err !== undefined) try { console.error(err); } catch {}
+    try { o.onStop?.(); } catch {}
+    process.exit(code);
+  };
+  const crash = (kind: string) => (e: unknown) => {
+    const reason = `${kind}: ${e instanceof Error ? e.message : String(e)}`.replace(/\s+/g, ' ');
+    stop(1, reason, `crashed: ${reason} — runner pid ${pid} exits 1`, e);
+  };
+  on(process, 'uncaughtException', crash('uncaught exception'));
+  on(process, 'unhandledRejection', crash('unhandled rejection'));
+  for (const sig of EXIT_SIGNALS) {
+    const n = (os.constants.signals as Record<string, number | undefined>)[sig];
+    if (n === undefined) continue;
+    on(process, sig, sig === 'SIGINT'
+      ? () => { if (!done) { signal = sig; writeExit(o.stateDir, 128 + n, pid, sig); } }
+      : () => stop(128 + n, sig, `runner pid ${pid} stopped by ${sig}`));
+  }
+  if (!consoleKept) for (const s of [process.stdout, process.stderr]) s.on('error', () => {});
+  consoleKept = true;
+  const end = (code: number, reason?: string) => {
+    if (done) return;
+    done = true;
+    writeExit(o.stateDir, code, pid, reason ?? (signal || 'exit'));
+    say(`runner pid ${pid} stopped (exit ${code}${signal ? ` after ${signal}` : ''})${reason ? ` — ${reason}` : ''}`);
+    for (const f of off) f();
+  };
+  on(process, 'exit', (code: number) => end(code));
+  return { end };
+}
+
+/** A runner that died without a record (#472): live.json names a pid that is not alive, and exit.json is not that pid's. */
+export interface DeadRunner { pid: number; sessions: number; lastSeen: string | null }
+
+/** null unless the last runner died without a record. lastSeen: the newer of run.log's last line and live.json's last write. */
+export function diedWithoutRecord(stateDir: string): DeadRunner | null {
+  const live = readLive(stateDir);
+  if (!live || typeof live.pid !== 'number' || pidAlive(live.pid) || readExitRecord(stateDir, live.pid)) return null;
+  let seen = 0;
+  try { seen = statSync(liveFile(stateDir)).mtimeMs; } catch {}
   try {
-    const e: RunExit = JSON.parse(readFileSync(exitFile(stateDir), 'utf8'));
-    return e.pid === pid && typeof e.code === 'number' ? e.code : null;
-  } catch { return null; }
+    const last = readFileSync(path.join(stateDir, 'run.log'), 'utf8').trimEnd().split(/\r?\n/).pop() ?? '';
+    const t = Date.parse(last.split(' ')[0]);
+    if (t > seen) seen = t;
+  } catch {}
+  return { pid: live.pid, sessions: live.sessions?.length ?? 0, lastSeen: seen ? new Date(seen).toISOString() : null };
 }
 
 /** Marks that a filing command just filed an issue: <stateDir>/wake holds the current ISO time. */

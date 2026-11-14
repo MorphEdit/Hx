@@ -8,7 +8,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { BACKOFF_SECONDS, backoffFor, readSupervise, renameRetry, supervise, tooManyCrashes, type SuperviseOptions } from '../src/supervise.ts';
-import { clearPause, setPause, writeLive } from '../src/runstate.ts';
+import { clearPause, diedWithoutRecord, readLive, setPause, writeLive } from '../src/runstate.ts';
+import { crashRollback, readSelfUpdate, writeSelfUpdate } from '../src/selfupdate.ts';
 import { parseQuery, schtasksCreate, service, serviceId, systemdUnit, taskName, taskXml, type ServiceSpec } from '../src/service.ts';
 import { dashboardState } from '../src/dashboard.ts';
 import { DEFAULTS, saveConfig } from '../src/config.ts';
@@ -118,6 +119,41 @@ test('a self-update\'s runner that clears its run lock with no exit record and n
   assert.ok(r.lines.includes(`supervise: runner pid ${newPids(r)[0]} exited without recording its exit code`), r.lines.join('\n'));
   assert.deepEqual(calls, [{ reason: 'the runner exited 1', runs: 1 }]);
   assert.equal(r.runs().length, 2);
+});
+
+test('a self-update\'s runner that dies with its run lock held and no exit record (#472): noticed, rolled back inside the open watch window, restarted after the backoff', E2E, async () => {
+  const r = repo([0, 0]);
+  handover(r, { die: true });
+  // the hx install as a self-update from G to N leaves it: at N, the watch window open
+  const inst = path.join(r.root, 'hx');
+  mkdirSync(inst);
+  const git = (...a: string[]) => spawnSync('git', a, { cwd: inst, encoding: 'utf8' }).stdout.trim();
+  git('init', '-q');
+  const commit = (msg: string) => { git('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '--allow-empty', '-m', msg); return git('rev-parse', 'HEAD'); };
+  const G = commit('good'), N = commit('new');
+  writeSelfUpdate(r.stateDir, { bad: [], watch: { from: G, to: N, until: new Date(Date.now() + 30 * 60_000).toISOString(), fails: 0 } });
+  let rolledBackAt = 0, lockAtRollback: number | undefined;
+  const rollback = async (why: string) => {
+    lockAtRollback = readLive(r.stateDir)?.pid;
+    const done = await crashRollback(r.stateDir, inst, why, (l) => r.lines.push(l));
+    rolledBackAt = Date.now();
+    return done;
+  };
+  assert.equal(await supervise(r.opts({ rollback })), 0);
+  const [pid] = newPids(r);
+  assert.equal(lockAtRollback, pid, 'the dead runner still held the run lock');
+  assert.equal(diedWithoutRecord(r.stateDir)?.pid, pid, 'and left no exit record');
+  const at = (l: string) => { const i = r.lines.indexOf(l); assert.ok(i >= 0, `${l}\n${r.lines.join('\n')}`); return i; };
+  const order = [`supervise: runner exited 0 and handed over to pid ${pid} — watching it`, `supervise: runner pid ${pid} stopped without clearing its run lock`,
+    `self-update: rolled back ${N.slice(0, 7)} → ${G.slice(0, 7)} (the runner stopped without clearing its run lock)`, 'supervise: runner exited 1, restart in 0s'].map(at);
+  assert.deepEqual(order, [...order].sort((a, b) => a - b), r.lines.join('\n'));
+  assert.equal(git('rev-parse', 'HEAD'), G, 'the install is back on G');
+  const su = readSelfUpdate(r.stateDir);
+  assert.equal(su.watch, undefined, 'the window is closed');
+  assert.deepEqual(su.bad, [N]);
+  const runs = r.runs();
+  assert.equal(runs.length, 2, 'restarted');
+  assert.ok(runs[1].at - rolledBackAt >= 300, `restarted after the backoff (${runs[1].at - rolledBackAt} ms)`);
 });
 
 test('a self-update\'s runner that hands over again (a rollback\'s runner) is followed; that one exiting 0 stops the supervisor, no rollback (#316)', E2E, async () => {

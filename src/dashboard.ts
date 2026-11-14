@@ -22,7 +22,7 @@ import { autoStartText, readAutoStart } from './service.ts';
 import { type GateRun, readGate, readGateRuns } from './gate.ts';
 import { parseOutcomes } from './outcomes.ts';
 import { lookupTrusted, readBar, readPlan, runLogFile } from './pool.ts';
-import { pidAlive, readLive, readPause } from './runstate.ts';
+import { diedWithoutRecord, pidAlive, readLive, readPause } from './runstate.ts';
 import type { Plan } from './state.ts';
 import { testSeries, timeWindow } from './timing.ts';
 import { localDay, readUsage, summarize, totalTokens, type UsageRecord, type UsageRow } from './usage.ts';
@@ -127,6 +127,7 @@ export function dashboardState(p: Project, board: () => BoardSeen, now = Date.no
     workersLine: workersLine(live), // the auto-scaled target (`workers 2/3 (auto: cpu 88%)`), null with autoWorkers off
     testConcurrency: live.testConcurrency ?? null, cpus: os.availableParallelism(), // the Flow legend's HX_TEST_CONCURRENCY and CPU count
   } : { running: false };
+  const deadRunner = running ? null : diedWithoutRecord(dir); // the last runner left its run lock and no exit record (#472)
   const sessions = running ? live.sessions.map((s) => ({ number: s.number, kind: s.kind, title: s.title, turn: s.turn, tokens: s.tokens,
     since: s.since, elapsedMs: now - Date.parse(s.since) })) : [];
   const g = readGate(dir);
@@ -167,7 +168,7 @@ export function dashboardState(p: Project, board: () => BoardSeen, now = Date.no
     workers: running ? live.workers : p.config.workers, now });
   const timeline = timelineFrom(recs, running ? live.sessions : [], gates, logLines, now);
   const today = localDay(new Date(now).toISOString());
-  return { repo: p.config.repo, waiting, runner, sessions, gate, health, supervised, autoStart, usage,
+  return { repo: p.config.repo, waiting, runner, deadRunner, sessions, gate, health, supervised, autoStart, usage,
     time: testTime(recs, gates, now), machine, log: tailLines(logFile, LOG_LINES), outcomes,
     timeline, events: eventsFrom(logLines, today, p.config.labels.blocked),
     issues: issueStates({ plan: b.plan, sessions, lines: logLines, timeline, auditRounds: p.config.auditRounds, today, repo: p.config.repo }) };

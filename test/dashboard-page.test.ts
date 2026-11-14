@@ -171,6 +171,22 @@ test('/ with no hx run: 200 text/html with the "not running" path; a hostile tit
 // ---- the page script against the shared fake DOM (test/fakedom.ts): no HTML parser for the script, so markup cannot appear ----
 const page = (state: Payload, board: Payload, pathname = '/') => fakePage(html, state, board, pathname);
 
+test('Now: a runner that died without a record shows its pid and when it was last seen, beside "not running" (#472)', E2E, async () => {
+  const d = await serveDashboard(project as any, { port: 0 });
+  servers.push(d);
+  const state = JSON.parse((await get(d.port, '/api/state')).body);
+  const board = JSON.parse((await get(d.port, '/api/board')).body);
+  assert.equal(state.deadRunner, null);
+  const none = page(state, board);
+  await none.flush();
+  assert.doesNotMatch(text(none.ids.get('now-body')!), /died without a record/);
+  const p = page({ ...state, deadRunner: { pid: 9452, sessions: 0, lastSeen: '2026-11-11T14:17:29.000Z' } }, board);
+  await p.flush();
+  const now = text(p.ids.get('now-body')!);
+  assert.match(now, /not running/);
+  assert.ok(now.includes(`died without a record pid 9452, last seen ${new Date('2026-11-11T14:17:29.000Z').toLocaleString()}`), now);
+});
+
 test('the page script renders hostile strings as text, links issues by integer, and degrades on board errors', E2E, async () => {
   const d = await serveDashboard(project as any, { port: 0 });
   servers.push(d);

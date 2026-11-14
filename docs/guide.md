@@ -341,7 +341,8 @@ uses your system fonts instead.
 - Your choices on the page (the selected issue, the board and event filters, Flow or Timeline) stay as they are when
   the page refreshes.
 - **More** — the area under the four panels, with the details for when you want to dig in (Now, Board, Machine, Stats):
-- **Now** — the runner ("not running", or its pid, uptime, workers, the auto-scaled target line
+- **Now** — the runner ("not running", plus `died without a record` with its pid and last-seen time when the last runner
+  left no exit record, or its pid, uptime, workers, the auto-scaled target line
   `workers 2/3 (auto: cpu 88%)` when autoWorkers is on, paused/draining and the rate-limit window), the live sessions (issue, kind, title, turn, tokens, elapsed) and the CI gate (green/red,
   sha, when, the fix issue).
 - **Board** — PRDs with their status and `closed/total done`, and the open issues with their status
@@ -573,7 +574,9 @@ on, and that sha (or tag) is never tried again, while a newer one is. No issue i
 `self-update: 3f2a1c0..9b8e7d6 (4 files)`, then `self-update: restarted — pid 4242 took over` or
 `self-update: rolled back to 3f2a1c0 (exited with code 1 before it was ready)`, and `hx status` shows the last one
 (`update   2h ago — self-update: restarted — pid 4242 took over`). The new runner is detached from the terminal:
-Ctrl+C there no longer reaches it, so stop it with `hx pause`. It is off under `hx fleet run`.
+Ctrl+C there no longer reaches it, so stop it with `hx pause`. It has no console either, and does not depend on the old
+runner's: its log lines go to `.hx/run.log` only, and its stdout and stderr (Node's warnings, a crash's trace) to
+`.hx/runner.out` (moved to `runner.out.1` at the next restart once past 1 MiB). It is off under `hx fleet run`.
 
 **The watch window:** new code that starts fine can still misbehave, so for `selfUpdateWatchMinutes` (default 30) after a
 self-update from G to N the new runner is watched (`{ from, to, until }` in `.hx/selfupdate.json`). It is rolled back
@@ -592,6 +595,32 @@ A window that passes cleanly logs `self-update: 9b8e7d6 is good`. No self-update
 
 **A crashed run** (terminal closed, machine rebooted, process killed) leaves `agent-working` on its
 issues. The next `hx run` sees that the previous runner is gone and hands those issues back first.
+
+**How a runner ended:** every `hx run --watch` records its end in `.hx/exit.json` (`{ pid, code, at, reason }`) and in
+one run-log line, both written before anything goes to the console:
+
+| It ends by | Run log | `exit.json` |
+|---|---|---|
+| itself (`hx pause`, a self-update's handover, an error it reports) | `runner pid 4242 stopped (exit 0)` | the code, reason `exit` |
+| Ctrl+C (`SIGINT`) | `runner pid 4242 stopped (exit 0 after SIGINT)`, after the checkpoints | `SIGINT` at once (code 130), then the final code |
+| `SIGTERM`, `SIGHUP` (its terminal closed), `SIGBREAK` (Ctrl+Break, Windows) | `runner pid 4242 stopped by SIGHUP` | 128 + the signal's number, reason the signal's name |
+| an uncaught exception or an unhandled rejection | `crashed: uncaught exception: <message> — runner pid 4242 exits 1` | code 1, reason `uncaught exception: <message>` |
+
+After a crash or one of those three signals the running sessions are killed, as with a force quit; the worktrees keep
+the work. A console that went away no longer stops the runner by itself: a failed write to it is ignored, and the run
+log has every line. A runner that is killed outright (Task Manager, `kill -9`, a power cut) can record nothing, and
+`hx status` says so under `runner   not running`:
+`runner   died without a record — pid 4242, last seen 11/11/2026, 9:17:29 PM (9h02m ago)`: its run lock names a pid
+that is gone and `exit.json` is not that pid's; the time is its last run-log line or its last write of `live.json`,
+whichever is newer. The dashboard's Now section shows the same. When it did record a crash or a signal, the line is
+`runner   last exit 1 — pid 4242, uncaught exception: <message>, 5m ago`.
+
+**A self-updated runner that dies:** under `hx supervise` the supervisor is still watching it, though it is not its
+parent: within 5 s it logs `supervise: runner pid 4242 stopped without clearing its run lock` (or
+`runner pid 4242 exited 1`), rolls the install back when the watch window is open, and restarts the runner after the
+usual backoff. With a bare `hx run --watch` nothing restarts it: the board stands still until the next
+`hx run --watch`, which rolls back first when the window is still open. **For an unattended run, use `hx supervise`**
+(or `hx service install` / `autoStart`, see [Starting at logon](#starting-at-logon)).
 
 **A crashed session** (one that fails before it runs, e.g. its worktree cannot be made: `[#n] crashed: …`) is not
 claimed again at once: hx waits 1 min after the first crash in a row and 2 min after the second
@@ -651,7 +680,8 @@ windows in `live.json` (`budget.windows`) and the dashboard's Now section shows 
 
 ### Starting at logon
 
-`hx run --watch` lives only as long as its terminal. Two commands keep it up without one:
+`hx run --watch` lives only as long as its terminal, and nothing restarts it when it dies. For an unattended run use
+`hx supervise`, by hand or at logon. Two commands keep the runner up without a terminal:
 
 - **`hx supervise [--workers N]`** runs `hx run --watch` (same arguments, this repo) as a child and restarts it
   when it crashes or is killed, after 10 s, 30 s, 60 s, then 5 min; a run that stayed up 30 min resets the
@@ -1328,7 +1358,8 @@ it reads. So Hx only works on text from **trusted accounts**: your `gh` login pl
 - `.hx/logs/setup-<name>.log` / `.json` — a worktree's last setup output / result (see [Worktree setup](#worktree-setup))
 - `.hx/live.json` — the running `hx run`: its pid and live sessions (read by `hx status`)
 - `.hx/pause` — present while paused (`drain` or `now`)
-- `.hx/exit.json` — how the last `hx run --watch` ended: `{ pid, code, at }` (read by `hx supervise` for a runner a self-update started)
+- `.hx/exit.json` — how the last `hx run --watch` ended: `{ pid, code, at, reason }` (reason: `exit`, a signal's name, `uncaught exception: …`, `unhandled rejection: …`, `error: …`); read by `hx supervise` for a runner a self-update started, and by `hx status` and the dashboard: a dead runner with no record of its own `died without a record`
+- `.hx/runner.out` — the stdout and stderr of a runner a self-update (or its rollback) started: Node's warnings, a crash's trace (`runner.out.1`: the one before, past 1 MiB)
 - `.hx/held.json` — audited PRs held while the default branch is red: `{ "<issue>": { pr, round, at } }`, cleared when the merge is retried
 - `.hx/gate-runs.jsonl` — one line per pool gate run whose test command finished or timed out: `{ ts, sha, ok, durationMs, timedOut }`; a reused green (the tree already passed) adds `reused: true`, with `durationMs: 0`
   (`durationMs` is the test command only; the release gate is not recorded). `hx run` logs `gate is slow: …` once when the median of the last 5 is above 70% of `gateMinutes`

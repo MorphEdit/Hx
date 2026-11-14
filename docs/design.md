@@ -474,6 +474,14 @@ Hx builds itself, so a watching runner would otherwise run the morning's code al
   a session's work, and the old version restarts through the same ready marker. A runner that exits non-zero clears its
   run lock first, so it rolls itself back: nothing else would see the crash. A supervisor is not the parent of a
   runner a self-update started, so that runner's exit code reaches it through `.hx/exit.json`.
+- **No runner dies without a trace (#472).** The new runner used to inherit the old runner's stdout and stderr. It is
+  detached, so on Windows those were copies of console handles that die with the old runner: its next console write
+  failed (EBADF), an uncaught exception, exit 1, no record, and the watch window never saw it because the watcher was
+  the process that died. Now the new runner's output is `.hx/runner.out` and its log lines go to `run.log` only;
+  every watching runner records its end (`exit.json` with a reason, one run-log line) for a crash, a signal and a
+  normal exit, writes the file before the console, and ignores a console that went away. What cannot be recorded (a
+  hard kill) is read from what is left: a run lock naming a dead pid with no exit record of that pid is shown as
+  `died without a record`. Restarting stays the supervisor's job: a bare `hx run --watch` is not restarted.
 
 ## Quality bar (PRD #254)
 

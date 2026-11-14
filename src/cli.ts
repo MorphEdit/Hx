@@ -8,7 +8,7 @@ import * as gh from './github.ts';
 import { resolveCmd, run, runOk } from './exec.ts';
 import { log, lookupTrusted, printPlan, readBar, readPlan, runLogFile, runPool, setRunLog, trustedEnv } from './pool.ts';
 import { killAllSessions } from './agent.ts';
-import { clearPause, nextLine, otherRunner, pidAlive, readLive, readPause, setPause, writeExit, writeWake } from './runstate.ts';
+import { clearPause, diedWithoutRecord, nextLine, otherRunner, pidAlive, readExitRecord, readLive, readPause, recordExits, setPause, writeWake } from './runstate.ts';
 import { fmtDuration, readGate, readGateRuns } from './gate.ts';
 import { median, testSeries, timeWindow, type TimeSummary } from './timing.ts';
 import { analyseMachine, MAX_DAYS, type Machine } from './machine.ts';
@@ -451,10 +451,12 @@ async function runCmd(args: string[]): Promise<number> {
     (process.channel as any)?.unref?.();
   }
   const watch = args.includes('--watch') && !dryRun;
-  // a watching runner's exit code, for a supervisor that is not its parent (a self-update started it, #316)
+  // a watching runner records how it ends (exit.json, a run.log line): its exit code, for a supervisor that is not its
+  // parent (a self-update started it, #316), and a crash or a signal, so no runner dies without a trace (#472)
+  const rec = watch ? recordExits({ stateDir: p.stateDir, log: (l) => log(l), onStop: killAllSessions }) : null;
   const code = await runPool(p, { workers, only, watch: args.includes('--watch'), dryRun, signal: ac.signal })
-    .catch((e) => { if (watch) writeExit(p.stateDir, 1); throw e; });
-  if (watch) writeExit(p.stateDir, code);
+    .catch((e) => { rec?.end(1, `error: ${e?.message ?? e}`); throw e; });
+  rec?.end(code);
   return code;
 }
 
@@ -668,6 +670,10 @@ async function status(p = loadProject(), o: { github?: boolean } = {}): Promise<
   } else {
     console.log('runner   not running');
   }
+  // a run lock left behind: the runner died with no exit record (#472), or it recorded how it ended (a crash, a signal)
+  const dead = diedWithoutRecord(p.stateDir), rec = live && !pidAlive(live.pid) ? readExitRecord(p.stateDir, live.pid) : null;
+  if (dead) console.log(`runner   died without a record — pid ${dead.pid}, last seen ${dead.lastSeen ? `${new Date(dead.lastSeen).toLocaleString()} (${ago(dead.lastSeen)} ago)` : 'never'}`);
+  else if (live && rec) console.log(`runner   last exit ${rec.code} — pid ${live.pid}, ${rec.reason ?? 'no reason recorded'}, ${ago(rec.at)} ago`);
   const gate = readGate(p.stateDir).last;
   if (c.gate && gate) console.log(`gate     ${gate.ok ? 'green' : 'RED'} at ${gate.sha.slice(0, 7)} (${gate.command})${gate.ok ? '' : ' — only its fix issue is claimed'}`);
   const health = readHealth(p.stateDir).last; // runner or not; none before the first pass
