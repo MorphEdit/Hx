@@ -127,3 +127,69 @@ test('hx help lists grill', E2E, () => {
   assert.equal(r.code, 0);
   assert.match(r.out, /\bgrill\b/);
 });
+
+// the user's idea kept word for word in ## Original request (PRD #475)
+const newest = () => path.join(root, '.hx', 'prds', prds().sort().at(-1)!);
+const nl = (s: string) => s.replace(/\r\n/g, '\n');
+
+test('original request: no section → added first, in the text shown before [y/N], in the file and in the filed PRD', E2E, () => {
+  reset();
+  const r = hx(['grill', 'add dark mode\nwith a toggle'], 'y\n');
+  assert.equal(r.code, 0, r.out);
+  const want = '# Grilled feature\n\n## Original request\n\n> add dark mode\n> with a toggle\n\n## Goals\nShip it.\n';
+  const out = nl(r.out);
+  assert.ok(out.indexOf(want.trimEnd()) >= 0 && out.indexOf(want.trimEnd()) < out.indexOf('[y/N]'), r.out);
+  assert.equal(readFileSync(newest(), 'utf8'), want);
+  const { issues } = board();
+  assert.equal(issues[0].title, 'Grilled feature');
+  assert.equal(issues[0].body, want.replace('# Grilled feature\n\n', ''));
+  assert.match(issues[0].body, /^## Original request\n\n> add dark mode\n> with a toggle\n\n## Goals/);
+});
+
+test('original request: a section without the idea → the idea at its top, the session\'s lines below', E2E, () => {
+  reset();
+  const text = '# Grilled feature\n\n## Original request\n\n> no toggle after all\n\n## Goals\nShip it.\n';
+  const r = hx(['grill', 'add dark mode with a toggle', '--yes'], '', { FAKE_GRILL_TEXT: text });
+  assert.equal(r.code, 0, r.out);
+  assert.equal(board().issues[0].body, '## Original request\n\n> add dark mode with a toggle\n\n> no toggle after all\n\n## Goals\nShip it.\n');
+});
+
+test('original request: a section that holds the idea → filed as written, the file untouched', E2E, () => {
+  reset();
+  const text = '# Grilled feature\n\n## Original request\n\n> add dark\n> mode\n\n> and a toggle\n\n## Goals\nShip it.\n';
+  const r = hx(['grill', 'add  dark mode', '--yes'], '', { FAKE_GRILL_TEXT: text });
+  assert.equal(r.code, 0, r.out);
+  assert.equal(readFileSync(newest(), 'utf8'), text);
+  assert.equal(board().issues[0].body, text.replace('# Grilled feature\n\n', ''));
+});
+
+test('original request: answered "no" — the file keeps the idea and hx prd <that file> files it', E2E, () => {
+  reset();
+  let r = hx(['grill', 'add dark mode'], 'n\n');
+  assert.equal(r.code, 0, r.out);
+  assert.equal(board().issues.length, 0);
+  const file = newest();
+  assert.match(readFileSync(file, 'utf8'), /^# Grilled feature\n\n## Original request\n\n> add dark mode\n\n## Goals/);
+  r = hx(['prd', file]);
+  assert.equal(r.code, 0, r.out);
+  assert.match(board().issues[0].body, /^## Original request\n\n> add dark mode\n\n## Goals\nShip it\.\n$/);
+});
+
+test('original request: an empty idea (none, or only whitespace) → nothing inserted, filed as written', E2E, () => {
+  for (const args of [['grill', '--yes'], ['grill', '  \n ', '--yes']]) {
+    reset();
+    const r = hx(args);
+    assert.equal(r.code, 0, r.out);
+    assert.equal(readFileSync(newest(), 'utf8'), '# Grilled feature\n\n## Goals\nShip it.\n');
+    assert.equal(board().issues[0].body, '## Goals\nShip it.\n');
+  }
+});
+
+test('original request: an idea from a file (CRLF, a heading of its own) is its content, quoted whole', E2E, () => {
+  reset();
+  const idea = path.join(tmp, 'idea-crlf.md');
+  writeFileSync(idea, 'Build a tracker.\r\n\r\n## Scope\r\nonly mine\r\n');
+  const r = hx(['grill', idea, '--yes']);
+  assert.equal(r.code, 0, r.out);
+  assert.equal(board().issues[0].body, '## Original request\n\n> Build a tracker.\n> \n> ## Scope\n> only mine\n\n## Goals\nShip it.\n');
+});

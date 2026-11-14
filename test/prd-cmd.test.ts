@@ -96,3 +96,15 @@ test('hx prd: more than DIRECT_MAX_CRITERIA criteria, or no Acceptance criteria 
   assert.ok(!r.out.includes('note:'), r.out);
   assert.equal(issues().length, 3);
 });
+
+test('hx prd <file> files the file unchanged, with or without ## Original request (PRD #475)', E2E, () => {
+  writeFileSync(stateFile, JSON.stringify({ comments: [], prs: [], issues: [] }));
+  for (const body of ['## Goals\nShip it.\n', '## Original request\n\n> only the words I gave\n\n## Goals\nShip it.\n']) {
+    const file = path.join(tmp, 'orig.md');
+    writeFileSync(file, `# A feature\n\n${body}`);
+    const r = hx(['prd', file]);
+    assert.equal(r.code, 0, r.out);
+    assert.equal(JSON.parse(readFileSync(stateFile, 'utf8')).issues.at(-1).body, body);
+    assert.equal(readFileSync(file, 'utf8'), `# A feature\n\n${body}`);
+  }
+});

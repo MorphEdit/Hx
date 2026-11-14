@@ -11,7 +11,10 @@
 //              two and gh lists the higher number first
 //              (SECURITYSTRANGER: an untrusted account, mallory, posts one instead)
 //   revise:    appends its marker to the body with `gh issue edit --body-file` (REVISENOOP in the body: changes nothing);
-//              when its findings hold the engine check (no counted criteria), an `## Acceptance criteria` section too
+//              when its findings hold the engine check (no counted criteria), an `## Acceptance criteria` section too.
+//              On `## Original request` (PRD #475), by token in the body: REVISEORIGCHANGE rewrites its first `> ` line,
+//              REVISEORIGDROP removes the section, REVISEORIGADD adds one first; REVISEORIGSTOP changes it, then the turn
+//              ends as FAKE_CLAUDE_MODE=fatal does; REVISEORIGNODONE changes it and never prints the promise
 //   triage:    posts a verdict comment per the issue body (see finish())
 //   bar:       the quality bar run (Role: bar) writes fake.json (its side, the result wanted) into the two output dirs
 //              its prompt names; the judge (Role: bar judge) reads them and answers. In the PRD body: BARNOPROV = the run
@@ -26,7 +29,7 @@
 //              in that mode); otherwise `SIZE: fits` (invalid in that mode too)
 //   selfreview: prints FAKE_CLAUDE_FINDINGS (default 0) `## Finding` blocks and its promise
 //   grill:     interactive (prompt as the last argument, not stdin): writes a PRD to the output path the prompt
-//              names (FAKE_GRILL_NOWRITE=1: writes nothing, =blank: whitespace only) and exits
+//              names (FAKE_GRILL_NOWRITE=1: writes nothing, =blank: whitespace only; FAKE_GRILL_TEXT: writes that text) and exits
 //   issue:     the same for `hx issue`: writes a small issue to its output path (same FAKE_GRILL_NOWRITE)
 // NOTHINGTOBUILD in an issue body: an implement session closes it with a comment and prints its promise, no PR.
 // MAINRED in an issue body: its first auditor pushes a BROKEN file to main; FAILSONBROKEN=X,Y: its shipped test command
@@ -93,6 +96,7 @@ if (session) {
   if (process.env.HX_FAKE_DIR) writeFileSync(path.join(process.env.HX_FAKE_DIR, `${session}-args.json`), JSON.stringify({ args: a, cwd: process.cwd(), full, trusted: process.env.HX_TRUSTED ?? null,
     testConcurrency: process.env.HX_TEST_CONCURRENCY ?? null, testedTrees: process.env.HX_TESTED_TREES ?? null }));
   if (process.env.FAKE_GRILL_NOWRITE === 'blank') writeFileSync(output, '  \n\t\n');
+  else if (process.env.FAKE_GRILL_TEXT !== undefined) writeFileSync(output, process.env.FAKE_GRILL_TEXT);
   else if (!process.env.FAKE_GRILL_NOWRITE) writeFileSync(output, session === 'grill' ? '# Grilled feature\n\n## Goals\nShip it.\n'
     : '# Small task\n\n## What to do\nDo it.\n\n## Blocked by\nnone\n');
   process.exit(0);
@@ -339,9 +343,19 @@ ${done()}`);
     const heading = /^## Acceptance criteria[ \t]*$/m;
     const filled = engine && heading.test(body) ? body.replace(heading, (h) => `${h}\n${item}`) : body;
     const criteria = engine && !heading.test(body) ? `\n\n## Acceptance criteria\n${item}` : '';
-    writeFileSync(f, `${filled}${criteria}\n\n## Assumptions\n- fast = under 1s\n${REVISED}\n`);
+    let next = `${filled}${criteria}\n\n## Assumptions\n- fast = under 1s\n${REVISED}\n`;
+    if (/REVISEORIG(CHANGE|STOP|NODONE)/.test(body)) next = next.replace(/^> .*$/m, '> paraphrased by the reviser');
+    if (/REVISEORIGDROP/.test(body)) next = next.replace(/^## Original request\n[\s\S]*?(?=^## |(?![\s\S]))/m, '');
+    if (/REVISEORIGADD/.test(body)) next = `## Original request\n\n> the reviser's own words\n\n${next}`;
+    writeFileSync(f, next);
     const repo = /Repo (\S+)/.exec(prompt)[1];
     const r = spawnSync(process.execPath, [process.env.HX_GH_BIN, 'issue', 'edit', String(st.n), '-R', repo, '--body-file', f], { encoding: 'utf8' });
+    if (/REVISEORIGSTOP/.test(body)) {
+      out({ type: 'result', subtype: 'success', is_error: true, api_error_status: 400, num_turns: 1, usage, total_cost_usd: 0,
+        result: 'API Error: 400 Claude Code 2.1.150 does not support this model' });
+      return;
+    }
+    if (/REVISEORIGNODONE/.test(body)) return reply('body updated, still thinking.');
     return reply(r.status === 0 ? `body updated. ${done()}` : `gh failed: ${r.stderr}`);
   }
   // triage: in the issue body TRIAGEREPRO posts a REPRODUCED comment, TRIAGEINFO a NEEDS-INFO one, TRIAGEBAD a marker

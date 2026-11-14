@@ -504,6 +504,21 @@ a winner. Decisions:
   cannot be provisioned, a judge that fails twice (`no verdict`) or the last lost round (`barRounds`, the
   gap left standing) all sign off on the criteria instead of labelling the PRD `agent-blocked`.
 
+## Original request (PRD #475)
+
+The idea is Harness's `## Original request` (VocanicZ/Harness, docs/reference.md, "What the task file
+carries"). An idea is rewritten several times before any code exists (the grill session, the reviser,
+decompose), and each rewrite can drift from what the user asked for. The section keeps the user's own words in
+the PRD, and every role that reads a PRD ranks it above the rest. Decisions:
+- **The engine only keeps it present and unchanged.** There is no session and no check of meaning: hx puts the
+  idea in after `hx grill` and puts the section back after a reviser touched it; the sessions apply the rule.
+- **In the file, not only in the filed body.** The idea is written into `.hx/prds/…-grill.md` before the PRD
+  is shown, so a declined PRD filed later with `hx prd <file>` keeps it, and `hx prd` itself files a file
+  as written: it is the user's own text.
+- **A section the reviser adds is removed.** The reviser is not the user: its words must not outrank the PRD.
+- **A later line wins.** The section is in the order the user spoke, and an interview answer is their newer
+  word on the same point.
+
 ## Token optimisation (phase 4)
 
 Measured before (see the [benchmark](../README.md#benchmark), `bench/results/phase3/`):

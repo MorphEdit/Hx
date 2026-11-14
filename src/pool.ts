@@ -25,7 +25,7 @@ import { checkGit, checkRelease, crashRollback, currentVersion, gateAtOld, hando
   updateSelfUpdate, watchEvent, watchGood, watchOpen, watchVerdict, writeSelfUpdate, type Check, type WatchEvent } from './selfupdate.ts';
 import { findingBody, parseFindings, readSelfReview, selfReviewDecision, SELFREVIEW_PROMISE, writeSelfReview } from './selfreview.ts';
 import { BAR_JUDGE_PROMISE, BAR_PROMISE, barCapComment, barLine, barMarker, barRound, barStatus, gapIssueBody, parseJudgeReply, pickMapping, readMapping, refDir, roundDir, writeMapping, type Side } from './bar.ts';
-import { CRITERIA_FINDING, criteriaCheck, parseQualityBar, singleChild, singleChildBody, singleChildLine } from './prd.ts';
+import { CRITERIA_FINDING, criteriaCheck, keepOriginal, parseQualityBar, singleChild, singleChildBody, singleChildLine } from './prd.ts';
 import { cappedQuestion, cappedQuestionNote, IMPL_TOO_MANY_QUESTIONS, ownerAnswer, ownerAnswerNote, questionFromReply, TOO_MANY_QUESTIONS } from './question.ts';
 import { HELD_STATUS, heldComment, mergeFailure, readHeld, setHeld } from './held.ts';
 import { decideTarget, initialTarget, loadReading, mayClaim, startSampler, type LoadReading, type LoadSnapshot } from './load.ts';
@@ -1539,9 +1539,13 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
       const rr = await goal('revise', rwt.dir, 'revise.md', `REVISE ${n} DONE`, { FINDINGS: fenceFindings(v.findings) });
       await removeWorktree(p.root, rwt.dir);
       summary = `${fmt(sessionTokens)} tokens`;
+      // the reviser leaves ## Original request as it was (PRD #475), whatever the session's end: on a stop too, so
+      // the next round's "before" body has the user's section
+      const kept = keepOriginal(before, await gh.issueBody(c.repo, n));
+      if (kept.line) { await gh.editBody(c.repo, n, kept.body); log(kept.line, n); }
       if (stopped(rr)) return handBack(rr, summary);
       // a reviser that failed or changed nothing still uses up the round: the PRD must not stall here
-      const unchanged = (await gh.issueBody(c.repo, n)) === before;
+      const unchanged = kept.body === before;
       if (!rr.done || unchanged)
         log(`reviser ${!rr.done ? `did not complete (${rr.last?.error ?? rr.stopReason})` : 'left the body unchanged'} — round ${round} counted, carrying on`, n);
       const note = !rr.done ? '\n\n_The reviser did not complete._' : unchanged ? '\n\n_The reviser left the body unchanged._' : '';

@@ -19,12 +19,14 @@ process.env.HX_GH_BIN = path.join(here, 'fakes', 'gh.mjs');
 process.env.HX_RTDD_BIN = path.join(here, 'fakes', 'rtdd.mjs');
 process.env.HX_FAKE_STATE = stateFile;
 process.env.HX_FAKE_DIR = fakeDir;
+const ghLog = path.join(tmp, 'gh.log');
+process.env.HX_FAKE_GH_LOG = ghLog;
 mkdirSync(fakeDir);
 
 const { runPool } = await import('../src/pool.ts');
 const { DEFAULTS } = await import('../src/config.ts');
 const { readUsage } = await import('../src/usage.ts');
-const { CRITERIA_FINDING, countCriteria } = await import('../src/prd.ts');
+const { CRITERIA_FINDING, countCriteria, originalRequest } = await import('../src/prd.ts');
 
 const L = DEFAULTS.labels;
 const git = (cwd: string, ...a: string[]) => execFileSync('git', a, { cwd, encoding: 'utf8', stdio: 'pipe' }).trim();
@@ -223,4 +225,82 @@ test('engine check: gauntlet false — no check, a PRD with no criteria is decom
   assert.equal(marked(11, '<!-- hx-gauntlet -->').length, 0);
   assert.equal(countCriteria(read().issues.find((i: any) => i.number === 11).body), 0);
   assert.equal(kids(11).length, 2, 'decomposed');
+});
+
+// the reviser leaves ## Original request alone (PRD #475): hx puts the earlier section back after every revise session
+const ORIGINAL = '## Original request\n\n> make search fast, please\n> and keep it simple\n\n';
+// hx's own edits of the PRD body (the reviser's own edit passes a file, hx's passes stdin)
+const bodyEdits = (n: number) => (existsSync(ghLog) ? readFileSync(ghLog, 'utf8') : '').split('\n')
+  .filter((l) => l.startsWith(`issue edit ${n} `) && l.trimEnd().endsWith('--body-file -')).length;
+const origLines = (lines: string[], n: number) => lines.filter((l) => l.includes(`[#${n}] the reviser `) && l.includes('## Original request'));
+
+test('original request: a reviser that leaves the section alone causes no edit and no line', E2E, async () => {
+  board([prd(12, `${ORIGINAL}## Goals\nMake search fast.\n`)]);
+  const { rc, lines } = await run([12]);
+  assert.equal(rc, 0, lines.join('\n'));
+  const p = read().issues.find((i: any) => i.number === 12);
+  assert.match(p.body, /fake-revised/, 'the reviser ran');
+  assert.equal(originalRequest(p.body), ORIGINAL);
+  assert.equal(bodyEdits(12), 0);
+  assert.deepEqual(origLines(lines, 12), []);
+});
+
+test('original request: a changed section is put back where it stands, one edit, one line', E2E, async () => {
+  board([prd(13, `${ORIGINAL}## Goals\nMake search fast. REVISEORIGCHANGE\n`)]);
+  const { rc, lines } = await run([13]);
+  assert.equal(rc, 0, lines.join('\n'));
+  const p = read().issues.find((i: any) => i.number === 13);
+  assert.ok(p.body.startsWith(`${ORIGINAL}## Goals\n`), p.body);
+  assert.doesNotMatch(p.body, /paraphrased by the reviser/);
+  assert.match(p.body, /## Assumptions[\s\S]*fake-revised/, 'the rest of the reviser\'s body is kept');
+  assert.equal(bodyEdits(13), 1);
+  assert.equal(origLines(lines, 13).length, 1, lines.join('\n'));
+  assert.match(origLines(lines, 13)[0], /the reviser changed the ## Original request section — the earlier text put back$/);
+  assert.ok(lines.some((l) => /\[#13\] gauntlet round 2\/2: PASS/.test(l)), 'the next round goes on');
+});
+
+test('original request: a removed section goes back as the first section, one edit, one line', E2E, async () => {
+  board([prd(14, `${ORIGINAL}## Goals\nMake search fast. REVISEORIGDROP\n`)]);
+  const { rc, lines } = await run([14]);
+  assert.equal(rc, 0, lines.join('\n'));
+  const p = read().issues.find((i: any) => i.number === 14);
+  assert.ok(p.body.startsWith(`${ORIGINAL}## Goals\n`), p.body);
+  assert.match(p.body, /fake-revised/);
+  assert.equal(bodyEdits(14), 1);
+  assert.equal(origLines(lines, 14).length, 1, lines.join('\n'));
+  assert.match(origLines(lines, 14)[0], /removed the ## Original request section — the earlier text put back as the first section/);
+});
+
+test('original request: a section the reviser added to a PRD without one is removed, one edit, one line', E2E, async () => {
+  board([prd(15, '## Goals\nMake search fast. REVISEORIGADD\n')]);
+  const { rc, lines } = await run([15]);
+  assert.equal(rc, 0, lines.join('\n'));
+  const p = read().issues.find((i: any) => i.number === 15);
+  assert.doesNotMatch(p.body, /## Original request/);
+  assert.doesNotMatch(p.body, /the reviser's own words/);
+  assert.match(p.body, /^## Goals\nMake search fast\. REVISEORIGADD[\s\S]*fake-revised/);
+  assert.equal(bodyEdits(15), 1);
+  assert.equal(origLines(lines, 15).length, 1, lines.join('\n'));
+  assert.match(origLines(lines, 15)[0], /added a ## Original request section the PRD did not have — removed/);
+});
+
+test('original request: a reviser that changed it and did not complete — the earlier section is back', E2E, async () => {
+  board([prd(16, `${ORIGINAL}## Goals\nMake search fast. REVISEORIGNODONE\n`)]);
+  const { rc, lines } = await run([16]);
+  assert.equal(rc, 0, lines.join('\n'));
+  const p = read().issues.find((i: any) => i.number === 16);
+  assert.equal(originalRequest(p.body), ORIGINAL);
+  assert.doesNotMatch(p.body, /paraphrased by the reviser/);
+  assert.equal(origLines(lines, 16).length, 1, lines.join('\n'));
+  assert.ok(lines.some((l) => /\[#16\] reviser did not complete/.test(l)), lines.join('\n'));
+});
+
+test('original request: a reviser that changed it and was stopped — the earlier section is back before the hand-back', E2E, async () => {
+  board([prd(17, `${ORIGINAL}## Goals\nMake search fast. REVISEORIGSTOP\n`)]);
+  const { lines } = await run([17]);
+  const p = read().issues.find((i: any) => i.number === 17);
+  assert.equal(originalRequest(p.body), ORIGINAL, p.body);
+  assert.doesNotMatch(p.body, /paraphrased by the reviser/);
+  assert.equal(origLines(lines, 17).length, 1, lines.join('\n'));
+  assert.ok(!p.labels.includes(L.hardened), 'handed back, not hardened');
 });

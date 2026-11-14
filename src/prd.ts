@@ -98,3 +98,81 @@ export function singleChildBody(prdBody: string, prd: number): string {
 export function singleChildLine(prd: number, child: number, reason: 'pool' | 'count', max: number): string {
   return `prd #${prd}: one child #${child} (${reason === 'pool' ? 'a pool of one' : `≤ ${max} acceptance criteria`}) — no decompose`;
 }
+
+// The PRD's `## Original request` (PRD #475): the user's own words as a block quote, the first section after the title.
+const ORIGINAL_HEADING = /^##[ \t]+Original request[ \t]*\r?$/im;
+const NEXT_HEADING = /^##[ \t]/m;
+
+/** Where the first `## Original request` section of `body` starts and ends (the heading line up to the next line
+ *  starting with `## `, or the end of the body), or null when there is none. */
+function originalSpan(body: string): { start: number; end: number; head: number } | null {
+  const h = ORIGINAL_HEADING.exec(body ?? '');
+  if (!h) return null;
+  const head = h.index + h[0].length;
+  const next = NEXT_HEADING.exec(body.slice(head));
+  return { start: h.index, end: next ? head + next.index : body.length, head };
+}
+
+/** The first `## Original request` section of `body`, its heading included, or null when there is none. */
+export function originalRequest(body: string): string | null {
+  const s = originalSpan(body);
+  return s ? body.slice(s.start, s.end) : null;
+}
+
+/** Text compared word for word: `> ` prefixes dropped, every run of whitespace one space (CRLF and LF alike). */
+const flat = (s: string) => s.replace(/^[ \t]*(?:>[ \t]?)+/gm, '').replace(/\s+/g, ' ').trim();
+
+/** A section compared as text: LF line endings, the blank lines at its end dropped. */
+const sectionText = (s: string) => s.replace(/\r\n/g, '\n').replace(/(?:\n[ \t]*)+$/, '');
+
+/** The idea as a block quote: LF line endings, the blank lines at its start and end dropped, each line prefixed `> `. */
+export function quoteIdea(idea: string): string {
+  const lines = idea.replace(/\r\n?/g, '\n').split('\n');
+  while (lines.length && !lines[0].trim()) lines.shift();
+  while (lines.length && !lines.at(-1)!.trim()) lines.pop();
+  return lines.map((l) => `> ${l}`).join('\n');
+}
+
+/** `section` (heading included) put in as the first section of `body`: right before the first line that starts with
+ *  `## `, or at the end of a body that has none. */
+function insertFirst(body: string, section: string): string {
+  const eol = body.includes('\r\n') ? '\r\n' : '\n';
+  const next = NEXT_HEADING.exec(body);
+  const text = section.replace(/\s+$/, '');
+  if (next) return `${body.slice(0, next.index)}${text}${eol}${eol}${body.slice(next.index)}`;
+  return body.trim() ? `${body.replace(/\s+$/, '')}${eol}${eol}${text}${eol}` : `${text}${eol}`;
+}
+
+/** The grill session's PRD with the idea kept in its `## Original request` section (PRD #475). An empty idea (or only
+ *  whitespace) changes nothing; a section that already holds the idea (`> ` prefixes and whitespace aside) changes
+ *  nothing; a section without it gets the idea at its top, above the session's lines; no section gets one, first. */
+export function withIdea(body: string, idea: string): string {
+  if (!idea?.trim()) return body;
+  const eol = body.includes('\r\n') ? '\r\n' : '\n';
+  const quote = quoteIdea(idea).replace(/\n/g, eol);
+  const s = originalSpan(body);
+  if (!s) return insertFirst(body, `## Original request${eol}${eol}${quote}${eol}`);
+  if (flat(body.slice(s.head, s.end)).includes(flat(idea))) return body;
+  const rest = body.slice(s.head, s.end).replace(/^\s+/, '');
+  return `${body.slice(0, s.head)}${eol}${eol}${quote}${eol}${rest ? `${eol}${rest}` : eol}${body.slice(s.end)}`;
+}
+
+/** The PRD body after a revise session with the `## Original request` section as it was before the session
+ *  (PRD #475): a changed section replaced where it stands, a removed one put back first, one the reviser added to
+ *  a PRD that had none removed (every one). `line` is the run.log line, null when the body is left as it is. */
+export function keepOriginal(before: string, after: string): { body: string; line: string | null } {
+  const was = originalRequest(before);
+  const now = originalSpan(after);
+  if (was === null && !now) return { body: after, line: null };
+  if (was !== null && now && sectionText(was) === sectionText(after.slice(now.start, now.end))) return { body: after, line: null };
+  if (was !== null && now) {
+    const keep = sectionText(was) + (now.end < after.length ? '\n\n' : '\n');
+    return { body: after.slice(0, now.start) + keep + after.slice(now.end),
+      line: 'the reviser changed the ## Original request section — the earlier text put back' };
+  }
+  if (was !== null) return { body: insertFirst(after, was),
+    line: 'the reviser removed the ## Original request section — the earlier text put back as the first section' };
+  let body = after;
+  for (let s = originalSpan(body); s; s = originalSpan(body)) body = body.slice(0, s.start) + body.slice(s.end);
+  return { body, line: 'the reviser added a ## Original request section the PRD did not have — removed' };
+}

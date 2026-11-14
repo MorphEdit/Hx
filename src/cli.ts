@@ -20,7 +20,7 @@ import { workersLine } from './load.ts';
 import { outsideTestEnv, testConcurrencyError } from './concurrency.ts';
 import { reuseTestedTreesError, testedTreesEnv } from './tested.ts';
 import { DEFAULT_PORT, serveDashboard, serveFleetDashboard } from './dashboard.ts';
-import { countCriteria, fileBug, filePrd } from './prd.ts';
+import { countCriteria, fileBug, filePrd, withIdea } from './prd.ts';
 import { DIRECT_MAX_CRITERIA } from './tiers.ts';
 import { agentFor } from './agents/index.ts';
 import { ideaFrom, sessionPaths, sessionPrompt } from './grill.ts';
@@ -538,8 +538,14 @@ async function interview(args: string[], iv: Interview): Promise<{ code: number;
       env: { ...process.env, ...trustedEnv(trusted), ...outsideTestEnv(c), ...testedTreesEnv(p.stateDir, c) } });
     child.on('error', reject).on('exit', () => resolve());
   });
-  const text = existsSync(paths.out) ? readFileSync(paths.out, 'utf8') : '';
+  let text = existsSync(paths.out) ? readFileSync(paths.out, 'utf8') : '';
   if (!text.trim()) { console.log(`no ${iv.noun} written — nothing filed`); return { code: 1, filed: false }; }
+  // a PRD keeps the user's idea word for word in its ## Original request (PRD #475): in the file, so the text shown,
+  // the file and the filed body are the same, and a PRD declined now and filed later with hx prd keeps it too
+  if (iv.role === 'grill') {
+    const kept = withIdea(text, idea);
+    if (kept !== text) { writeFileSync(paths.out, kept); text = kept; }
+  }
   console.log(`
 ${text.trimEnd()}
 `);
