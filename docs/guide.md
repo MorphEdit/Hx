@@ -747,6 +747,25 @@ PRD #20 [prd] ──gauntlet──▶ [prd-hardened] ──decompose──▶ ch
   new requirement, so a hand-written PRD can take the one-child path too. The last round checks too: its
   reviser runs before `prd-hardened`. The round's run.log FAIL line shows the engine finding, its
   `<!-- hx-gauntlet -->` comment all the findings. With `gauntlet: false` there is no check.
+- The original request: a PRD from `hx grill` starts with an `## Original request` section, right after the
+  title, holding the user's own words as a block quote (every line starts with `> `): the idea given to
+  `hx grill`, then any interview answer that changed or added scope, word for word, in the order given.
+  Every role that reads a PRD (critic, decompose, impl, audit, review) treats it as the last word: the original
+  request outranks the rest of the PRD, which outranks an issue, and inside the section a later line outranks
+  an earlier one. Where they conflict, the session follows the original request and says so. Two engine checks
+  keep it there:
+  - **hx grill**: when the session has ended, hx compares the idea with the section (`> ` prefixes and
+    whitespace aside). No section: hx adds one, first, holding the idea; a section without the idea: hx puts
+    the idea at its top, above the session's lines; a section that holds it: left as written. This happens
+    before the PRD is shown, and hx writes the result back to `.hx/prds/…-grill.md`, so a PRD you decline
+    keeps the idea and `hx prd <that file>` files it. An empty idea (you said it in the session) adds nothing.
+    `hx prd <file>`, `hx issue` and `hx bug` file their text as written.
+  - **After every revise session** (completed, not completed or stopped), hx compares the body's section with
+    the one from before the session: a changed section is put back where it stands, a removed one as the
+    first section, and one the reviser added to a PRD that had none is removed. Each of these edits the PRD
+    once and writes one line to `run.log`; an untouched section changes nothing.
+
+  A PRD without the section runs as it always did.
 - A small PRD gets one child and no decompose session: see [One child for a small PRD](#one-child-for-a-small-prd).
 - A PRD's own `## Blocked by` sequences PRDs: nothing of PRD #21 runs until #20 is closed.
   PRDs without blockers run in parallel.

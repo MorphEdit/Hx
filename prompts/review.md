@@ -19,6 +19,9 @@ Every implementation issue of this PRD is closed:
 4. Check every requirement and acceptance criterion of the PRD against the code and the tests.
    A gap is something the PRD asks for that is missing, broken, or untested. Style preferences
    and nice-to-haves are not gaps.
+   The PRD's `## Original request` section, when it has one, is the user's own words: it outranks the rest of
+   the PRD, which outranks the issue, and inside the section a later line outranks an earlier one. Where they
+   conflict, follow the original request and say so. A merged result that misses the original request is a gap.
 5. For each gap, file ONE issue (body via `--body-file`):
      gh issue create -R {{REPO}} --label {{LABEL_READY}} --title "<what is missing>" --body-file <file>
    describing the gap and its acceptance criteria. Every body MUST end with exactly:

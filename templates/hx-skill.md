@@ -72,12 +72,18 @@ material is open; do not ask about details an implementer can decide.
 Write the PRD to a markdown file (for example `.hx/prds/<short-name>.md`) in this shape:
 
     # <title>
+    ## Original request
     ## Goals
     ## Non-goals
     ## Behaviour
     ## Acceptance criteria
     ## Edge cases
     ## Notes for implementers
+
+`## Original request` is the user's own words, word for word, as a block quote (every line starts with
+`> `): first what they asked you to build, then each answer of theirs that changed or added scope, quoted as
+they wrote it, in the order they gave them. No paraphrase and no summary. A later line outranks an earlier one.
+The workers treat it as the last word: it outranks the rest of the PRD.
 
 Sizing: keep one issue to about 30–45 min of work for one session; split anything bigger. Write the
 PRD so the decomposer can cut it into issues of that size.

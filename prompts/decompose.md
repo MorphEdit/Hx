@@ -13,6 +13,9 @@ Issues that already belong to this PRD (do NOT file duplicates of these):
 {{EXISTING}}
 
 1. Read the PRD: `node "{{ISSUE_SCRIPT}}" --repo {{REPO}} --issue {{PRD}}`.
+   The PRD's `## Original request` section, when it has one, is the user's own words: it outranks the rest of
+   the PRD, which outranks the issue, and inside the section a later line outranks an earlier one. Where they
+   conflict, follow the original request and say so: cut the issues from the PRD and check each against the original request.
 2. Read enough of the codebase to plan against what exists.
 3. Slice the PRD into small, independently shippable issues: each about one PR, each with concrete
    acceptance criteria an implementer can test. Prefer vertical slices over layers. Few, well-scoped

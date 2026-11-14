@@ -13,6 +13,9 @@ Run every command in the foreground and wait for it. Never start a command in th
 3. Find what would make two competent implementers build different things, or what cannot be tested:
    an ambiguity, a contradiction, a missing acceptance criterion, a conflict with the existing code,
    a missing error or edge case. A PRD with no `## Acceptance criteria` section, or one with no items, is a finding.
+   The PRD's `## Original request` section, when it has one, is the user's own words: it outranks the rest of
+   the PRD, which outranks the issue, and inside the section a later line outranks an earlier one. Where they
+   conflict, follow the original request and say so. A PRD statement that contradicts the original request is a finding.
 
 Style, wording and nice-to-haves are NOT findings. FAIL only if there is at least one real finding.
 

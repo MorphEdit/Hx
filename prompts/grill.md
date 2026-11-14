@@ -39,12 +39,16 @@ The idea:
      (`singleChildMaxCriteria`, `workers`, `autoWorkers` in `.hx/config.json`) and do not change them.
 6. Write the PRD to `{{OUTPUT}}` in this shape:
      # <title>
+     ## Original request
      ## Goals
      ## Non-goals
      ## Behaviour
      ## Acceptance criteria
      ## Edge cases
      ## Notes for implementers
+   `## Original request` is the user's own words, word for word, as a block quote (every line starts with
+   `> `): first the idea above, then each answer of the user's that changed or added scope, quoted as they
+   wrote it, in the order they gave them. No paraphrase and no summary. A later line outranks an earlier one.
 7. Show the user the finished PRD, then tell them to exit the session (`/exit`) so hx can file it.
 
 Rules: never create issues, comment on GitHub, commit or push, and never edit any file other than

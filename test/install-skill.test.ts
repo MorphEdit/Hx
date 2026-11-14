@@ -155,3 +155,9 @@ test('hx help lists install-skill', () => {
   const r = spawnSync(process.execPath, [HX, 'help'], { encoding: 'utf8' });
   assert.match(r.stdout, /^ {2}install-skill /m);
 });
+
+test('installSkill writes the PRD shape with ## Original request first and its word-for-word rule (PRD #475)', () => {
+  const out = readFileSync(installSkill(mkdtempSync(path.join(os.tmpdir(), 'hx-isk-'))), 'utf8');
+  assert.match(out, /# <title>\r?\n\s*## Original request\r?\n\s*## Goals/);
+  assert.match(out.replace(/\s+/g, ' '), /`## Original request` is the user's own words, word for word, as a block quote/);
+});
