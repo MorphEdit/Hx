@@ -7,12 +7,14 @@
 //
 // HX_TRUSTED: comma-separated logins, matched case-insensitively. Missing or empty → exit 2: there is
 // no fallback that shows everything.
+// The text: formatIssue in src/issuetext.ts, shared with src/ so the two cannot drift.
 // Exit codes: 0 printed · 2 bad arguments or no HX_TRUSTED · 1 gh failed (its error on stderr)
 //
 // A gh call that hits a GitHub rate limit is waited out and retried (scripts/ghwait.mjs): one stderr line per wait,
 // at most HX_GH_WAIT_MAX_SECONDS (default 90) of waiting per run. Past that cap it prints `rate limited until HH:MM`
 // and fails as it would without the wait (exit 1).
 import { ghCaller } from './ghwait.mjs';
+import { formatIssue } from '../src/issuetext.ts';
 
 const args = process.argv.slice(2);
 const opt = (n) => { const i = args.indexOf(`--${n}`); return i < 0 ? undefined : args[i + 1]; };
@@ -36,18 +38,4 @@ if (r.error || r.status !== 0) {
 let data;
 try { data = JSON.parse(r.stdout); } catch { console.error('issue: gh printed no JSON'); process.exit(1); }
 
-const login = (a) => (typeof a?.login === 'string' ? a.login : '');
-const isTrusted = (c) => login(c.author) !== '' && trusted.has(login(c.author).toLowerCase());
-const comments = data.comments ?? [];
-const shown = comments.filter(isTrusted);
-const hidden = comments.length - shown.length;
-
-const out = [
-  `#${data.number} ${data.title ?? ''}`,
-  `author: ${login(data.author) || '(unknown)'} · state: ${data.state ?? ''} · labels: ${(data.labels ?? []).map((l) => l.name).join(', ') || '(none)'}`,
-  '',
-  data.body ?? '',
-];
-for (const c of shown) out.push('', `--- comment by ${login(c.author)} on ${c.createdAt ?? ''}`, '', c.body ?? '');
-if (hidden > 0) out.push('', `(${hidden} ${hidden === 1 ? 'comment' : 'comments'} from untrusted accounts hidden)`);
-process.stdout.write(out.join('\n') + '\n');
+process.stdout.write(formatIssue(data, trusted) + '\n');
