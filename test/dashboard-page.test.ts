@@ -185,6 +185,27 @@ test('Now: a runner that died without a record shows its pid and when it was las
   const now = text(p.ids.get('now-body')!);
   assert.match(now, /not running/);
   assert.ok(now.includes(`died without a record pid 9452, last seen ${new Date('2026-11-11T14:17:29.000Z').toLocaleString()}`), now);
+  assert.doesNotMatch(now, /uptime|workers/, 'a dead runner has no running block');
+});
+
+test('Now: a stopped runner with no dead-runner record shows "not running" and no running block (#472)', E2E, async () => {
+  const d = await serveDashboard(project as any, { port: 0 });
+  servers.push(d);
+  const state = JSON.parse((await get(d.port, '/api/state')).body);
+  const board = JSON.parse((await get(d.port, '/api/board')).body);
+  // a clean stop, no run lock, or a dead runner that did record its exit: deadRunner is null (or absent, an older server)
+  for (const dead of [null, undefined]) {
+    const p = page({ ...state, runner: { running: false }, deadRunner: dead }, board);
+    await p.flush();
+    const now = text(p.ids.get('now-body')!);
+    assert.ok(now.startsWith('not running no hx run is activegate '), now);
+    assert.doesNotMatch(now, /died without a record|uptime|workers|pid|undefined/, now);
+  }
+  const up = page({ ...state, runner: { running: true, pid: 4242, startedAt: new Date().toISOString(), uptimeMs: 1000, workers: 3 }, deadRunner: null }, board);
+  await up.flush();
+  const run = text(up.ids.get('now-body')!);
+  assert.match(run, /^running\s*pid 4242\s*uptime .*workers 3/, run);
+  assert.doesNotMatch(run, /not running|died without a record/, run);
 });
 
 test('the page script renders hostile strings as text, links issues by integer, and degrades on board errors', E2E, async () => {
