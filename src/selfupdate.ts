@@ -6,7 +6,7 @@
 //     watch window, the last rollback and the last good version
 //   .hx/selfupdate-ready — written by the new runner when its first poll begins (HX_SELFUPDATE_READY names it)
 import { spawn } from 'node:child_process';
-import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { hideWindow, killTree, run } from './exec.ts';
@@ -248,9 +248,27 @@ export function watchGood(stateDir: string, log: (line: string) => void): void {
   log(line);
 }
 
+/** Where a runner restart() started writes its stdout and stderr (Node's warnings, a crash's trace): `<stateDir>/runner.out`. */
+export const runnerOutFile = (stateDir: string) => path.join(stateDir, 'runner.out');
+const RUNNER_OUT_MAX = 1024 * 1024; // above this the file becomes runner.out.1 at the next restart
+
+/** runner.out opened for appending, or null when it cannot be (the runner then has no output). */
+function openRunnerOut(stateDir: string): number | null {
+  const file = runnerOutFile(stateDir);
+  try {
+    mkdirSync(stateDir, { recursive: true });
+    let size = 0;
+    try { size = statSync(file).size; } catch {}
+    if (size > RUNNER_OUT_MAX) renameSync(file, `${file}.1`);
+    return openSync(file, 'a');
+  } catch { return null; }
+}
+
 /**
  * Start the new runner (`node <hx>/bin/hx.mjs <args>`, detached so it outlives this process) and wait for its ready
  * marker. ok: it is ready and runs on; else the reason, and the child (if still alive) has been killed.
+ * Its stdout and stderr are runner.out, never this process's: a detached process holds only copies of this console's
+ * handles, they die with this process, and the new runner's next console write would kill it (EBADF on Windows, #472).
  */
 export async function restart(o: { root: string; args: string[]; cwd: string; stateDir: string; timeoutMs?: number }):
   Promise<{ ok: true; pid: number } | { ok: false; reason: string }> {
@@ -260,9 +278,11 @@ export async function restart(o: { root: string; args: string[]; cwd: string; st
   // detached: it has no console of its own to share, so its children hide theirs (HX_SHARE_CONSOLE is not passed on)
   const env: NodeJS.ProcessEnv = { ...process.env, HX_SELFUPDATE_READY: marker, HX_SELFUPDATE_FROM: String(process.pid) };
   delete env.HX_SHARE_CONSOLE;
+  const out = openRunnerOut(o.stateDir);
   const child = spawn(process.execPath, [path.join(o.root, 'bin', 'hx.mjs'), ...o.args], {
-    cwd: o.cwd, detached: true, stdio: ['ignore', 'inherit', 'inherit'], windowsHide: hideWindow(), env,
+    cwd: o.cwd, detached: true, stdio: ['ignore', out ?? 'ignore', out ?? 'ignore'], windowsHide: hideWindow(), env,
   });
+  if (out !== null) try { closeSync(out); } catch {}
   let exited: string | null = null;
   child.on('exit', (code, sig) => { exited = `exited with code ${code ?? sig} before it was ready`; });
   child.on('error', (e) => { exited = `could not start: ${e.message}`; });

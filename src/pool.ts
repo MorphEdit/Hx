@@ -96,9 +96,20 @@ export function setRunLog(file: string | null, maxBytes = 2 * 1024 * 1024): void
   runLog = file ? { file, maxBytes } : null;
 }
 
+let consoleLog = true;
+
+/** false: log() lines go to the run log only (a runner a self-update started has no console: #472). */
+export function setConsoleLog(on: boolean): void {
+  consoleLog = on;
+}
+
 export function log(msg: string, issue?: number): void {
   const now = new Date();
-  console.log(`${now.toTimeString().slice(0, 8)} ${issue ? `[#${issue}] ` : ''}${msg}`);
+  appendRunLog(now, msg, issue); // first: a console write that fails must not cost the line (#472)
+  if (consoleLog) console.log(`${now.toTimeString().slice(0, 8)} ${issue ? `[#${issue}] ` : ''}${msg}`);
+}
+
+function appendRunLog(now: Date, msg: string, issue?: number): void {
   if (!runLog) return;
   // `<ISO> [#<n>] <msg>` or `<ISO> <msg>` (the console line with an ISO time), one line per call; a write failure drops the line
   try {
@@ -362,6 +373,7 @@ async function pool(p: Project, o: PoolOptions): Promise<number> {
   gh.setGhWaitSignal(o.signal);
   // started by a self-update (#253): the old runner (idle, claiming nothing) hands its run lock over and exits once ready
   let ho = handover();
+  if (ho) setConsoleLog(false); // its stdout is .hx/runner.out, not a console: run.log has every line (#472)
   const other = otherRunner(p.stateDir);
   if (other && other.pid !== ho?.from) { log(`hx is already running for this repo (pid ${other.pid}, since ${other.startedAt}). Use hx status / hx pause.`); return 3; }
   const pausedMode = readPause(p.stateDir);

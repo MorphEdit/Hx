@@ -165,6 +165,28 @@ test('a live.json with a dead pid reads as not running, with no sessions', E2E, 
   assert.deepEqual(s.sessions, []);
 });
 
+test('a dead pid in live.json with no exit record of its own: deadRunner names it and when it was last seen (#472)', E2E, async () => {
+  live(deadPid());
+  const exit = path.join(stateDir, 'exit.json');
+  writeFileSync(exit, JSON.stringify({ pid: 38488, code: 0, at: '2026-10-01T12:00:00.000Z' })); // the old runner's record
+  try {
+    const d = await start();
+    const state = async () => JSON.parse((await get(d.port, '/api/state')).body);
+    let s = await state();
+    assert.deepEqual(s.runner, { running: false });
+    assert.equal(s.deadRunner.pid, deadPid());
+    assert.equal(s.deadRunner.sessions, 1);
+    assert.ok(Date.now() - Date.parse(s.deadRunner.lastSeen) < 10 * 60_000, 'live.json was just written: newer than the run log');
+    writeFileSync(exit, JSON.stringify({ pid: deadPid(), code: 129, at: '2026-10-01T12:00:00.000Z', reason: 'SIGHUP' }));
+    assert.equal((await state()).deadRunner, null, 'it recorded its exit');
+    rmSync(exit);
+    live(process.pid);
+    assert.equal((await state()).deadRunner, null, 'a live runner');
+    noLive();
+    assert.equal((await state()).deadRunner, null, 'no run lock');
+  } finally { rmSync(exit, { force: true }); }
+});
+
 test('no live.json: / serves the page with its CSP and /api/state says not running', E2E, async () => {
   noLive();
   const d = await start();

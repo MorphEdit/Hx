@@ -471,6 +471,23 @@ test('self-update watch window: a paragraph in Stopping and resuming, its two co
   assert.ok(hasRow(r, 'selfUpdateFailLimit', String(DEFAULTS.selfUpdateFailLimit)), 'selfUpdateFailLimit row');
 });
 
+test('how a runner ended (#472): the exit record, the died-without-a-record line, hx supervise for unattended runs, runner.out', () => {
+  const g = read('docs/guide.md');
+  const stop = g.slice(g.indexOf('## Stopping and resuming'), g.indexOf('\n## ', g.indexOf('## Stopping and resuming') + 1));
+  for (const w of ['**How a runner ended:**', '{ pid, code, at, reason }', 'runner pid 4242 stopped (exit 0)', 'SIGINT', 'SIGTERM', 'SIGHUP', 'SIGBREAK',
+    'crashed: uncaught exception: <message> — runner pid 4242 exits 1', 'unhandled rejection', 'runner   died without a record — pid 4242, last seen',
+    'runner   last exit 1 — pid 4242', '**A self-updated runner that dies:**', 'supervise: runner pid 4242 stopped without clearing its run lock',
+    'rolls the install back when the watch window is open', 'usual backoff', '**For an unattended run, use `hx supervise`**', '.hx/runner.out'])
+    assert.ok(stop.includes(w), `Stopping and resuming: ${w}`);
+  const logon = stop.slice(stop.indexOf('### Starting at logon'));
+  assert.ok(logon.includes('For an unattended run use\n`hx supervise`'), 'Starting at logon recommends hx supervise');
+  const files = g.slice(g.indexOf('## Files'), g.indexOf('\n## ', g.indexOf('## Files') + 1));
+  for (const w of ['`.hx/exit.json`', '{ pid, code, at, reason }', '`.hx/runner.out`', 'died without a record']) assert.ok(files.includes(w), `Files: ${w}`);
+  assert.ok(g.slice(g.indexOf('## Dashboard')).includes('`died without a record` with its pid and last-seen time'), 'Dashboard: Now');
+  assert.ok(read('docs/design.md').includes('**No runner dies without a trace (#472).**'), 'design');
+  assert.ok(read('CLAUDE.md').includes('the exit recorder of `hx run --watch`'), 'CLAUDE.md: runstate.ts');
+});
+
 test('needs-human: README maxOpenQuestions row and needs-human label', () => {
   const r = docsText();
   assert.ok(hasRow(r, 'maxOpenQuestions', String(DEFAULTS.maxOpenQuestions)), 'maxOpenQuestions row');

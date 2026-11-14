@@ -3,7 +3,8 @@
 // <cwd>/handover.json (taken by the first run that finds it) makes that run hand over as a self-update does: it starts
 // a detached "new runner" with the spec, waits until it owns .hx/live.json, and exits 0. The new runner (HX_FAKE_NEW:
 // the spec) waits until .hx/supervise.json says the supervisor watches it, holds the lock for `upMs`, then hands over again (`again`: the next spec) or clears the lock, records
-// `code` in .hx/exit.json unless `record` is false, and exits with it. Each new runner appends its pid to <cwd>/new.log.
+// `code` in .hx/exit.json unless `record` is false, and exits with it; `die`: it is killed instead, its lock left behind and
+// no exit recorded (#472). Each new runner appends its pid to <cwd>/new.log.
 import { spawn } from 'node:child_process';
 import { appendFileSync, existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -30,6 +31,7 @@ if (process.env.HX_FAKE_NEW) {
   for (let i = 0; i < 200 && !watched(); i++) await sleep(100); // up to 20 s
   await sleep(spec.upMs ?? 300);
   if (spec.again) { await handOver(spec.again); process.exit(0); }
+  if (spec.die) process.kill(process.pid, 'SIGKILL');
   rmSync(live, { force: true });
   if (spec.record !== false) writeFileSync('.hx/exit.json', JSON.stringify({ pid: process.pid, code: spec.code ?? 0, at: new Date().toISOString() }));
   process.exit(spec.code ?? 0);
