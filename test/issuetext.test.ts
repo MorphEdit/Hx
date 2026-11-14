@@ -111,11 +111,20 @@ const V = { script: 'C:/hx/scripts/issue.mjs', repo: 'me/app', issue: 5 };
 const RANK = /Original request[\s\S]*outranks[\s\S]*## Decisions made for you/;
 const KEEP = /note every acceptance criterion, rule and example[\s\S]*`docs\/design\.md` and `CLAUDE\.md` that the issue touches/;
 
+// impl.md's step 1 before it became {{ISSUE_STEP}} (#479), rendered with V
+const TODAY = `1. \`node "C:/hx/scripts/issue.mjs" --repo me/app --issue 5\` — note every acceptance criterion, rule and example.
+   Before coding, read the parent PRD named on its first line ("Part of PRD #N": the same script with \`--issue N\`)
+   and the parts of \`docs/design.md\` and \`CLAUDE.md\` that the issue touches.
+   The PRD's \`## Original request\` section, when it has one, is the user's own words: it outranks the rest of
+   the PRD, which outranks the issue, and inside the section a later line outranks an earlier one. Where they
+   conflict, follow the original request and say so: name the conflict and what you followed in the PR body under \`## Decisions made for you\`.`;
+
 test('issueStep: nothing inlined equals today\'s step 1 of impl.md', () => {
   const step = issueStep(V, { issue: false, prd: false });
-  const prompt = render(readFileSync(path.join(here, '..', 'prompts', 'impl.md'), 'utf8'), { ISSUE_SCRIPT: V.script, REPO: V.repo, ISSUE: V.issue });
-  const today = prompt.slice(prompt.indexOf('\n1. ') + 1, prompt.indexOf('\n2. '));
-  assert.equal(step, today);
+  assert.equal(step, TODAY);
+  const prompt = render(readFileSync(path.join(here, '..', 'prompts', 'impl.md'), 'utf8'),
+    { ISSUE_SCRIPT: V.script, REPO: V.repo, ISSUE: V.issue, ISSUE_BLOCK: '', ISSUE_STEP: step });
+  assert.equal(prompt.slice(prompt.indexOf('\n1. ') + 1, prompt.indexOf('\n2. ')), TODAY);
 });
 
 test('issueStep: inlined, the first step is not running the script for the inlined item; the rest of step 1 stays', () => {

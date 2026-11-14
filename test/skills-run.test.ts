@@ -69,7 +69,9 @@ async function run(only: number[], extra = {}) {
     const fresh = readdirSync(fakeDir).filter((f) => !before.has(f));
     const prompts: Record<string, string[]> = {};
     for (const f of fresh.filter((f) => f.endsWith('.prompt-1.txt'))) {
-      const p = readFileSync(path.join(fakeDir, f), 'utf8');
+      // the issue hx inlines (#479) differs run to run (its token, the comments since): compared as one fixed line
+      const p = readFileSync(path.join(fakeDir, f), 'utf8')
+        .replace(/^Everything between the marker lines .*\n<<<GITHUB TEXT (\w+)>>>\n[\s\S]*?\n<<<END GITHUB TEXT \1>>>\n/m, '<inlined issue>\n');
       (prompts[/^Role: (\w+)/m.exec(p)![1]] ??= []).push(p);
     }
     const freshEnvs = fresh.filter((f) => /\.env-\d+\.json$/.test(f)).map((f) => JSON.parse(readFileSync(path.join(fakeDir, f), 'utf8')));

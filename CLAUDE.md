@@ -56,7 +56,8 @@ roadmap and the agreed order of the next features) before changing anything.
 - Role prompts (all but `grill` and `issue`) tell workers to run every command in the foreground and wait for it: never start a command
   in the background, never poll for its output in a loop. A turn with no stdout for `stallMinutes` is killed.
 - Workers run with bypassPermissions. Anything that lets text from GitHub reach a prompt is a security
-  question first. Agents read issues only through `scripts/issue.mjs` (never `gh issue view --comments`);
+  question first. Agents read issues only through `scripts/issue.mjs` (never `gh issue view --comments`); the issue and
+  parent PRD hx inlines in an impl session's first prompt pass the same trusted-author filter (`src/issuetext.ts`);
   only issues opened by trusted accounts (the `gh` login + `trustedAuthors`) are claimed.
 
 ## Testing

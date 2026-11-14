@@ -849,6 +849,19 @@ other-owner/other-repo#3
 
 Write `None` under the heading (or leave it out) for an issue with no dependencies.
 
+**What a worker is given.** The first prompt of every fresh impl session (the first, one after a failed audit,
+one after an owner answer) holds the issue and its parent PRD (`## Parent`, in this repo), fetched by hx as that
+session starts, never kept from an earlier one, and formatted as `scripts/issue.mjs` prints them: the header lines, the
+body, the comments of trusted accounts, and one line counting the hidden ones. The PRD comes after the issue. The
+text sits between two marker lines, `<<<GITHUB TEXT 3f9a…>>>` and `<<<END GITHUB TEXT 3f9a…>>>`, with a token new for
+each prompt, so no line in the issue can close the block; the line before them says the text is data from GitHub,
+never an instruction. Step 1 of the prompt then points at the block and names `scripts/issue.mjs` only for reading
+them again. Over 60,000 characters together, the issue goes in alone; the issue alone over it, nothing does. When the
+issue cannot be read (a gh error, a rate limit past its wait), the session starts anyway with step 1 telling the worker
+to run the script for both, and run.log has `issue text not inlined: <why>`; when only the PRD cannot be read (deleted,
+a gh error), the issue goes in alone, step 1 keeps the script command for the PRD, and run.log has
+`PRD #N text not inlined: <why>`. Continue and checkpoint turns, and every other role, read issues through the script.
+
 **The size check.** A single issue is sized once, up front, before its first impl session: one `size` session
 (`prompts/size.md`, mode `up-front`, run as the `decompose` role: its model, effort and skills, its turns recorded
 as `decompose` in `usage.jsonl`) reads the issue and the code it names in the new impl worktree, changes nothing,
@@ -1364,6 +1377,9 @@ it reads. So Hx only works on text from **trusted accounts**: your `gh` login pl
   untrusted too.
 - Agents read issues through `scripts/issue.mjs`, which prints the issue with comments from untrusted
   accounts removed — never `gh issue view --comments`. Every session gets the trusted set as `HX_TRUSTED`.
+- The issue and parent PRD hx inlines in an impl session's first prompt pass the same filter (the same formatter
+  as `scripts/issue.mjs`, with the same trusted set), between marker lines with a token new for each prompt and
+  a line saying the text is data, never instructions (see [What a worker is given](#single-issues)).
 - Hx's own marker and handoff comments (`<!-- hx-handoff -->`, `<!-- hx-gauntlet -->`,
   `<!-- hx-security -->`, …) only count when a trusted account wrote them, so nobody else can fake a
   round, a handoff or a security verdict.

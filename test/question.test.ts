@@ -187,7 +187,10 @@ test('a plain ready issue with a trusted comment (the hx stop note) gets no owne
   assert.equal(rc, 0, lines.join('\n'));
   const prompts = newPrompts(before);
   assert.equal(prompts.length, 1, lines.join('\n'));
-  assert.doesNotMatch(prompts[0], /The owner answered|impl stopped|Add a dark mode toggle/);
+  // the issue and its comments are inlined between the marker lines (#479); outside them, no owner note
+  const outside = prompts[0].replace(/^<<<GITHUB TEXT (\w+)>>>$[\s\S]*?^<<<END GITHUB TEXT \1>>>$/m, '');
+  assert.notEqual(outside, prompts[0], 'the issue is inlined');
+  assert.doesNotMatch(outside, /The owner answered|impl stopped|Add a dark mode toggle/);
 });
 
 test('audited: an implementer that closes its issue and prints its promise with no PR is done, not failed', E2E, async () => {

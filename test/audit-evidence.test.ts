@@ -5,9 +5,13 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { issueStep } from '../src/issuetext.ts';
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
-const prompt = (name: string) => readFileSync(path.join(root, 'prompts', `${name}.md`), 'utf8').replace(/\r\n/g, '\n').replace(/\s+/g, ' ');
+// impl.md's step 1 is {{ISSUE_STEP}} (#479): here the step 1 for nothing inlined
+const STEP = issueStep({ script: '{{ISSUE_SCRIPT}}', repo: '{{REPO}}', issue: '{{ISSUE}}' }, { issue: false, prd: false });
+const prompt = (name: string) => readFileSync(path.join(root, 'prompts', `${name}.md`), 'utf8').replace('{{ISSUE_STEP}}', () => STEP)
+  .replace(/\r\n/g, '\n').replace(/\s+/g, ' ');
 
 test('audit prompt: reads the parent PRD, the full changed files, the callers and the design / README', () => {
   const p = prompt('audit');
@@ -45,4 +49,8 @@ test('impl prompt: reads the parent PRD and docs/design.md / CLAUDE.md before co
   const p = prompt('impl');
   assert.match(p, /Before coding, read the parent PRD named on its first line \("Part of PRD #N": the same script with `--issue N`\)/);
   assert.match(p, /the parts of `docs\/design\.md` and `CLAUDE\.md` that the issue touches/);
+  // the issue (and its PRD) inlined: the PRD is read through the script unless it is inlined too; the docs always
+  const inlined = (prd: boolean) => issueStep({ script: 's', repo: 'r', issue: 1 }, { issue: true, prd }).replace(/\s+/g, ' ');
+  assert.match(inlined(false), /Before coding, read the parent PRD named on its first line \("Part of PRD #N"\)/);
+  for (const prd of [false, true]) assert.match(inlined(prd), /the parts of `docs\/design\.md` and `CLAUDE\.md` that the issue touches/);
 });

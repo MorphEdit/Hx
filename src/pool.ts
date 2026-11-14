@@ -33,6 +33,7 @@ import { appendLoadLine, loadLineOf, pruneLoadLines } from './loadlog.ts';
 import { concurrencyEnv, outsideTestEnv, testConcurrencyError, testConcurrencyValue } from './concurrency.ts';
 import { appendTestedTree, readTestedTrees, reusableTree, reuseTestedTreesError, TESTED_TREES_FILE, testedTreesEnv } from './tested.ts';
 import { addBlockers, narrowedBody, narrowedComment, parseSizeReply, SIZE_FITS, SIZE_NARROWED, SIZE_SPLIT, withTrailers, type SizeChild } from './size.ts';
+import { formatIssue, INLINE_CAP, inlineBlock, inlineToken, issueStep, type IssueData } from './issuetext.ts';
 import { appendSkills, resolveSkills, rtddCheck, rtddEnv, SKILL_CHECKS, skillNames, skillsLogLine, type Skill } from './skills.ts';
 
 const PROMPTS = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'prompts');
@@ -1178,6 +1179,33 @@ async function fileOneChild(p: Project, a: Extract<Action, { kind: 'decompose' }
 const childList = (kids: Issue[]) =>
   kids.length ? kids.map((k) => `- #${k.number} [${k.state.toLowerCase()}] ${k.title}`).join('\n') : '(none)';
 
+/**
+ * The issue and its parent PRD (`## Parent`, this repo) for an impl session's first prompt (#474): the block between
+ * token marker lines (ISSUE_BLOCK) and step 1 for what it holds (ISSUE_STEP). Fetched for each fresh session, never
+ * kept from an earlier one. The issue not read: nothing inlined, today's step 1; the PRD not read: the issue alone.
+ * Each is logged with why.
+ */
+async function inlineIssue(repo: string, n: number, trusted: Set<string>): Promise<{ ISSUE_BLOCK: string; ISSUE_STEP: string }> {
+  const step = (inlined: { issue: boolean; prd: boolean }) => issueStep({ script: ISSUE_SCRIPT, repo, issue: n }, inlined);
+  const err = (e: unknown) => String((e as Error)?.message ?? e).slice(0, 300);
+  let issue: IssueData;
+  try { issue = await gh.issueView(repo, n); } catch (e) {
+    log(`issue text not inlined: reading #${n} failed: ${err(e)}`, n);
+    return { ISSUE_BLOCK: '', ISSUE_STEP: step({ issue: false, prd: false }) };
+  }
+  const par = parseParent(issue.body ?? '', repo);
+  const prdNum = par && par.repo.toLowerCase() === repo.toLowerCase() ? par.number : null;
+  let prd: string | null = null;
+  if (prdNum !== null) {
+    try { prd = formatIssue(await gh.issueView(repo, prdNum), trusted); } catch (e) { log(`PRD #${prdNum} text not inlined: reading it failed: ${err(e)}`, n); }
+  }
+  const b = inlineBlock(formatIssue(issue, trusted), prd, inlineToken());
+  if (!b.issue) log(`issue text not inlined: over the ${INLINE_CAP}-character cap`, n);
+  else if (prd && !b.prd) log(`PRD #${prdNum} text not inlined: the issue and the PRD are over the ${INLINE_CAP}-character cap`, n);
+  return { ISSUE_BLOCK: b.text && `${b.text}
+`, ISSUE_STEP: step(b) };
+}
+
 async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<GoalResult | undefined> {
   const c = p.config;
   const n = target(a);
@@ -1266,6 +1294,8 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
     ISSUE: n, PRD: n, BRANCH: `issue/${n}`,
     EXISTING: a.kind === 'decompose' ? childList(a.children) : '', CHILDREN: a.kind === 'review' || a.kind === 'security' ? childList(a.children) : '',
     RESUMED: resumeNote,
+    // set again for each impl session (inlineIssue); these are what a prompt gets when nothing is inlined
+    ISSUE_BLOCK: '', ISSUE_STEP: issueStep({ script: ISSUE_SCRIPT, repo: c.repo, issue: n }, { issue: false, prd: false }),
     OWNER_ANSWER: owner ? `${owner}
 ` : '',
     SUBJECT: a.kind === 'impl' ? `issue #${n} (branch issue/${n}): look at \`git status\`, its PR (\`gh pr list -R ${c.repo} --head issue/${n}\`) and the issue`
@@ -1672,7 +1702,7 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
   }
 
   if (!audited) {
-    const r = await goal(a.kind, wt.dir, `${a.kind}.md`, promise, {}, askPromise);
+    const r = await goal(a.kind, wt.dir, `${a.kind}.md`, promise, a.kind === 'impl' ? await inlineIssue(c.repo, n, ctx.trusted) : {}, askPromise);
     const summary = `${r.iterations} turn(s), ${fmt(totalTokens(r.usage))} tokens`;
     if (r.promiseSeen === 'alt') return askOwner(r, summary);
     if (r.stopReason === 'aborted' && a.kind === 'impl' && r.iterations > 0) await checkpoint(p, agent, n, 'impl', r.sessionId, wt.dir, vars, eventLog, env, ctx.workersTarget);
@@ -1713,7 +1743,7 @@ async function work(p: Project, a: SessionAction, ctx: WorkContext): Promise<Goa
       passedSha = await headSha(wt.dir);
       log(`${c.defaultBranch} is green: merging held PR #${pr} (audit ${attempt}/${c.auditRounds} PASS kept)`, n);
     } else {
-      r = await goal('impl', wt.dir, 'impl.md', promise, extra, askPromise);
+      r = await goal('impl', wt.dir, 'impl.md', promise, { ...extra, ...(await inlineIssue(c.repo, n, ctx.trusted)) }, askPromise);
       summary = `${fmt(sessionTokens)} tokens so far`;
       if (r.promiseSeen === 'alt') return askOwner(r, summary);
       if (r.stopReason === 'aborted' && r.iterations > 0) await checkpoint(p, agent, n, 'impl', r.sessionId, wt.dir, vars, eventLog, env, ctx.workersTarget);
