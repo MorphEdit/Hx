@@ -188,13 +188,13 @@ test('impl prompt: an engine-filed single child gets its PRD inlined like any ot
   assert.ok(b.text.indexOf('#40 the PRD 40') > b.text.indexOf('#41 task 41'));
 });
 
-test('prompts/impl.md: the block before the steps, step 1 a placeholder; render leaves a {{VAR}} inside a value as written', () => {
+test('prompts/impl.md: the block before the steps, step 1 a placeholder; render leaves a {{VAR}} inside a value as written', E2E, () => {
   const impl = readFileSync(path.join(here, '..', 'prompts', 'impl.md'), 'utf8');
   assert.ok(impl.includes('\n{{ISSUE_BLOCK}}{{ISSUE_STEP}}\n2. '), 'the block, then step 1, then step 2');
   assert.equal(render('a {{X}} b {{Y}}', { X: '{{Y}} {{X}}', Y: 'y' }), 'a {{Y}} {{X}} b y');
 });
 
-test('docs: the guide (what a worker is given, Safety) and CLAUDE.md describe the inlined text and its trusted-author filter', async () => {
+test('docs: the guide (what a worker is given, Safety) and CLAUDE.md describe the inlined text and its trusted-author filter', E2E, async () => {
   const { docsText } = await import('./docs-text.ts');
   const d = docsText();
   for (const w of ['**What a worker is given.**', '`<<<GITHUB TEXT 3f9a…>>>`', '`<<<END GITHUB TEXT 3f9a…>>>`', 'Over 60,000 characters together',
