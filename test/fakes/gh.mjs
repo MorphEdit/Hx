@@ -157,6 +157,8 @@ export function gh(a, { input = () => '', cwd = process.cwd(), inProcess = false
       const i = find(s, a[2]);
       if (!i) { printErr(`GraphQL: Could not resolve to an issue or pull request with the number of ${a[2]}.`); exit(1); }
       const fields = opt('--json').split(',');
+      // state.viewFails = [n, …]: reading issue n with its title and comments (the formatter's read) fails
+      if (s.viewFails?.includes(i.number) && fields.includes('title') && fields.includes('comments')) { printErr('HTTP 502: Bad Gateway'); exit(1); }
       const out = {};
       // authors are stored as a login string, or left out (a deleted account: gh gives no login)
       const ghAuthor = (login) => (login ? { login } : null);

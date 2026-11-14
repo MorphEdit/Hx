@@ -1,5 +1,6 @@
 import { run, type ExecResult } from './exec.ts';
 import { classifyLimit, limitWaitMs, parseRateLimit, type GhBudget, type LimitKind } from './ghlimit.ts';
+import type { IssueData } from './issuetext.ts';
 
 export { limitWaitMs };
 
@@ -120,6 +121,11 @@ export async function commentBodies(repo: string, n: number, trusted: Set<string
   return (JSON.parse(out).comments ?? [])
     .filter((c: any) => typeof c.author?.login === 'string' && trusted.has(c.author.login.toLowerCase()))
     .map((c: any) => c.body ?? '');
+}
+
+/** Issue `n` as `scripts/issue.mjs` reads it, for formatIssue (issuetext.ts), which applies the trusted set. */
+export async function issueView(repo: string, n: number): Promise<IssueData> {
+  return JSON.parse(await ghOk(['issue', 'view', String(n), '-R', repo, '--json', 'number,title,author,state,labels,body,comments']));
 }
 
 /** Issue `n`'s body and creation time with every comment's author, body and creation time (unfiltered: callers apply

@@ -6,9 +6,13 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { keepOriginal, originalRequest, quoteIdea, withIdea } from '../src/prd.ts';
+import { issueStep } from '../src/issuetext.ts';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const prompt = (name: string) => readFileSync(path.join(here, '..', 'prompts', `${name}.md`), 'utf8').replace(/\s+/g, ' ');
+// impl.md's step 1 is {{ISSUE_STEP}} (#479): here the step 1 for nothing inlined (issuetext.test.ts checks the others)
+const STEP = issueStep({ script: '{{ISSUE_SCRIPT}}', repo: '{{REPO}}', issue: '{{ISSUE}}' }, { issue: false, prd: false });
+const prompt = (name: string) => readFileSync(path.join(here, '..', 'prompts', `${name}.md`), 'utf8')
+  .replace('{{ISSUE_STEP}}', () => STEP).replace(/\s+/g, ' ');
 
 test('originalRequest: the first section, heading to the next "## " line; quoted "## " lines stay inside; none → null', () => {
   assert.equal(originalRequest('## Goals\nx\n'), null);

@@ -9,11 +9,14 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { installFakeGh } from '../bench/eval-gh.mjs';
+import { issueStep } from '../src/issuetext.ts';
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const prompts = path.join(root, 'prompts');
 const READERS = ['impl.md', 'audit.md', 'critic.md', 'decompose.md', 'review.md', 'revise.md', 'security.md', 'triage.md', 'size.md'];
-const prompt = (f: string) => readFileSync(path.join(prompts, f), 'utf8');
+// impl.md's step 1 is {{ISSUE_STEP}} (#479): here what it says when hx inlines nothing, in the template's own placeholders
+const prompt = (f: string) => readFileSync(path.join(prompts, f), 'utf8')
+  .replace('{{ISSUE_STEP}}', () => issueStep({ script: '{{ISSUE_SCRIPT}}', repo: '{{REPO}}', issue: '{{ISSUE}}' }, { issue: false, prd: false }));
 
 test('no prompt runs gh issue view or --comments; gh issue edit / create / comment / close stay', () => {
   for (const f of readdirSync(prompts, { recursive: true }).map(String).filter((f) => f.endsWith('.md'))) { // skills/ notes too
